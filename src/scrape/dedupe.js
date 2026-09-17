@@ -1,0 +1,276 @@
+// SPEC §6 "Dedupe" — the same villa listed twice (two refs, two sources, two URLs).
+//
+// Same `key` is handled by upsertProperty; this module finds the harder case:
+// bedrooms equal AND area equal AND price within 5 % AND (title similarity >= 0.8
+// OR the first 60 chars of the description equal OR a shared image `src_url`).
+//
+// CLAUDE.md: never delete a listing. The newer row is marked `availability='gone'`
+// with `raw.merged_into` pointing at the survivor, and everything a person wrote on
+// it (contacts, ratings, feedback, viewings, agent info) moves to the kept row.
+
+import { nowIso } from '../db.js';
+
+const PRICE_TOLERANCE = 0.05;
+const TITLE_SIMILARITY = 0.8;
+const DESC_PREFIX = 60;
+
+/** Listing facts the survivor may inherit — only where the survivor has a hole. */
+const MERGE_FIELDS = [
+  'title', 'description', 'inclusions', 'terms', 'sub_area', 'address',
+  'lat', 'lng', 'pin_source', 'map_url', 'beach_km', 'beach_name', 'beach_source',
+  'bathrooms', 'land_m2', 'build_m2', 'price_month_idr', 'price_year_idr', 'term', 'min_months',
+  'furnished', 'furniture_quality', 'style', 'pool', 'garden', 'view', 'joglo', 'aircon',
+  'kitchen_full', 'workspace', 'living_open', 'airy', 'images', 'hero_file',
+  'availability', 'available_from',
+];
+
+/** Person-written rows that follow the villa to its surviving id. */
+const CHILD_TABLES = ['ratings', 'feedback', 'viewings', 'agent_info'];
+
+// ---------------------------------------------------------------------------
+// Similarity
+// ---------------------------------------------------------------------------
+
+function normText(s) {
+  return String(s ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function trigrams(s) {
+  if (s.length < 3) return s ? [s] : [];
+  const out = [];
+  for (let i = 0; i <= s.length - 3; i++) out.push(s.slice(i, i + 3));
+  return out;
+}
+
+/**
+ * Sørensen–Dice coefficient over character trigrams, 0..1.
+ * Multiset intersection, so a repeated trigram counts as often as both strings have it.
+ */
+export function diceTrigram(a, b) {
+  const x = normText(a);
+  const y = normText(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+
+  const ga = trigrams(x);
+  const gb = trigrams(y);
+  if (!ga.length || !gb.length) return 0;
+
+  const counts = new Map();
+  for (const g of ga) counts.set(g, (counts.get(g) || 0) + 1);
+
+  let shared = 0;
+  for (const g of gb) {
+    const n = counts.get(g);
+    if (n) {
+      shared += 1;
+      counts.set(g, n - 1);
+    }
+  }
+
+  return (2 * shared) / (ga.length + gb.length);
+}
+
+// ---------------------------------------------------------------------------
+// Candidate rules
+// ---------------------------------------------------------------------------
+
+function safeJson(v) {
+  if (v == null) return null;
+  if (typeof v !== 'string') return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
+function imageUrls(row) {
+  const list = safeJson(row.images);
+  if (!Array.isArray(list)) return [];
+  return list.map((im) => (im && typeof im === 'object' ? im.src_url : im)).filter(Boolean);
+}
+
+/** `RF9183A` → `{ stem: 'RF9183', suffix: 'A' }`; anything else → null. */
+export function refParts(ref) {
+  const m = /^([A-Za-z]*)(\d+)([A-Za-z]*)$/.exec(String(ref || '').trim());
+  if (!m) return null;
+  return { stem: `${m[1].toUpperCase()}${m[2]}`, suffix: m[3].toUpperCase() };
+}
+
+/**
+ * RF9183A / RF9183B / RF9183E are separate units in one complex (adapters/bali-home-immo.md),
+ * not duplicates: same source, same numeric stem, different letter suffix → never merge.
+ */
+export function sameComplexDifferentUnit(a, b) {
+  if (!a.source || a.source !== b.source) return false;
+  const ra = refParts(a.ref);
+  const rb = refParts(b.ref);
+  if (!ra || !rb) return false;
+  return ra.stem === rb.stem && ra.suffix !== rb.suffix;
+}
+
+function priceClose(a, b) {
+  const pa = a.price_month_idr;
+  const pb = b.price_month_idr;
+  if (pa == null || pb == null) return false;
+  const max = Math.max(Math.abs(pa), Math.abs(pb));
+  if (max === 0) return false;
+  return Math.abs(pa - pb) <= PRICE_TOLERANCE * max;
+}
+
+/**
+ * The match reason (SPEC §6 order: title, description, image) or null.
+ *
+ * Deviation from SPEC §6, measured against the 2026-09-17 sweep: Bali Home Immo writes
+ * titles from a template ("Brand New 2 Bedrooms Villa for Monthly Rental in Bali -
+ * Ungasan"), so within ONE source a Dice score over 0.8 says nothing — it matched 13
+ * pairs of demonstrably different villas, none sharing an image or a description. Two
+ * refs on the same agency site are that agency's own two records; a title alone is not
+ * evidence. Across sources the titles are written independently, so the SPEC rule stands
+ * there unchanged. Same-source pairs need the description or an image to corroborate.
+ */
+export function matchReason(a, b) {
+  const sameSource = Boolean(a.source) && a.source === b.source;
+
+  const sim = diceTrigram(a.title, b.title);
+  if (sim >= TITLE_SIMILARITY && !sameSource) return `title similarity ${sim.toFixed(2)}`;
+
+  const da = normText(a.description).slice(0, DESC_PREFIX);
+  const dbb = normText(b.description).slice(0, DESC_PREFIX);
+  if (da && dbb && da === dbb) return `same first ${DESC_PREFIX} chars of description`;
+
+  const ia = new Set(imageUrls(a));
+  for (const url of imageUrls(b)) if (ia.has(url)) return `shared image ${url}`;
+
+  return null;
+}
+
+/** The older row wins: smaller first_seen, ties broken by the smaller id. */
+function olderFirst(a, b) {
+  const fa = String(a.first_seen || '');
+  const fb = String(b.first_seen || '');
+  if (fa !== fb) return fa < fb ? [a, b] : [b, a];
+  return a.id <= b.id ? [a, b] : [b, a];
+}
+
+/**
+ * Candidate duplicate pairs, newest-into-oldest, without touching the database.
+ * @returns {{kept_id:number, merged_id:number, reason:string}[]}
+ */
+export function findDuplicates(db) {
+  const rows = db
+    .prepare("SELECT * FROM properties WHERE availability IS NULL OR availability <> 'gone' ORDER BY id")
+    .all();
+
+  // bedrooms + area must both match, so only rows sharing that pair can ever pair up.
+  const buckets = new Map();
+  for (const r of rows) {
+    if (r.bedrooms == null) continue; // never merge across unknown bedrooms
+    const k = `${r.area}|${r.bedrooms}`;
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(r);
+  }
+
+  const out = [];
+  for (const bucket of buckets.values()) {
+    for (let i = 0; i < bucket.length; i++) {
+      for (let j = i + 1; j < bucket.length; j++) {
+        const a = bucket[i];
+        const b = bucket[j];
+        if (a.key === b.key) continue;
+        if (!priceClose(a, b)) continue;
+        if (sameComplexDifferentUnit(a, b)) continue;
+        const reason = matchReason(a, b);
+        if (!reason) continue;
+        const [keep, drop] = olderFirst(a, b);
+        out.push({ kept_id: keep.id, merged_id: drop.id, reason });
+      }
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Merge
+// ---------------------------------------------------------------------------
+
+function altUrlsFor(keep, drop) {
+  const existing = safeJson(keep.alt_urls);
+  const dropAlts = safeJson(drop.alt_urls);
+  const all = [
+    ...(Array.isArray(existing) ? existing : []),
+    drop.url,
+    ...(Array.isArray(dropAlts) ? dropAlts : []),
+  ].filter(Boolean);
+  return [...new Set(all)].filter((u) => u !== keep.url);
+}
+
+function mergeOne(db, keep, drop, reason, now) {
+  const sets = {};
+
+  const alt = altUrlsFor(keep, drop);
+  const altJson = JSON.stringify(alt);
+  if (alt.length && altJson !== keep.alt_urls) sets.alt_urls = altJson;
+
+  for (const col of MERGE_FIELDS) {
+    if (keep[col] == null && drop[col] != null) sets[col] = drop[col];
+  }
+  // The survivor is still on the market as long as one of the two was.
+  if (sets.availability === 'gone') delete sets.availability;
+
+  if (Object.keys(sets).length) {
+    const clause = Object.keys(sets).map((k) => `${k} = ?`).join(', ');
+    db.prepare(`UPDATE properties SET ${clause} WHERE id = ?`).run(...Object.values(sets), keep.id);
+  }
+
+  for (const table of CHILD_TABLES) {
+    db.prepare(`UPDATE ${table} SET property_id = ? WHERE property_id = ?`).run(keep.id, drop.id);
+  }
+  db.prepare(
+    'INSERT OR IGNORE INTO property_contacts (property_id, contact_id) SELECT ?, contact_id FROM property_contacts WHERE property_id = ?'
+  ).run(keep.id, drop.id);
+  db.prepare('DELETE FROM property_contacts WHERE property_id = ?').run(drop.id);
+
+  let raw = safeJson(drop.raw);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) raw = { raw: drop.raw ?? null };
+  raw.merged_into = keep.id;
+
+  db.prepare('UPDATE properties SET availability = ?, last_seen = ?, raw = ? WHERE id = ?')
+    .run('gone', now, JSON.stringify(raw), drop.id);
+
+  return { kept_id: keep.id, merged_id: drop.id, reason };
+}
+
+/**
+ * Find and apply every duplicate merge. Never deletes a row.
+ * @returns {{merged:{kept_id:number, merged_id:number, reason:string}[]}}
+ */
+export function dedupeAll(db, { now = nowIso() } = {}) {
+  const pairs = findDuplicates(db);
+  const merged = [];
+  if (!pairs.length) return { merged };
+
+  const done = new Set(); // ids already folded away in this pass
+  const get = db.prepare('SELECT * FROM properties WHERE id = ?');
+
+  db.transaction(() => {
+    for (const pair of pairs) {
+      if (done.has(pair.kept_id) || done.has(pair.merged_id)) continue;
+      const keep = get.get(pair.kept_id);
+      const drop = get.get(pair.merged_id);
+      if (!keep || !drop) continue;
+      if (drop.availability === 'gone') continue;
+      merged.push(mergeOne(db, keep, drop, pair.reason, now));
+      done.add(pair.merged_id);
+    }
+  })();
+
+  return { merged };
+}
+
+export default { dedupeAll, findDuplicates, diceTrigram, matchReason, refParts, sameComplexDifferentUnit };

@@ -3,9 +3,11 @@
 // 1. parse the sweep's `raw` rows with the proven card parser (dirty rows are logged, not imported)
 // 2. normalise → pins → score → upsert
 // 3. fetch the detail page for every in-band row (SPEC §8), re-normalise with the JSON facts
-// 4. rescore everything, close the run, print a plain-text report
+// 4. download the images of those rows (SPEC §8: "then images/pins/score")
+// 5. rescore everything, close the run, print a plain-text report
 //
-// Options: `--no-detail` (step 3 off), `--limit=N` (first N rows, for a quick check).
+// Steps 2–4 go through `scrape/ingest.js`, the same path the daily scrape uses.
+// Options: `--no-detail` (step 3 off), `--no-images` (step 4 off), `--limit=N`.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,14 +15,13 @@ import { fileURLToPath } from 'node:url';
 
 import { openDb, getConfig } from './db.js';
 import { loadEnvFile } from './index.js';
-import { normaliseListing } from './scrape/normalise.js';
-import { inBand, hardFilters, scoreRow, reasonsFor } from './scrape/score.js';
+import { inBand, reasonsFor } from './scrape/score.js';
 import { createCtx } from './scrape/fetch.js';
-import { placePins } from './scrape/pins.js';
 import {
   upsertProperty, rescoreAll, startRun, finishRun, countsSummary, parseRow,
 } from './scrape/store.js';
-import bhi, { applyDetail } from './scrape/adapters/bhi.js';
+import { buildRow, ingestListing } from './scrape/ingest.js';
+import bhi from './scrape/adapters/bhi.js';
 import { cardFromSeedRaw, parseCard } from './scrape/adapters/bhi-parse.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -60,28 +61,6 @@ function partialFromSeed(raw) {
   };
 }
 
-/** normalise → pins → score, the three steps every row goes through. */
-function buildRow(partial, config, { firstSeen, images }) {
-  const { row } = normaliseListing(partial, config);
-  if (firstSeen) {
-    row.first_seen = firstSeen;
-    row.last_seen = firstSeen;
-  }
-  if (images) row.images = images;
-  return finishRow(row, config);
-}
-
-/** placePins returns a NEW row (it does not mutate) — keep its result. */
-function finishRow(input, config) {
-  const row = placePins(input);
-  const s = scoreRow(row, config);
-  row.scope = s.scope;
-  row.fit_score = s.fit_score;
-  row.flagged = s.flagged;
-  row.red_flags = JSON.stringify(s.red_flags);
-  return row;
-}
-
 // ---------------------------------------------------------------------------
 // Import
 // ---------------------------------------------------------------------------
@@ -90,11 +69,16 @@ function finishRow(input, config) {
  * Import one sweep file into `db`.
  * @param {import('better-sqlite3').Database} db
  * @param {string} file
- * @param {{detail?:boolean, limit?:number, log?:Function, cacheDir?:string}} [opts]
+ * @param {{detail?:boolean, images?:boolean, limit?:number, log?:Function, cacheDir?:string}} [opts]
  * @returns {Promise<object>} stats for the report
  */
 export async function importSweep(db, file = DEFAULT_SWEEP, opts = {}) {
-  const { detail = true, limit = null, log = () => {}, cacheDir = path.join(ROOT, 'data/cache') } = opts;
+  // `images` defaults OFF here: the image pass is network-heavy, so a programmatic
+  // caller (a test) has to ask for it. `npm run seed` turns it on unless --no-images.
+  const {
+    detail = true, images = false, limit = null,
+    log = () => {}, cacheDir = path.join(ROOT, 'data/cache'),
+  } = opts;
 
   const sweep = JSON.parse(fs.readFileSync(file, 'utf8'));
   const fetchedAt = sweep.fetched_at || new Date().toISOString();
@@ -146,32 +130,24 @@ export async function importSweep(db, file = DEFAULT_SWEEP, opts = {}) {
   }
 
   // --- pass 2: detail pages for everything in the aggregation band -----------
+  const inband = [...rows.values()].filter((r) => inBand(r.row, config));
+  // createCtx wants a console-shaped logger (it calls log.warn?.()); `log` here is a plain fn.
+  const ctx = createCtx({ db, config, log: console, cacheDir, minIntervalMs: 1000 });
+
   if (detail) {
-    const inband = [...rows.values()].filter((r) => inBand(r.row, config));
-    // createCtx wants a console-shaped logger (it calls log.warn?.()); `log` here is a plain fn.
-    const ctx = createCtx({ db, config, log: console, cacheDir, minIntervalMs: 1000 });
     let done = 0;
 
     for (const entry of inband) {
       stats.detail_attempted += 1;
       done += 1;
       try {
-        const d = await bhi.detail(ctx, entry.partial.url);
-        if (!d) {
-          stats.detail_failed.push(`${entry.partial.ref}: no property JSON`);
+        const res = await ingestListing(db, ctx, bhi, entry.partial, { detail: true, now: fetchedAt, config });
+        if (!res.detail) {
+          stats.detail_failed.push(`${entry.partial.ref}: ${res.skipped || 'no property JSON'}`);
         } else {
-          const merged = { ...entry.partial, ...stripNulls(d) };
-          const { row } = normaliseListing(merged, config);
-          row.first_seen = fetchedAt;
-          row.last_seen = fetchedAt;
-          const withDetail = applyDetail(row, d);
-          if (d.gone) {
-            withDetail.availability = 'gone';
-            stats.gone += 1;
-          }
-          const finished = finishRow(withDetail, config);
-          upsertProperty(db, finished, { now: fetchedAt });
-          entry.row = finished;
+          if (res.row.availability === 'gone') stats.gone += 1;
+          entry.row = res.row;
+          if (res.id) entry.id = res.id;
           stats.detail_ok += 1;
         }
       } catch (err) {
@@ -189,7 +165,30 @@ export async function importSweep(db, file = DEFAULT_SWEEP, opts = {}) {
     }
   }
 
-  // --- pass 3: rescore and close the run ------------------------------------
+  // --- pass 3: images for the in-band rows (SPEC §8) -------------------------
+  if (images) {
+    const processImages = await loadProcessImages();
+    if (!processImages) {
+      log('[seed] images: src/scrape/images.js not available — skipped');
+      stats.images_skipped = 'module not available';
+    } else {
+      const ids = inband.map((e) => e.id).filter(Boolean);
+      try {
+        stats.images = await processImages(db, ctx, { ids, maxPerListing: 20 });
+        log(
+          `[seed] images: ${stats.images.downloaded} downloaded, ${stats.images.skipped} skipped, ` +
+            `${stats.images.failed} failed over ${stats.images.listings} listings`
+        );
+      } catch (err) {
+        stats.images_skipped = String((err && err.message) || err);
+        log(`[seed] images failed: ${stats.images_skipped}`);
+      }
+    }
+  } else {
+    stats.images_skipped = '--no-images';
+  }
+
+  // --- pass 4: rescore and close the run ------------------------------------
   const rescored = rescoreAll(db, config);
   const counts = countsSummary(db);
 
@@ -216,11 +215,18 @@ export async function importSweep(db, file = DEFAULT_SWEEP, opts = {}) {
   return stats;
 }
 
-/** Detail fields that are null must not blank out what the card already knew. */
-function stripNulls(obj) {
-  const out = {};
-  for (const [k, v] of Object.entries(obj)) if (v !== null && v !== undefined) out[k] = v;
-  return out;
+/**
+ * `src/scrape/images.js` is built alongside this step; until it lands the seed
+ * simply reports that the pass was skipped instead of failing the import.
+ */
+async function loadProcessImages() {
+  try {
+    const mod = await import('./scrape/images.js');
+    const fn = mod.processImages || (mod.default && mod.default.processImages);
+    return typeof fn === 'function' ? fn : null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -324,15 +330,17 @@ export function buildReport(db, config, stats) {
   }
   line();
 
-  // --- beach-only fails -----------------------------------------------------
-  const beachOnly = rows
-    .filter((r) => inBand(r, config))
-    .map((r) => ({ r, hf: hardFilters(r, config) }))
-    .filter(({ hf }) => hf.fails.length === 1 && hf.fails[0] === 'beach')
+  // --- far from the beach ---------------------------------------------------
+  // Beach distance is a SOFT filter (Philipp, 2026-09-17): it costs fit points but
+  // never excludes, so the far in-filter rows are listed for eyeballing instead.
+  const beachMax = config.beach_km_max ?? 4;
+  const far = rows
+    .filter((r) => r.scope === 'in_filter' && r.beach_km != null && r.beach_km > beachMax)
+    .map((r) => ({ r }))
     .sort((a, b) => (a.r.beach_km ?? 99) - (b.r.beach_km ?? 99));
-  line(`IN-BAND, HARD FILTER FAILED ONLY ON BEACH (${beachOnly.length}) — check the centroid distances`);
-  if (!beachOnly.length) line('  (none)');
-  for (const { r } of beachOnly) {
+  line(`IN-FILTER, BEACH OVER ${beachMax} KM (${far.length}) — soft filter; check these distances`);
+  if (!far.length) line('  (none)');
+  for (const { r } of far) {
     line(
       `  ${pad(r.ref, 9)}${pad(r.area, 14)}${pad(r.sub_area || '-', 22)}` +
         `${padL(r.beach_km == null ? '-' : r.beach_km.toFixed(1) + ' km', 9)}  ` +
@@ -365,6 +373,7 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     const stats = await importSweep(db, file, {
       detail: !flags.includes('--no-detail'),
+      images: !flags.includes('--no-images'),
       limit: limitFlag ? Number(limitFlag.split('=')[1]) : null,
       log: (...a) => console.log(...a),
     });

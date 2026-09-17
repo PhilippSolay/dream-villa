@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
 import { seedUsers } from './auth.js';
 import { buildServer } from './server.js';
+import { scheduleScrape } from './scrape/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -55,7 +56,9 @@ export async function main() {
   const app = await buildServer({ db, env, logger: true });
   const port = Number(env.PORT || 8080);
 
+  let task = null;
   const close = async () => {
+    if (task) await task.stop();
     await app.close();
     db.close();
     process.exit(0);
@@ -64,6 +67,13 @@ export async function main() {
   process.on('SIGINT', close);
 
   await app.listen({ host: '0.0.0.0', port });
+
+  // SPEC §6 (06:00 Asia/Makassar scrape) + §9 (nightly backup, same tick).
+  task = scheduleScrape(db, {
+    cron: env.SCRAPE_CRON || undefined,
+    tz: env.TZ || undefined,
+    backupDir: env.BACKUP_DIR || path.join(ROOT, 'data/backups'),
+  });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
