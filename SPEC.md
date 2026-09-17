@@ -114,7 +114,7 @@ CREATE TABLE viewings (
 
 CREATE TABLE ratings (   -- feature scores from listing/call (pre-viewing)
   id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL, by INTEGER NOT NULL,
-  feature TEXT NOT NULL,   -- 'quiet','privacy','living_room','light','beach','overall'
+  feature TEXT NOT NULL,   -- 'quiet','privacy','living_room','light','beach','style','overall'
   score INTEGER NOT NULL, comment TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -195,7 +195,7 @@ Single page, phone first. Routes via hash: `#/`, `#/p/:id`, `#/market`, `#/map`,
 2. Contact: contacts with tap-to-call, tap-to-WhatsApp (`https://wa.me/<number>?text=<prefilled template A>`), agency, responsiveness stars, notes; "Add contact".
 3. From the agent: dated entries (`agent_info`), add form with the six question groups from the brief (included, neighbours, planned builds, water/power, lease terms, deposit/payment).
 4. Viewing: list of visits; "Add visit" form: date, time of day, 1–5 sliders for quiet, privacy, living room, light, breeze, overlooked, construction nearby; beach minutes measured; notes; photos (camera input); verdict. Saving a visit sets `assessed` (partly → done when verdict set) and, if quiet ≤ 2 or privacy ≤ 2, adds the red flag.
-5. Ratings & feedback: pre-viewing feature ratings (six rows), feedback box, status control (pipeline), "Message templates" section with A–G prefilled and a copy button.
+5. Ratings & feedback: pre-viewing feature ratings (seven rows: quiet, privacy, living room, light, beach, style, overall), feedback box, status control (pipeline), "Message templates" section with A–G prefilled and a copy button.
 
 **Market `#/market`**: price distribution per area (box/whisker: p25–median–p75 per area, count), per bedrooms, feature premium table, "your shortlist vs area median" table, in-filter vs market counts. Charts as inline SVG, no library.
 

@@ -13,6 +13,7 @@ export const RATING_FEATURES = [
   ['living_room', 'Living room'],
   ['light', 'Light'],
   ['beach', 'Beach'],
+  ['style', 'Style'],
   ['overall', 'Overall'],
 ];
 

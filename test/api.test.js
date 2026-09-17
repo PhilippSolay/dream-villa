@@ -390,6 +390,8 @@ test('ratings: quiet=2 adds quiet_low and unflags the villa', async (t) => {
 test('ratings: a good score leaves the flags alone; a bad score is a 400', async (t) => {
   const { call, ids } = await setup(t);
   await call({ method: 'POST', url: `/api/properties/${ids.A}/ratings`, payload: { feature: 'overall', score: 5 } });
+  const style = await call({ method: 'POST', url: `/api/properties/${ids.A}/ratings`, payload: { feature: 'style', score: 4 } });
+  assert.equal(style.statusCode, 200, 'style is a rating feature');
   const after = (await call({ method: 'GET', url: `/api/properties/${ids.A}` })).json();
   assert.deepEqual(after.red_flags, []);
   assert.equal(after.flagged, 1);
