@@ -14,11 +14,11 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 - rooms: `bedrooms >= 1 AND (bedrooms + extra_rooms) >= 2 AND bedrooms <= 3`
 - budget: `25_000_000 <= price_month_idr <= 50_000_000` (yearly normalised ÷ 12)
 - area: in the target list (§7) — anything else is `market` at best
-- beach: `beach_km <= 4`
 - style: `style != 'balinese_old'`
 - neighbours: no known construction next door (`red_flags` does not contain `construction`)
 - furnishing: any (unfurnished gets `notes` hint "unfurnished — add furnishing budget")
 - availability: any
+- ~~beach~~: **soft** since 2026-09-17 — beach distance never excludes a listing; it is scored (see `beach` row below). `beach_km_max` (4) only sets the scale midpoint and the UI's default slider. Pool is likewise a scored preference, never a filter.
 
 **Aggregation band** (what the scraper keeps at all): bedrooms 1–4, 15–80 M IDR/month equivalent, any beach distance, target areas + adjacent. Outside that band: skip.
 
@@ -31,13 +31,14 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 | pool | 12 | `pool` | true → 12 |
 | garden | 10 | `garden` | true → 10 |
 | view | 10 | `view` | ocean → 10, rice/river/jungle → 7, none/unknown → 0 |
+| beach | 10 | `beach_km` | ≤ 1 km → 10, linear to 0 at 2 × `beach_km_max` (8 km); unknown → 5 |
 | full kitchen | 10 | `kitchen_full` | true → 10; unknown → 5 |
 | aircon | 8 | `aircon` | true → 8; unknown → 4 |
 | nice furniture | 8 | `furnished` + `furniture_quality` | furnished & quality≥3 → 8; furnished unknown quality → 4; unfurnished → 0 |
 | work space / shala | 8 | `workspace` | true → 8 |
 | joglo | 7 | `joglo` | true → 7 |
 
-Weights live in `config.weights` (JSON) and are editable in the Agent page; the scraper re-scores everything after a weight change.
+Weights live in `config.weights` (JSON) and are editable in the Agent page; the scraper re-scores everything after a weight change. The score is normalised to the sum of the weights (`round(100 × points / Σweights)`), so edited weights keep the 0–100 scale; with the defaults above (Σ = 110) everything-true + ocean + beach ≤ 1 km = 100, everything unknown = 28.
 
 **Flag** (`flagged = 1`): `scope = in_filter AND fit_score >= config.flag_threshold (65) AND red_flags = [] AND status != 'rejected'`. A flagged villa with `assessed = 'not_yet'` renders as "strong fit, unverified".
 

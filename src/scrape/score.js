@@ -14,6 +14,7 @@ const half = (w) => Math.floor(w / 2);
 const VIEW_PARTIAL = 0.7;
 const PARTIAL_VIEWS = new Set(['rice', 'river', 'jungle']);
 const LOW_PRIORITY_PENALTY = 10;
+const BEACH_FULL_KM = 1;
 
 function asArray(redFlags) {
   if (Array.isArray(redFlags)) return [...redFlags];
@@ -44,8 +45,8 @@ export function inBand(row, config = DEFAULT_CONFIG) {
 }
 
 /**
- * SPEC §2 hard filters. An unknown beach distance does NOT fail — the seed has no pins
- * yet — it is recorded in `unknowns` instead so the pin step can revisit it.
+ * SPEC §2 hard filters. Beach distance is not one of them (soft, see fitScore); an unknown
+ * distance is recorded in `unknowns` so the pin step can revisit it.
  * @returns {{pass:boolean, fails:string[], unknowns:string[]}}
  */
 export function hardFilters(row, config = DEFAULT_CONFIG) {
@@ -63,8 +64,8 @@ export function hardFilters(row, config = DEFAULT_CONFIG) {
 
   if (!r.area || !cfg.areas.includes(r.area)) fails.push('area');
 
+  // Beach distance is a SOFT filter (Philipp, 2026-09-17): it scores, it never excludes.
   if (r.beach_km == null) unknowns.push('beach_unknown');
-  else if (r.beach_km > cfg.beach_km_max) fails.push('beach');
 
   if (r.style === 'balinese_old') fails.push('style');
 
@@ -79,13 +80,48 @@ export function scopeFrom(row, config = DEFAULT_CONFIG) {
 }
 
 /**
- * SPEC §2 fit score, 0–100.
- * All features true + ocean view + furniture quality 3 = 100; everything unknown = 26.
+ * Beach proximity factor 0..1: full credit at ≤ 1 km, none at ≥ 2 × beach_km_max (8 km by
+ * default), linear in between; unknown distance → 0.5.
  */
-export function fitScore(row, weights = DEFAULT_WEIGHTS, lowPriorityPockets = DEFAULT_CONFIG.low_priority_pockets) {
+export function beachFactor(beachKm, beachKmMax = DEFAULT_CONFIG.beach_km_max) {
+  if (beachKm == null || !Number.isFinite(Number(beachKm))) return 0.5;
+  const km = Number(beachKm);
+  const zeroAt = beachKmMax * 2;
+  if (km <= BEACH_FULL_KM) return 1;
+  if (km >= zeroAt) return 0;
+  return (zeroAt - km) / (zeroAt - BEACH_FULL_KM);
+}
+
+/**
+ * SPEC §2 fit score, 0–100, normalised to the sum of the weights so edited weights stay on
+ * a 0–100 scale. With default weights: all features true + ocean view + furniture quality 3
+ * + beach ≤ 1 km = 100; everything unknown = 28.
+ */
+export function fitScore(
+  row,
+  weights = DEFAULT_WEIGHTS,
+  lowPriorityPockets = DEFAULT_CONFIG.low_priority_pockets,
+  beachKmMax = DEFAULT_CONFIG.beach_km_max,
+) {
+  const w = { ...DEFAULT_WEIGHTS, ...(weights || {}) };
+  const points = fitPoints(row, w, lowPriorityPockets, beachKmMax);
+  const total = Object.values(w).reduce((a, b) => a + (Number(b) || 0), 0) || 100;
+  return Math.max(0, Math.min(100, Math.round((points * 100) / total)));
+}
+
+/** Raw weighted points before normalisation (the §2 table, feature by feature). */
+export function fitPoints(
+  row,
+  weights = DEFAULT_WEIGHTS,
+  lowPriorityPockets = DEFAULT_CONFIG.low_priority_pockets,
+  beachKmMax = DEFAULT_CONFIG.beach_km_max,
+) {
   const w = { ...DEFAULT_WEIGHTS, ...(weights || {}) };
   const r = row || {};
   let score = 0;
+
+  // beach: soft filter — proximity scaled, unknown → half
+  score += Math.floor(w.beach * beachFactor(r.beach_km, beachKmMax));
 
   // true → full, unknown → half, false → 0
   for (const key of ['living_open', 'airy', 'kitchen_full', 'aircon']) {
@@ -120,7 +156,7 @@ export function fitScore(row, weights = DEFAULT_WEIGHTS, lowPriorityPockets = DE
     if (pockets.some((p) => sub.includes(String(p).toLowerCase()))) score -= LOW_PRIORITY_PENALTY;
   }
 
-  return Math.max(0, Math.min(100, Math.round(score)));
+  return score;
 }
 
 /** Short human strings for the morning digest: "3BR", "Cemagi", "0.9 km to beach", "44 M/mo", "pool". */
@@ -165,7 +201,7 @@ export function scoreRow(row, config = DEFAULT_CONFIG) {
 
   const scope = scopeFrom(r, cfg);
 
-  const fit_score = fitScore(r, cfg.weights, cfg.low_priority_pockets);
+  const fit_score = fitScore(r, cfg.weights, cfg.low_priority_pockets, cfg.beach_km_max);
 
   const red_flags = asArray(r.red_flags);
   const overBudget = r.price_month_idr != null && r.price_month_idr > cfg.budget_max;
@@ -184,4 +220,4 @@ export function scoreRow(row, config = DEFAULT_CONFIG) {
   return { scope, fit_score, flagged, red_flags, reasons: reasonsFor(r) };
 }
 
-export default { inBand, hardFilters, scopeFrom, fitScore, reasonsFor, scoreRow };
+export default { inBand, hardFilters, scopeFrom, beachFactor, fitPoints, fitScore, reasonsFor, scoreRow };

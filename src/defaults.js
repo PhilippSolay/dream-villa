@@ -6,6 +6,7 @@ export const DEFAULT_WEIGHTS = {
   pool: 12,
   garden: 10,
   view: 10,
+  beach: 10,
   kitchen_full: 10,
   aircon: 8,
   furniture: 8,
