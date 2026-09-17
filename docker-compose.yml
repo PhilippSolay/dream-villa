@@ -7,6 +7,7 @@ services:
       - ./data:/app/data
     labels:
       - traefik.enable=true
+      - traefik.docker.network=proxy
       - traefik.http.routers.villa.rule=Host(`villa.solay.cloud`)
       - traefik.http.routers.villa.entrypoints=websecure
       - traefik.http.routers.villa.tls.certresolver=${TRAEFIK_CERTRESOLVER}
