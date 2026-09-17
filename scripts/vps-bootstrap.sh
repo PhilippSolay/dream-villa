@@ -38,6 +38,7 @@ echo "post-receive hook installed (checks out master into $WORKTREE on every pus
 
 # --- data directories ---------------------------------------------------------
 mkdir -p "$WORKTREE/data/images" "$WORKTREE/data/cache" "$WORKTREE/data/backups"
+chown -R 1000:1000 "$WORKTREE/data"   # the container runs as uid 1000 (node), see Dockerfile
 echo "data dirs ready: $WORKTREE/data/{images,cache,backups}"
 
 # --- .env --------------------------------------------------------------------

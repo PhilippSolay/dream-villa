@@ -65,6 +65,7 @@ if [ "$SYNC_DATA" = "1" ]; then
   run ssh "$SSH_HOST" "cd $REMOTE_DIR && (docker compose stop villa 2>/dev/null || true)"
   run rsync -az --progress "data/villa.db" "${SSH_HOST}:${REMOTE_DIR}/data/villa.db"
   run rsync -az --progress "data/images/" "${SSH_HOST}:${REMOTE_DIR}/data/images/"
+  run ssh "$SSH_HOST" "chown -R 1000:1000 $REMOTE_DIR/data"   # the container runs as uid 1000 (node)
   run ssh "$SSH_HOST" "cd $REMOTE_DIR && (docker compose start villa 2>/dev/null || true)"   # first deploy: no container yet
 fi
 
