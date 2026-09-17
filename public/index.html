@@ -3,10 +3,52 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
     <title>Dream House</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <h1>Dream House</h1>
-    <p>The UI arrives in step 6.</p>
+    <header class="app-header">
+      <a class="wordmark" href="#/">Dream House</a>
+      <div class="counts" id="counts" aria-live="polite"></div>
+      <div class="header-actions">
+        <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch theme"></button>
+        <button type="button" class="user-btn" id="user-btn" aria-label="Account">·</button>
+      </div>
+    </header>
+
+    <nav class="tabbar" id="tabbar" aria-label="Sections">
+      <a class="tab" href="#/" data-route="home"></a>
+      <a class="tab" href="#/map" data-route="map"></a>
+      <a class="tab" href="#/market" data-route="market"></a>
+      <a class="tab" href="#/agent" data-route="agent"></a>
+    </nav>
+
+    <main class="view" id="view"></main>
+
+    <div class="backdrop" id="backdrop" hidden></div>
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Filters" hidden></div>
+    <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

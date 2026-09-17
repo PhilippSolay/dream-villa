@@ -1,6 +1,7 @@
 // SPEC §4 "Config / agent page" and "Scraper controls" — the Agent page's API.
 
 import { getConfig, setConfig, nowIso } from '../db.js';
+import { AREAS } from '../areas.js';
 import { DEFAULT_WEIGHTS, WEIGHT_KEYS } from '../defaults.js';
 import { rescoreAll, startRun, finishRun } from '../scrape/store.js';
 import { badRequest, notFound, safeJson, str, strictSchemas } from './_common.js';
@@ -75,6 +76,14 @@ export default async function adminRoutes(app, opts) {
   const auth = { onRequest: app.requireUser };
 
   strictSchemas(app);
+
+  // --- areas ---------------------------------------------------------------
+  // SPEC §7 as data, so the UI never hard-codes labels, groups or beach points.
+  app.get('/api/areas', auth, async () => ({
+    areas: Object.entries(AREAS).map(([id, a]) => ({
+      id, label: a.label, group: a.group, centroid: a.centroid, beach: a.beach,
+    })),
+  }));
 
   // --- config --------------------------------------------------------------
   app.get('/api/config', auth, async () => publicConfig(db));

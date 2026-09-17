@@ -1,0 +1,200 @@
+/* public/views/charts.css — Market + Map view styles (STEP 6b).
+   Uses the shell's design tokens (--bg, --surface, --ink, --muted, --line, --gold,
+   --gold-soft, --ok, --warn, --danger, --header-h, --tabbar-h) and its actual font
+   vars (--display, --body, --mono — the task brief named them --font-*, the shell
+   agent named them --display/--body/--mono; both are tried, hard fallback last).
+   Injected once by market.js / map.js on mount; harmless if injected by both. */
+
+.market-view {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 16px;
+  max-width: 960px;
+  margin: 0 auto;
+  color: var(--ink, #1a1712);
+  font-family: var(--body, var(--font-body, -apple-system, sans-serif));
+}
+
+.mkt-heading {
+  font-family: var(--display, var(--font-display, Georgia, serif));
+  font-size: 22px;
+  font-weight: 400;
+  margin: 0 0 12px;
+  color: var(--ink, #1a1712);
+}
+
+.mkt-section {
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e4ddd0);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.mkt-loading, .mkt-error, .mkt-empty {
+  font-family: var(--body, var(--font-body, sans-serif));
+  color: var(--muted, #8a8271);
+  padding: 12px 0;
+  margin: 0;
+}
+
+.mkt-error { color: var(--danger, #b3432b); }
+
+.mkt-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--mono, var(--font-mono, ui-monospace, monospace));
+  overflow: visible;
+}
+
+.mkt-gridline { stroke: var(--line, #e4ddd0); stroke-width: 1; }
+
+.mkt-axis-label {
+  font-size: 9px;
+  fill: var(--muted, #8a8271);
+  font-family: var(--mono, var(--font-mono, ui-monospace, monospace));
+}
+
+.mkt-row-label {
+  font-size: 11px;
+  fill: var(--ink, #1a1712);
+  font-family: var(--body, var(--font-body, sans-serif));
+}
+
+.mkt-row-count {
+  font-size: 9px;
+  fill: var(--muted, #8a8271);
+  font-family: var(--mono, var(--font-mono, ui-monospace, monospace));
+}
+
+.mkt-box { fill: var(--gold-soft, #ead9a8); stroke: var(--gold, #b8902e); stroke-width: 1; }
+.mkt-median { stroke: var(--ink, #1a1712); stroke-width: 2; }
+.mkt-infilter-marker { fill: var(--gold, #b8902e); stroke: var(--surface, #fff); stroke-width: 1; }
+
+.mkt-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mkt-table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 13px; }
+.mkt-table th, .mkt-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line, #e4ddd0);
+  vertical-align: middle;
+}
+.mkt-table th {
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-weight: 600;
+  color: var(--muted, #8a8271);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.mkt-mono { font-family: var(--mono, var(--font-mono, ui-monospace, monospace)); }
+.mkt-n { color: var(--muted, #8a8271); font-size: 10px; margin-left: 4px; }
+.mkt-ok { color: var(--ok, #3f7a4d); }
+.mkt-warn { color: var(--warn, #b3432b); }
+.mkt-link { color: var(--ink, #1a1712); text-decoration: none; border-bottom: 1px solid var(--gold, #b8902e); }
+.mkt-link:hover { color: var(--gold, #b8902e); }
+
+.mkt-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-family: var(--mono, var(--font-mono, ui-monospace, monospace));
+  font-size: 13px;
+  color: var(--muted, #8a8271);
+  padding: 4px 4px 8px;
+}
+.mkt-counts strong { color: var(--ink, #1a1712); }
+
+@media (min-width: 720px) {
+  .market-view { padding: 24px; gap: 32px; }
+}
+
+/* --- Map ----------------------------------------------------------------- */
+
+.map-view {
+  position: relative;
+  width: 100%;
+  height: calc(100dvh - var(--header-h, 56px) - var(--tabbar-h, var(--nav-h, 0px)));
+}
+
+.map-container {
+  width: 100%;
+  height: calc(100dvh - var(--header-h, 56px) - var(--tabbar-h, var(--nav-h, 0px)));
+  background: var(--surface, #fff);
+}
+
+.map-loading, .map-error {
+  padding: 16px;
+  margin: 0;
+  font-family: var(--body, var(--font-body, sans-serif));
+  color: var(--muted, #8a8271);
+}
+.map-error { color: var(--danger, #b3432b); }
+
+.map-inline-error {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: var(--surface, #fff);
+  border: 1px solid var(--danger, #b3432b);
+  color: var(--danger, #b3432b);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--body, var(--font-body, sans-serif));
+}
+
+.map-popup { font-family: var(--body, var(--font-body, sans-serif)); min-width: 180px; }
+.map-popup-thumb { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; margin-bottom: 6px; display: block; }
+.map-popup-title { font-family: var(--display, var(--font-display, Georgia, serif)); font-size: 16px; margin-bottom: 2px; }
+.map-popup-meta { font-family: var(--mono, var(--font-mono, ui-monospace, monospace)); font-size: 12px; color: var(--muted, #8a8271); margin-bottom: 4px; }
+.map-popup-status {
+  display: inline-block;
+  font-size: 11px;
+  text-transform: capitalize;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--gold-soft, #ead9a8);
+  color: var(--ink, #1a1712);
+  margin-bottom: 8px;
+}
+.map-popup-approx { font-size: 11px; color: var(--muted, #8a8271); margin-bottom: 6px; }
+.map-popup-open {
+  width: 100%;
+  min-height: 44px;
+  border: none;
+  border-radius: 8px;
+  background: var(--gold, #b8902e);
+  color: var(--bg, #fff);
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 14px;
+  cursor: pointer;
+}
+.map-popup-open:active { opacity: 0.85; }
+
+.map-legend-control {
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e4ddd0);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 12px;
+  color: var(--ink, #1a1712);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  line-height: 1.6;
+}
+.map-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.map-legend-ring { margin-top: 4px; color: var(--muted, #8a8271); }
+
+@media (max-width: 480px) {
+  .map-legend-control { font-size: 11px; padding: 8px 10px; }
+}
