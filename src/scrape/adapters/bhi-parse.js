@@ -4,7 +4,7 @@
 
 const BASE = 'https://bali-home-immo.com';
 const THUMB_BASE = `${BASE}/images/properties/thumb/`;
-const CARD_PATH = '/realestate-property/for-rent/';
+const CARD_PATH = '/realestate-property/for-rent/villa/';
 
 /** Tag prefix the site glues in front of the note, e.g. "Newly Listedleaseholdyearlymonthly". */
 const TAG_PREFIX_RE = /^((?:Newly Listed|leasehold|freehold|yearly|monthly)+)/i;

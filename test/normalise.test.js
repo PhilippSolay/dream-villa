@@ -23,7 +23,7 @@ import { DEFAULT_CONFIG } from '../src/defaults.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SEED = path.join(here, '..', 'seed', 'bhi-sweep-2026-09-17.json');
 const BHI = 'https://bali-home-immo.com';
-const cardUrl = (slugPath) => `${BHI}/realestate-property/for-rent/${slugPath}`;
+const cardUrl = (slugPath) => `${BHI}/realestate-property/for-rent/villa/${slugPath}`;
 
 // ---------------------------------------------------------------------------
 // parsePrice
@@ -591,7 +591,7 @@ test('cardFromSeedRaw builds the parseCard input', () => {
   };
   const card = cardFromSeedRaw(raw);
   assert.equal(card.ref, 'RF10679');
-  assert.equal(card.url, `${BHI}/realestate-property/for-rent/${raw.u}`);
+  assert.equal(card.url, `${BHI}/realestate-property/for-rent/villa/${raw.u}`);
   assert.equal(card.thumb, `${BHI}/images/properties/thumb/${raw.i}`);
   assert.deepEqual(card.categories, ['monthly/seseh', 'yearly/seseh']);
   assert.equal(card.text, raw.t);
