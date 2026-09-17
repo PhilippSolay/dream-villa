@@ -491,11 +491,17 @@ export function normaliseListing(input, config = DEFAULT_CONFIG) {
     .filter(Boolean)
     .join(' . ');
 
-  const { area, sub_area, beach_km_hint } = mapArea({
+  // A caller-supplied canonical `area` (a §7 key) wins over the location-string map,
+  // so non-BHI adapters can set it directly; `sub_area` then comes from the caller too.
+  const mapped = mapArea({
     location: src.location,
     title: src.title,
     category: src.category ?? src.categories,
   });
+  const explicitArea = src.area && AREAS[src.area] ? src.area : null;
+  const area = explicitArea || mapped.area;
+  const sub_area = explicitArea ? (src.sub_area ?? mapped.sub_area ?? null) : mapped.sub_area;
+  const beach_km_hint = explicitArea ? (src.beach_km_hint ?? null) : mapped.beach_km_hint;
 
   const { price_month_idr, price_year_idr } = normalisePrice({
     price_month_idr: src.price_month_idr ?? null,

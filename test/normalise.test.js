@@ -642,3 +642,11 @@ test('the four multi-IDR rows that are NOT dirty still parse cleanly', (t) => {
     assert.ok(card.bedrooms >= 1, `${ref} must have bedrooms`);
   }
 });
+
+test('normaliseListing — an explicit canonical area from the adapter wins over the location map', () => {
+  const { row } = normaliseListing({ source: 'x', ref: '1', url: 'https://x/1', title: 'Villa', location: 'Mengwi, Badung', area: 'munggu', sub_area: 'Munggu village', bedrooms: 2, price_month_idr: 30_000_000 });
+  assert.equal(row.area, 'munggu');
+  assert.equal(row.sub_area, 'Munggu village');
+  const bad = normaliseListing({ source: 'x', ref: '2', url: 'https://x/2', title: 'Villa in Cemagi', location: 'Cemagi / Seseh - Beach Side', area: 'nowhere', bedrooms: 2, price_month_idr: 30_000_000 });
+  assert.equal(bad.row.area, 'cemagi', 'an unknown area falls back to the location map');
+});
