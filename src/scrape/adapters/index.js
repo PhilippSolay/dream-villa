@@ -2,8 +2,15 @@
 // id; `src/scrape/index.js` runs whatever this returns, in insertion order.
 
 import bhi from './bhi.js';
+import kibarer from './kibarer.js';
+import balirealty from './balirealty.js';
+import balicoconutliving from './balicoconutliving.js';
+import rumah123 from './rumah123.js';
 
-export const adapters = { bhi };
+// Run order = SPEC §6 order: proven agency first, then agencies, then portals.
+// Skipped (see adapters/*.md): exotiq (sales only), balivillahub (Vercel checkpoint),
+// olx (Akamai), lamudi (401), 99co (Cloudflare), fbmarketplace (login shell).
+export const adapters = { bhi, kibarer, balirealty, balicoconutliving, rumah123 };
 
 /** Every adapter id the registry knows, in run order. */
 export const ADAPTER_IDS = Object.keys(adapters);

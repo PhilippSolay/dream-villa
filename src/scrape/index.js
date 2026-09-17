@@ -15,6 +15,7 @@ import { createCtx } from './fetch.js';
 import { mapArea } from './normalise.js';
 import { getAdapters } from './adapters/index.js';
 import { ingestListing } from './ingest.js';
+import { processInbox } from './inbox.js';
 import { dedupeAll } from './dedupe.js';
 import { recheckAll } from './recheck.js';
 import { rescoreAll, startRun, finishRun, countsSummary } from './store.js';
@@ -226,6 +227,14 @@ export async function runScrape({
     return summary;
   }
 
+  // --- inbox (SPEC §6 "Adapters to build" item 5) ---------------------------
+  try {
+    summary.inbox = await processInbox(db, ctx, { log });
+    summary.notes.push(`inbox ${summary.inbox.processed}/${summary.inbox.done}/${summary.inbox.failed}`);
+  } catch (err) {
+    summary.errors.push(`inbox: ${String((err && err.message) || err)}`);
+  }
+
   // --- images ---------------------------------------------------------------
   if (images) {
     const processImages = await optionalPass('./images.js', 'processImages');
@@ -394,7 +403,7 @@ export function dryReport(summary) {
     for (const c of cards) {
       line(
         `  ${pad(c.ref, 10)}${padL(c.bedrooms == null ? '-' : `${c.bedrooms}BR`, 5)}  ` +
-          `${pad(money(c.price_month_idr), 11)}${pad(c.term || '-', 9)}${c.url}`
+          `${pad(money(c.price_month_idr ?? (c.price_year_idr ? Math.round(c.price_year_idr / 12) : null)), 11)}${pad(c.term || '-', 9)}${c.url}`
       );
     }
     line();
@@ -504,6 +513,19 @@ export function scheduleScrape(
 // CLI
 // ---------------------------------------------------------------------------
 
+/** `--inbox-only`: just the inbox pass (SPEC §6 item 5), for the Agent page's own button. */
+export async function runInboxOnly({
+  db,
+  log = (...a) => console.log(...a),
+  cacheDir = process.env.CACHE_DIR || path.join(ROOT, 'data/cache'),
+} = {}) {
+  const config = getConfig(db);
+  const ctx = createCtx({ db, config, log: console, cacheDir, minIntervalMs: 1000 });
+  const result = await processInbox(db, ctx, { log });
+  log(`[inbox] processed ${result.processed}, done ${result.done}, failed ${result.failed}`);
+  return result;
+}
+
 export async function main(argv = process.argv.slice(2)) {
   loadEnvFile();
 
@@ -515,6 +537,12 @@ export async function main(argv = process.argv.slice(2)) {
 
   const db = openDb(process.env.DB_PATH || path.join(ROOT, 'data/villa.db'));
   try {
+    if (flags.includes('--inbox-only')) {
+      const result = await runInboxOnly({ db });
+      if (result.failed) process.exitCode = 1;
+      return;
+    }
+
     const summary = await runScrape({
       db,
       sources: valueOf('source'),
@@ -541,4 +569,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   });
 }
 
-export default { runScrape, scheduleScrape, main, dryReport, runReport };
+export default { runScrape, scheduleScrape, main, dryReport, runReport, runInboxOnly };
