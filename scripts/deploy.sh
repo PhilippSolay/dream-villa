@@ -62,10 +62,10 @@ run git push "$REMOTE_NAME" master
 
 if [ "$SYNC_DATA" = "1" ]; then
   echo "== syncing data/villa.db + data/images/ (never data/cache, never .env) =="
-  run ssh "$SSH_HOST" "cd $REMOTE_DIR && docker compose stop villa"
+  run ssh "$SSH_HOST" "cd $REMOTE_DIR && (docker compose stop villa 2>/dev/null || true)"
   run rsync -az --progress "data/villa.db" "${SSH_HOST}:${REMOTE_DIR}/data/villa.db"
   run rsync -az --progress "data/images/" "${SSH_HOST}:${REMOTE_DIR}/data/images/"
-  run ssh "$SSH_HOST" "cd $REMOTE_DIR && docker compose start villa"
+  run ssh "$SSH_HOST" "cd $REMOTE_DIR && (docker compose start villa 2>/dev/null || true)"   # first deploy: no container yet
 fi
 
 echo "== building and restarting the container =="
