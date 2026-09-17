@@ -110,6 +110,99 @@
   .market-view { padding: 24px; gap: 32px; }
 }
 
+/* --- Overview (STEP: stats) ----------------------------------------------- */
+
+.mkt-subheading {
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted, #8a8271);
+  margin: 20px 0 8px;
+}
+.mkt-subheading:first-of-type { margin-top: 14px; }
+
+.mkt-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+}
+.mkt-tile {
+  background: var(--bg, #f7f4ec);
+  border: 1px solid var(--line, #e4ddd0);
+  border-radius: 10px;
+  padding: 10px 10px 8px;
+}
+.mkt-tile-value {
+  display: block;
+  font-size: 19px;
+  line-height: 1.15;
+  color: var(--ink, #1a1712);
+}
+.mkt-tile-label {
+  display: block;
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted, #8a8271);
+  margin-top: 3px;
+}
+
+.mkt-funnel { display: flex; flex-direction: column; gap: 6px; }
+.mkt-funnel-row { display: flex; align-items: center; gap: 8px; }
+.mkt-funnel-label {
+  flex: 0 0 104px;
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 12px;
+  color: var(--ink, #1a1712);
+}
+.mkt-funnel-track {
+  flex: 1;
+  display: block;
+  background: var(--bg, #f7f4ec);
+  border-radius: 6px;
+  height: 16px;
+  overflow: hidden;
+}
+.mkt-funnel-bar { display: block; height: 100%; border-radius: 6px; min-width: 3px; }
+.mkt-funnel-bar.is-active { background: var(--gold, #b8902e); }
+.mkt-funnel-bar.is-new { background: var(--muted, #8a8271); }
+.mkt-funnel-bar.is-rejected { background: var(--danger, #b3432b); }
+.mkt-funnel-count { flex: 0 0 26px; text-align: right; font-size: 11px; color: var(--muted, #8a8271); }
+
+.mkt-day-bar { fill: var(--gold, #b8902e); }
+.mkt-day-bar-today { fill: var(--ink, #1a1712); }
+.mkt-run-tick { stroke: var(--muted, #8a8271); stroke-width: 1.4; }
+
+.mkt-hist-grid { display: flex; flex-wrap: wrap; gap: 20px; }
+.mkt-hist { flex: 1 1 240px; min-width: 200px; }
+.mkt-hist-bar { fill: var(--gold-soft, #ead9a8); stroke: var(--gold, #b8902e); stroke-width: 1; }
+.mkt-hist-n { font-size: 9px; fill: var(--muted, #8a8271); font-family: var(--mono, var(--font-mono, ui-monospace, monospace)); }
+.mkt-threshold-line { stroke: var(--danger, #b3432b); stroke-width: 1.4; stroke-dasharray: 3 2; }
+
+.mkt-activity {
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 13px;
+  color: var(--ink, #1a1712);
+  margin: 0;
+}
+.mkt-activity-avgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 6px;
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 12px;
+  color: var(--muted, #8a8271);
+}
+.mkt-activity-avgs strong {
+  font-family: var(--mono, var(--font-mono, ui-monospace, monospace));
+  color: var(--ink, #1a1712);
+  margin-left: 3px;
+}
+
 /* --- Map ----------------------------------------------------------------- */
 
 .map-view {

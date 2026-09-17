@@ -5,6 +5,10 @@ import { AREAS } from '../areas.js';
 import { DEFAULT_WEIGHTS, WEIGHT_KEYS } from '../defaults.js';
 import { rescoreAll, startRun, finishRun } from '../scrape/store.js';
 import { badRequest, notFound, safeJson, str, strictSchemas } from './_common.js';
+import {
+  SOURCE_KINDS, sourcesWithStats, getSource, upsertSource, setSourceEnabled,
+  noteWithSource,
+} from '../sources.js';
 
 /** Keys the Agent page reads back (SPEC §3 config keys + last_digest_at). */
 const CONFIG_KEYS = [
@@ -195,18 +199,25 @@ export default async function adminRoutes(app, opts) {
           properties: {
             url: { type: 'string', minLength: 4, maxLength: 2000 },
             note: { type: ['string', 'null'], maxLength: 2000 },
+            // Which intake channel this URL came from; stored as the `[src:<id>]`
+            // prefix on `note` (src/sources.js), which is how the Agent page counts
+            // what a Facebook or WhatsApp group has actually produced.
+            source_id: { type: ['string', 'null'], maxLength: 60 },
           },
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const url = request.body.url.trim();
+      const sourceId = str(request.body.source_id);
+      if (sourceId && !getSource(db, sourceId)) return badRequest(reply, `unknown source: ${sourceId}`);
+      const note = noteWithSource(str(request.body.note), sourceId);
       const existing = db.prepare('SELECT id FROM inbox WHERE url = ?').get(url);
       if (existing) return { ok: true, id: existing.id, existing: true };
       const info = db
         .prepare('INSERT INTO inbox (url, by, note, status, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(url, request.user.name, str(request.body.note), 'pending', nowIso());
-      return { ok: true, id: Number(info.lastInsertRowid) };
+        .run(url, request.user.name, note, 'pending', nowIso());
+      return { ok: true, id: Number(info.lastInsertRowid), source_id: sourceId || null };
     }
   );
 
@@ -229,6 +240,84 @@ export default async function adminRoutes(app, opts) {
       const limit = request.query.limit ?? 200;
       if (status === 'all') return db.prepare('SELECT * FROM inbox ORDER BY id DESC LIMIT ?').all(limit);
       return db.prepare('SELECT * FROM inbox WHERE status = ? ORDER BY id DESC LIMIT ?').all(status, limit);
+    }
+  );
+
+  // --- sources (intake channels) -------------------------------------------
+  // SPEC is silent here; the shape and the `[src:<id>]` inbox convention live in
+  // src/sources.js. No DELETE on purpose (CLAUDE.md never deletes): disable a source,
+  // or PATCH `archived: true` to drop it out of the list.
+  const sourceBody = {
+    kind: { type: 'string', enum: SOURCE_KINDS },
+    name: { type: 'string', minLength: 1, maxLength: 120 },
+    url: { type: ['string', 'null'], maxLength: 500 },
+    notes: { type: ['string', 'null'], maxLength: 2000 },
+    enabled: { type: 'boolean' },
+    contact_id: { type: ['integer', 'null'] },
+    archived: { type: 'boolean' },
+  };
+
+  app.get(
+    '/api/sources',
+    {
+      ...auth,
+      schema: {
+        querystring: {
+          type: 'object', additionalProperties: false,
+          properties: { archived: { type: 'boolean' } },
+        },
+      },
+    },
+    async (request) => ({ sources: sourcesWithStats(db, { includeArchived: request.query.archived === true }) })
+  );
+
+  app.post(
+    '/api/sources',
+    {
+      ...auth,
+      schema: {
+        body: {
+          type: 'object', additionalProperties: false, required: ['kind'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: 60 }, ...sourceBody },
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return upsertSource(db, request.body, request.user);
+      } catch (err) {
+        return badRequest(reply, String((err && err.message) || err));
+      }
+    }
+  );
+
+  app.patch(
+    '/api/sources/:id',
+    {
+      ...auth,
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string', maxLength: 60 } } },
+        body: {
+          type: 'object', additionalProperties: false, minProperties: 1,
+          properties: {
+            name: sourceBody.name, url: sourceBody.url, notes: sourceBody.notes,
+            enabled: sourceBody.enabled, contact_id: sourceBody.contact_id, archived: sourceBody.archived,
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!getSource(db, id)) return notFound(reply);
+      try {
+        const body = request.body || {};
+        if (Object.keys(body).length === 1 && body.enabled !== undefined) {
+          return setSourceEnabled(db, id, body.enabled, request.user);
+        }
+        return upsertSource(db, { ...body, id }, request.user);
+      } catch (err) {
+        return badRequest(reply, String((err && err.message) || err));
+      }
     }
   );
 

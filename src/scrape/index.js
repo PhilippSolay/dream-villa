@@ -20,6 +20,7 @@ import { dedupeAll } from './dedupe.js';
 import { recheckAll } from './recheck.js';
 import { rescoreAll, startRun, finishRun, countsSummary } from './store.js';
 import { runBackup, DEFAULT_BACKUP_DIR, DEFAULT_KEEP } from '../backup.js';
+import { disabledSourceIds } from '../sources.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -116,7 +117,24 @@ export async function runScrape({
 
   const t0 = Date.now();
   const config = getConfig(db);
-  const list = adapterList && adapterList.length ? adapterList : getAdapters(sources);
+  const all = adapterList && adapterList.length ? adapterList : getAdapters(sources);
+
+  // Intake settings (config.sources): a source turned off on the Agent page is skipped
+  // by the daily run and by the cron. Naming a source explicitly — `--source=bhi`, or
+  // `POST /api/scrape {source}` — always wins: an explicit ask is never second-guessed.
+  const explicit = sources != null && sources !== '' && sources !== 'all';
+  const skippedSources = [];
+  let list = all;
+  if (!explicit) {
+    const disabled = disabledSourceIds(db);
+    list = all.filter((a) => {
+      if (!disabled.has(a.id)) return true;
+      skippedSources.push(a.id);
+      return false;
+    });
+    for (const id of skippedSources) log(`[scrape] ${id}: disabled in intake settings — skipped`);
+  }
+
   const ids = list.map((a) => a.id);
   const adaptersById = Object.fromEntries(list.map((a) => [a.id, a]));
 
@@ -127,6 +145,7 @@ export async function runScrape({
     run_id: null,
     started_at: now,
     sources: ids,
+    skipped_sources: skippedSources,
     seen: 0,
     new: 0,
     updated: 0,
@@ -144,7 +163,12 @@ export async function runScrape({
   const bySlug = new Map();
 
   summary.run_id = dry ? null : startRun(db, 'scrape', ids);
-  log(`[scrape] ${dry ? 'DRY ' : ''}start — sources ${ids.join(', ')}${limit ? `, limit ${limit}/adapter` : ''}`);
+  log(
+    `[scrape] ${dry ? 'DRY ' : ''}start — sources ${ids.join(', ') || 'none'}` +
+      `${skippedSources.length ? ` (disabled: ${skippedSources.join(', ')})` : ''}` +
+      `${limit ? `, limit ${limit}/adapter` : ''}`
+  );
+  if (skippedSources.length) summary.notes.push(`disabled sources: ${skippedSources.join(', ')}`);
 
   // --- adapters -------------------------------------------------------------
   for (const adapter of list) {
@@ -321,22 +345,20 @@ export async function runScrape({
   // SPEC §6: `gone` comes from the recheck (404 / "no longer available"), never from a
   // listing simply missing from today's index — index pages paginate differently from
   // one day to the next. Absence is only ever a note.
-  const stale = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM properties
-        WHERE source IN (${ids.map(() => '?').join(', ')})
-          AND (availability IS NULL OR availability <> 'gone')
-          AND last_seen < ?`
-    )
-    .get(...ids, now);
-  const staleOld = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM properties
-        WHERE source IN (${ids.map(() => '?').join(', ')})
-          AND (availability IS NULL OR availability <> 'gone')
-          AND last_seen < ?`
-    )
-    .get(...ids, new Date(Date.parse(now) - STALE_DAYS * 86_400_000).toISOString());
+  // `IN ()` is not valid SQL, so a run where every source is disabled counts nothing.
+  const staleSince = (cutoff) =>
+    ids.length
+      ? db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM properties
+              WHERE source IN (${ids.map(() => '?').join(', ')})
+                AND (availability IS NULL OR availability <> 'gone')
+                AND last_seen < ?`
+          )
+          .get(...ids, cutoff)
+      : { n: 0 };
+  const stale = staleSince(now);
+  const staleOld = staleSince(new Date(Date.parse(now) - STALE_DAYS * 86_400_000).toISOString());
   summary.not_seen_today = stale.n;
   summary.not_seen_3_days = staleOld.n;
   summary.notes.push(`not_seen_today: ${stale.n} (of which ${staleOld.n} not seen for ${STALE_DAYS}+ days)`);

@@ -1,8 +1,22 @@
-// public/views/market.js — Market view (SPEC §5 "Market"): price distributions,
-// feature premiums, and shortlist-vs-median, rendered as inline SVG box/whisker
-// charts. No chart library. Styles live in views/charts.css (injected once).
+// public/views/market.js — Market view (SPEC §5 "Market"): an "Overview" section
+// (STEP: stats — no SPEC section number yet) followed by the price distributions,
+// feature premiums, and shortlist-vs-median SPEC already describes. Inline SVG only,
+// no chart library. Styles live in views/charts.css (injected once).
+
+import { dayLabel } from '../lib/ui.js';
 
 const CHARTS_CSS_HREF = 'views/charts.css';
+const OVERVIEW_DAYS = 30;
+const PIPELINE_LABELS = {
+  new: 'New', shortlist: 'Shortlist', contacted: 'Contacted', viewing_booked: 'Viewing booked',
+  viewed: 'Viewed', offer: 'Offer', rejected: 'Rejected',
+};
+const ACTIVE_STAGES = new Set(['shortlist', 'contacted', 'viewing_booked', 'viewed', 'offer']);
+// SPEC §3 ratings.feature values — distinct from the property FEATURE_LABELS below.
+const RATING_FEATURE_LABELS = {
+  quiet: 'Quiet', privacy: 'Privacy', living_room: 'Living room', light: 'Light',
+  beach: 'Beach', style: 'Style', overall: 'Overall',
+};
 
 // SPEC §7 — hard-coded fallback, used only if ctx.areas is empty AND /api/areas fails.
 const FALLBACK_AREAS = {
@@ -220,6 +234,181 @@ export function renderPriceBand(row, price, { chartWidth } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Overview (GET /api/stats) — stat tiles, pipeline funnel, daily chart,
+// fit/beach histograms, by-source table, activity line.
+// ---------------------------------------------------------------------------
+
+function renderStatTiles(stats) {
+  const sum = (rows, key) => (rows || []).reduce((a, r) => a + (r[key] || 0), 0);
+  const shortlistPlus = (stats.pipeline || []).filter((p) => ACTIVE_STAGES.has(p.status)).reduce((a, p) => a + p.n, 0);
+  const newLast7 = (stats.daily || []).slice(-7).reduce((a, d) => a + d.new, 0);
+  const goneWindow = (stats.daily || []).reduce((a, d) => a + d.gone, 0);
+  const tiles = [
+    ['In filter', sum(stats.by_area, 'in_filter')],
+    ['Flagged', sum(stats.by_area, 'flagged')],
+    ['Shortlist+', shortlistPlus],
+    ['Viewed', sum(stats.by_area, 'viewed')],
+    ['New (7d)', newLast7],
+    [`Gone (${(stats.daily || []).length}d)`, goneWindow],
+  ];
+  const body = tiles.map(([label, n]) => `
+    <div class="mkt-tile">
+      <span class="mkt-tile-value mono">${n}</span>
+      <span class="mkt-tile-label">${escapeHtml(label)}</span>
+    </div>`).join('');
+  return `<div class="mkt-tiles">${body}</div>`;
+}
+
+function renderPipeline(pipeline) {
+  const stages = (pipeline || []).filter((p) => p.status !== 'gone');
+  if (!stages.length) return '<p class="mkt-empty">No pipeline data yet.</p>';
+  const max = Math.max(1, ...stages.map((s) => s.n));
+  const rows = stages.map((s) => {
+    const cls = s.status === 'new' ? 'is-new' : s.status === 'rejected' ? 'is-rejected' : 'is-active';
+    const pct = Math.round((s.n / max) * 100);
+    return `<div class="mkt-funnel-row">
+      <span class="mkt-funnel-label">${escapeHtml(PIPELINE_LABELS[s.status] || s.status)}</span>
+      <span class="mkt-funnel-track"><span class="mkt-funnel-bar ${cls}" style="width:${pct}%"></span></span>
+      <span class="mkt-funnel-count mono">${s.n}</span>
+    </div>`;
+  }).join('');
+  return `<div class="mkt-funnel">${rows}</div>`;
+}
+
+const DAILY_BAR_H = 54;
+const DAILY_TOP_PAD = 8;
+const DAILY_TICK_H = 5;
+const DAILY_AXIS_H = 14;
+
+/** "New listings per day" — thin bars, today at the right, run ticks below the axis. */
+function renderDailyChart(daily, { chartWidth } = {}) {
+  if (!daily || !daily.length) return '<p class="mkt-empty">No runs yet.</p>';
+  const W = Math.max(240, chartWidth || 600);
+  const n = daily.length;
+  const gap = 2;
+  const plotX0 = 2;
+  const plotX1 = W - 2;
+  const barW = Math.max(1, (plotX1 - plotX0 - gap * (n - 1)) / n);
+  const maxN = Math.max(1, ...daily.map((d) => d.new));
+  const tickY = DAILY_TOP_PAD + DAILY_BAR_H + 3;
+  const H = DAILY_TOP_PAD + DAILY_BAR_H + DAILY_TICK_H + DAILY_AXIS_H;
+
+  let svg = `<svg class="mkt-chart mkt-daily-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="New listings per day, last ${n} days">`;
+  daily.forEach((d, i) => {
+    const x = plotX0 + i * (barW + gap);
+    const h = (d.new / maxN) * DAILY_BAR_H;
+    const y = DAILY_TOP_PAD + (DAILY_BAR_H - h);
+    const today = i === n - 1 ? ' mkt-day-bar-today' : '';
+    svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" class="mkt-day-bar${today}"><title>${d.date}: ${d.new} new</title></rect>`;
+    if (d.runs > 0) {
+      const cx = (x + barW / 2).toFixed(1);
+      svg += `<line x1="${cx}" y1="${tickY}" x2="${cx}" y2="${tickY + DAILY_TICK_H}" class="mkt-run-tick"><title>${d.runs} run(s) · ${d.seen} seen</title></line>`;
+    }
+  });
+  for (const i of [0, Math.floor((n - 1) / 2), n - 1]) {
+    const x = (plotX0 + i * (barW + gap) + barW / 2).toFixed(1);
+    svg += `<text x="${x}" y="${H - 2}" class="mkt-axis-label" text-anchor="middle">${escapeHtml(dayLabel(daily[i].date))}</text>`;
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+const HIST_BAR_H = 64;
+const HIST_TOP_PAD = 12;
+const HIST_AXIS_H = 14;
+
+/** Shared categorical histogram: equal-width bars, one per bucket. `threshold`
+ *  (optional) draws a dashed line at `index + fraction` bucket-widths from the left. */
+function renderHistogramBars(buckets, { chartWidth, threshold, ariaLabel } = {}) {
+  if (!buckets || !buckets.length || !buckets.some((b) => b.n > 0)) return '<p class="mkt-empty">No data yet.</p>';
+  const W = Math.max(160, chartWidth || 260);
+  const n = buckets.length;
+  const gap = 3;
+  const plotX0 = 2;
+  const plotX1 = W - 2;
+  const barW = Math.max(2, (plotX1 - plotX0 - gap * (n - 1)) / n);
+  const step = barW + gap;
+  const maxN = Math.max(1, ...buckets.map((b) => b.n));
+  const H = HIST_TOP_PAD + HIST_BAR_H + HIST_AXIS_H;
+
+  let svg = `<svg class="mkt-chart mkt-hist-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${escapeHtml(ariaLabel || 'Histogram')}">`;
+  buckets.forEach((b, i) => {
+    const x = plotX0 + i * step;
+    const h = (b.n / maxN) * HIST_BAR_H;
+    const y = HIST_TOP_PAD + (HIST_BAR_H - h);
+    svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" class="mkt-hist-bar"><title>${escapeHtml(b.bucket)}: ${b.n}</title></rect>`;
+    if (b.n > 0) svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" class="mkt-hist-n" text-anchor="middle">${b.n}</text>`;
+    svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 2}" class="mkt-axis-label" text-anchor="middle">${escapeHtml(b.bucket)}</text>`;
+  });
+  if (threshold) {
+    const tx = (plotX0 + threshold.index * step + threshold.fraction * barW).toFixed(1);
+    svg += `<line x1="${tx}" y1="${HIST_TOP_PAD - 6}" x2="${tx}" y2="${HIST_TOP_PAD + HIST_BAR_H}" class="mkt-threshold-line"><title>flag threshold ${threshold.value}</title></line>`;
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+/** {index, fraction} of `value` inside a 10-wide bucket run (fit_histogram's shape). */
+function fitThresholdPosition(value) {
+  const v = Math.max(0, Math.min(100, value));
+  const index = Math.min(9, Math.floor(v / 10));
+  const fraction = Math.min(1, (v - index * 10) / 10);
+  return { index, fraction, value };
+}
+
+function renderBySourceTable(rows) {
+  if (!rows || !rows.length) return '<p class="mkt-empty">No source data yet.</p>';
+  const body = rows.map((r) => `<tr>
+      <td>${escapeHtml(r.source)}</td>
+      <td class="mkt-mono">${r.listings}</td>
+      <td class="mkt-mono">${r.in_filter}</td>
+      <td class="mkt-mono">${r.flagged}</td>
+      <td class="mkt-mono">${fmtMoney(r.median_price)}</td>
+    </tr>`).join('');
+  return `<div class="mkt-table-wrap"><table class="mkt-table">
+    <thead><tr><th>Source</th><th>Listings</th><th>In filter</th><th>Flagged</th><th>Median</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table></div>`;
+}
+
+function renderActivity(activity) {
+  if (!activity) return '<p class="mkt-empty">No activity yet.</p>';
+  const byUserText = (activity.by_user || []).map((u) => `${escapeHtml(u.name)} ${u.ratings + u.viewings + u.feedback}`).join(', ');
+  const line = `${activity.ratings} rating${activity.ratings === 1 ? '' : 's'} · ${activity.viewings} visit${activity.viewings === 1 ? '' : 's'} · `
+    + `${activity.feedback} feedback in ${OVERVIEW_DAYS} days${byUserText ? ` — ${byUserText}` : ''}`;
+  const avgs = (activity.avg_ratings || [])
+    .map((r) => `<span>${escapeHtml(RATING_FEATURE_LABELS[r.feature] || r.feature)} <strong class="mono">${r.avg}</strong></span>`)
+    .join('');
+  return `<p class="mkt-activity">${escapeHtml(line)}</p>${avgs ? `<div class="mkt-activity-avgs">${avgs}</div>` : ''}`;
+}
+
+function renderOverview(stats, { chartWidth } = {}) {
+  if (!stats) return '<section class="mkt-section"><h2 class="mkt-heading">Overview</h2><p class="mkt-error">Could not load stats.</p></section>';
+  const threshold = fitThresholdPosition(stats.flag_threshold ?? 65);
+  const fitChart = renderHistogramBars(stats.fit_histogram, { chartWidth: chartWidth / 2 - 10, threshold, ariaLabel: 'Fit score spread' });
+  const beachChart = renderHistogramBars(stats.beach_histogram, { chartWidth: chartWidth / 2 - 10, ariaLabel: 'Beach distance' });
+
+  return `
+    <section class="mkt-section">
+      <h2 class="mkt-heading">Overview</h2>
+      ${renderStatTiles(stats)}
+      <h3 class="mkt-subheading">Pipeline</h3>
+      ${renderPipeline(stats.pipeline)}
+      <h3 class="mkt-subheading">New listings per day</h3>
+      ${renderDailyChart(stats.daily, { chartWidth })}
+      <h3 class="mkt-subheading">Fit score spread · Beach distance</h3>
+      <div class="mkt-hist-grid">
+        <div class="mkt-hist">${fitChart}</div>
+        <div class="mkt-hist">${beachChart}</div>
+      </div>
+      <h3 class="mkt-subheading">By source</h3>
+      ${renderBySourceTable(stats.by_source)}
+      <h3 class="mkt-subheading">Activity</h3>
+      ${renderActivity(stats.activity)}
+    </section>`;
+}
+
+// ---------------------------------------------------------------------------
 // Tables
 // ---------------------------------------------------------------------------
 
@@ -276,9 +465,10 @@ function renderCounts(counts) {
 // Full render
 // ---------------------------------------------------------------------------
 
-function render(el, data, areasMap) {
+function render(el, data, areasMap, stats) {
   const chartWidth = Math.max(240, (el.clientWidth || 600) - 64);
 
+  const overview = renderOverview(stats, { chartWidth });
   const byArea = renderBoxWhisker(data.by_area || [], {
     getLabel: (r) => areaLabel(areasMap, r.area),
     getN: (r) => r.n,
@@ -296,6 +486,7 @@ function render(el, data, areasMap) {
 
   el.innerHTML = `
     <div class="market-view">
+      ${overview}
       <section class="mkt-section">
         <h2 class="mkt-heading">Price per area</h2>
         ${byArea}
@@ -327,6 +518,7 @@ export async function mountMarket(el, ctx) {
 
   let destroyed = false;
   let lastData = null;
+  let lastStats = null; // stays null if /api/stats fails — the rest of the page still renders.
   let areasMap = FALLBACK_AREAS;
 
   function handleClick(e) {
@@ -340,7 +532,7 @@ export async function mountMarket(el, ctx) {
 
   function renderNow() {
     if (destroyed || !lastData) return;
-    render(el, lastData, areasMap);
+    render(el, lastData, areasMap, lastStats);
   }
   const onResize = debounce(renderNow, 150);
   window.addEventListener('resize', onResize);
@@ -358,11 +550,17 @@ export async function mountMarket(el, ctx) {
   }
   if (destroyed) return cleanup;
 
+  // /api/market and /api/stats are fetched in parallel; a stats failure must not
+  // block the rest of the Market page (renderOverview degrades to an inline error).
+  const marketPromise = ctx.api.get('/api/market');
+  const statsPromise = ctx.api.get(`/api/stats?days=${OVERVIEW_DAYS}`).catch(() => null);
+
   try {
-    const data = await ctx.api.get('/api/market');
+    const [data, stats] = await Promise.all([marketPromise, statsPromise]);
     if (destroyed) return cleanup;
     lastData = data;
-    render(el, data, areasMap);
+    lastStats = stats;
+    render(el, data, areasMap, stats);
   } catch (err) {
     if (destroyed) return cleanup;
     const msg = err && err.status ? `Could not load market data (HTTP ${err.status}).` : 'Could not load market data.';
