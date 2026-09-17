@@ -179,6 +179,46 @@ function renderBoxWhisker(rows, { getLabel, getN, getInFilter, chartWidth } = {}
   return svg;
 }
 
+/**
+ * One area's price band with a listing's own price marked on it (used on the detail
+ * page). `row` = an entry of /api/market by_area; `price` = the listing's monthly IDR.
+ */
+export function renderPriceBand(row, price, { chartWidth } = {}) {
+  ensureChartsCss();
+  if (!row || row.median == null) return '<p class="mkt-empty">Not enough priced listings in this area yet.</p>';
+  const W = Math.max(240, chartWidth || 600);
+  const chartX0 = 8;
+  const chartX1 = W - RIGHT_PAD;
+  const scaleX = (v) => chartX0 + ((v - DOMAIN_MIN) / (DOMAIN_MAX - DOMAIN_MIN)) * (chartX1 - chartX0);
+  const clampX = (x) => Math.min(chartX1, Math.max(chartX0, x));
+  const cy = TOP_PAD + ROW_H / 2;
+  const H = TOP_PAD + ROW_H + AXIS_H;
+
+  let svg = `<svg class="mkt-chart mkt-band" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Where this price sits in its area">`;
+  for (let v = 20e6; v <= DOMAIN_MAX; v += TICK_STEP) {
+    const x = scaleX(v);
+    svg += `<line x1="${x}" y1="${TOP_PAD}" x2="${x}" y2="${TOP_PAD + ROW_H}" class="mkt-gridline" />`;
+    svg += `<text x="${x}" y="${H - 8}" class="mkt-axis-label" text-anchor="middle">${fmtMoney(v)}</text>`;
+  }
+  if (row.p25 != null && row.p75 != null) {
+    const x1 = clampX(scaleX(row.p25));
+    const x2 = clampX(scaleX(row.p75));
+    svg += `<rect x="${Math.min(x1, x2)}" y="${cy - 7}" width="${Math.max(2, Math.abs(x2 - x1))}" height="14" rx="2" class="mkt-box"><title>p25 ${fmtMoney(row.p25)} · p75 ${fmtMoney(row.p75)}</title></rect>`;
+  }
+  const mx = clampX(scaleX(row.median));
+  svg += `<line x1="${mx}" y1="${cy - 10}" x2="${mx}" y2="${cy + 10}" class="mkt-median"><title>median ${fmtMoney(row.median)}</title></line>`;
+  if (price != null) {
+    const px = clampX(scaleX(price));
+    svg += `<circle cx="${px}" cy="${cy}" r="6" class="mkt-price-marker"><title>this villa ${fmtMoney(price)}</title></circle>`;
+  }
+  svg += '</svg>';
+
+  const delta = price != null ? Math.round(((price - row.median) / row.median) * 100) : null;
+  const deltaText = delta == null ? '' : delta === 0 ? 'at the area median' : `${Math.abs(delta)} % ${delta > 0 ? 'above' : 'below'} the area median`;
+  const caption = `<p class="mkt-band-caption mono">${fmtMoney(row.p25)} – ${fmtMoney(row.median)} – ${fmtMoney(row.p75)} · n=${row.n}${deltaText ? ` · ${escapeHtml(deltaText)}` : ''}</p>`;
+  return svg + caption;
+}
+
 // ---------------------------------------------------------------------------
 // Tables
 // ---------------------------------------------------------------------------

@@ -161,6 +161,11 @@ function listingPanel(p, areas) {
       <dl class="kv">${facts.map(([k, v]) => html`<dt>${k}</dt><dd class="mono">${dash(v)}</dd>`)}</dl>
     </section>
 
+    <section class="block">
+      <h3>Price in ${areaLabel}</h3>
+      <div id="price-band" class="price-band" aria-live="polite"><p class="muted">Loading area prices…</p></div>
+    </section>
+
     <section class="block"><h3>Price history</h3>${sparkline(p.price_history)}</section>
   </div>`;
 }

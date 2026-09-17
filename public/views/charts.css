@@ -198,3 +198,8 @@
 @media (max-width: 480px) {
   .map-legend-control { font-size: 11px; padding: 8px 10px; }
 }
+
+/* Detail page: one area's band with the listing's own price marked */
+.mkt-band { max-height: 80px; }
+.mkt-price-marker { fill: var(--gold, #b8902e); stroke: var(--surface, #fff); stroke-width: 2; }
+.mkt-band-caption { margin: 4px 0 0; font-size: 12px; color: var(--muted, #6b6357); }

@@ -6,6 +6,7 @@ import {
 } from '../lib/ui.js';
 import { TEMPLATES, fill } from '../lib/templates.js';
 import { PANELS, RATING_FEATURES, VIEWING_SCALES, INCLUDED_KEYS } from './detail-panels.js';
+import { renderPriceBand } from './market.js';
 
 const TABS = [
   ['listing', 'Listing'],
@@ -26,6 +27,7 @@ export async function mountDetail(el, ctx) {
   let tab = PANELS[ctx.query.tab] ? ctx.query.tab : 'listing';
   let p = null;
   let alive = true;
+  let market = null; // /api/market, fetched once per mount for the area price band
 
   setHtml(el, html`<p class="loading">Loading…</p>`);
 
@@ -75,6 +77,8 @@ export async function mountDetail(el, ctx) {
       </div>`
     );
 
+    fillPriceBand();
+
     const strip = $('#gallery', el);
     if (strip) {
       strip.addEventListener('scroll', () => {
@@ -85,6 +89,20 @@ export async function mountDetail(el, ctx) {
         const index = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth)) + 1;
         counter.textContent = `${Math.min(index, total)} / ${total}`;
       });
+    }
+  }
+
+  /** The area's p25–median–p75 band with this villa's price on it (Listing tab). */
+  async function fillPriceBand() {
+    const slot = $('#price-band', el);
+    if (!slot || !p) return;
+    try {
+      if (!market) market = await api.get('/api/market');
+      if (!alive || !slot.isConnected) return;
+      const row = (market.by_area || []).find((r) => r.area === p.area);
+      slot.innerHTML = renderPriceBand(row, p.price_month_idr, { chartWidth: slot.clientWidth });
+    } catch (err) {
+      slot.innerHTML = `<p class="muted">Area prices unavailable (${err.status || err.message})</p>`;
     }
   }
 
