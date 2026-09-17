@@ -80,7 +80,8 @@ CREATE TABLE properties (
   status TEXT NOT NULL DEFAULT 'new',    -- new, shortlist, contacted, viewing_booked, viewed, offer, rejected
   status_by INTEGER, status_at TEXT,
   assessed TEXT NOT NULL DEFAULT 'not_yet',   -- not_yet, partly, done
-  raw TEXT                               -- JSON of what the adapter saw (for debugging)
+  raw TEXT,                              -- JSON of what the adapter saw (for debugging)
+  notes TEXT                             -- person notes (migration 002)
 );
 CREATE INDEX idx_props_scope ON properties(scope, flagged, fit_score DESC);
 CREATE INDEX idx_props_area ON properties(area);

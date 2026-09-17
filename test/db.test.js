@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openDb, getConfig, setConfig, nowIso } from '../src/db.js';
+import { openDb, getConfig, setConfig, nowIso, MIGRATIONS } from '../src/db.js';
 
 const TABLES = [
   'users', 'properties', 'contacts', 'property_contacts', 'agent_info', 'viewings',
@@ -64,13 +64,13 @@ test('setConfig round-trips objects and scalars', () => {
 test('migrations run once and reopening is idempotent', () => {
   const file = tmpDbPath();
   const db = openDb(file);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM migrations').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM migrations').get().n, MIGRATIONS.length);
   setConfig(db, 'flag_threshold', 71);
   db.prepare('INSERT INTO agent_notes (date, text) VALUES (?, ?)').run('2026-09-17', 'hello');
   db.close();
 
   const again = openDb(file);
-  assert.equal(again.prepare('SELECT COUNT(*) AS n FROM migrations').get().n, 1);
+  assert.equal(again.prepare('SELECT COUNT(*) AS n FROM migrations').get().n, MIGRATIONS.length);
   assert.equal(getConfig(again).flag_threshold, 71, 'seeding must not overwrite existing keys');
   assert.equal(again.prepare('SELECT COUNT(*) AS n FROM agent_notes').get().n, 1);
   again.close();

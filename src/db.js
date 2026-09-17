@@ -109,8 +109,17 @@ CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
 /** Ordered; append only — never reorder or rewrite an applied migration. */
-const MIGRATIONS = [
+/** Adds a column unless it already exists (safe on DBs that predate the migration). */
+function addColumn(db, table, column, type) {
+  const has = db.prepare('SELECT COUNT(*) AS n FROM pragma_table_info(?) WHERE name = ?').get(table, column).n;
+  if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+}
+
+// Append-only: never change an entry, only add.
+export const MIGRATIONS = [
   { name: '001_initial_schema', up: (db) => db.exec(DDL_001) },
+  // SPEC §4 lists `notes` among the person-editable fields of PATCH /api/properties/:id.
+  { name: '002_property_notes', up: (db) => addColumn(db, 'properties', 'notes', 'TEXT') },
 ];
 
 function runMigrations(db) {

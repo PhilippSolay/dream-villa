@@ -7,6 +7,10 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { registerAuth } from './auth.js';
 import { nowIso } from './db.js';
+import propertiesRoutes from './routes/properties.js';
+import marketRoutes from './routes/market.js';
+import adminRoutes from './routes/admin.js';
+import agentRoutes from './routes/agent.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -34,6 +38,12 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
     if (!dbOk) return reply.code(503).send({ ok: false, db: false, time: nowIso() });
     return { ok: true, db: true, time: nowIso() };
   });
+
+  // API route modules (SPEC §4). Each receives { db, env }.
+  await app.register(propertiesRoutes, { db, env });
+  await app.register(marketRoutes, { db, env });
+  await app.register(adminRoutes, { db, env });
+  await app.register(agentRoutes, { db, env });
 
   return app;
 }
