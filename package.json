@@ -1,0 +1,29 @@
+{
+  "name": "villa-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "villa.solay.cloud — Bali Dream House tracker",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "seed": "node src/seed.js",
+    "scrape": "node src/scrape/index.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/multipart": "^9.0.3",
+    "@fastify/static": "^10.1.4",
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^11.10.0",
+    "cheerio": "^1.0.0",
+    "fastify": "^5.3.2",
+    "node-cron": "^4.6.0",
+    "sharp": "^0.35.4",
+    "undici": "^7.8.0"
+  }
+}

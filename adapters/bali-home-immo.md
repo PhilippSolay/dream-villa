@@ -77,9 +77,49 @@ function parseCard(c) {
 }
 ```
 
-## Detail page — to inspect first
+## Detail page — inspected 2026-09-17 (curl, logged out, browser UA)
 
-Not yet inspected (the cloud session could not read it). From Claude Code: `curl -sA "Mozilla/5.0" <detail url> > page.html` and look for: JSON-LD (`application/ld+json` — the site has `RealEstateAgent` and `WebSite` blocks on index pages; a listing block may exist), gallery images, a "Property details" list (land/building size, bathrooms, furnishing, view, pool), the description, a map (iframe `google.com/maps/embed` or a lat/lng data attribute), `wa.me` links and the listed agent. The three seed URLs to test with:
+The site is an **Inertia.js** app: the detail page is server-rendered with the whole listing as JSON in
+`<div id="app" data-page="…">` (HTML-escaped: `&quot;` → `"`, `&amp;` → `&`, `&#039;` → `'`). Parse
+`JSON.parse(unescape(attr))`, then `props.property` is the record. No Google Maps iframe, no listing JSON-LD
+(only `RealEstateAgent` + `WebSite`), so **read the JSON, do not scrape the HTML**. Page ~820 KB.
+
+`props.property` fields (RF9183D):
+
+| field | example | use |
+|---|---|---|
+| `property_id` | `RF9183D` | ref |
+| `name` | `Modern 3 Bedroom Villa for Rental in Bali Cemagi Beachside` | title |
+| `label` | `Walking distance to the beach and ocean view from rooftop \| Minimum 2 months rental \| …` | the card note |
+| `description` | HTML `<p>…</p>` | description (strip tags, keep paragraphs) |
+| `is_archived` | `true` | **recheck signal** → `availability='gone'` when true (RF9183D is archived yet still served; it is absent from the index sweep) |
+| `images` | array of 20 full-size URLs `https://bali-home-immo.com/images/properties/<file>.jpg` | gallery, hero = first |
+| `area`, `subArea` | `Cemagi / Seseh`, `Beach Side` | location → §7 map (join with ` - ` to get the index string) |
+| `latitude`, `longitude` | `-8.6435654`, `115.1078041` (strings) | pin, `pin_source='listing_map'` |
+| `price` | `44000000.0000` (string) | price for `props.propertyPriceCategory` (`monthly`\|`yearly`) |
+| `available_categories` | `[{label:'yearly', price:'450000000.0000'}, {label:'monthly', price:'44000000.0000'}]` | both prices + term |
+| `bedroom`, `land_size`, `building_size`, `furniture` | `3`, `100 m²`, `158 m²`, `Furnished` | facts |
+| `availability` | `01/02/2027` (dd/mm/yyyy) | available_from |
+| `zoning`, `leaseholdPeriod`, `is_price_on_request`, `video_id` | | store in raw |
+| `grouped_attributes.generalInfo[]` | `{label, value, type}`: Land Size, Building Size, Year of Build, Floor Level, View (`Pool`\|`Ocean`\|`Rice field`…), Style / Design (`Modern`…), Surrounding, Zoning | view, style, land/build |
+| `grouped_attributes.indoor[]` | Living room (`Enclosed`\|`Open`…), Dinning room, Kitchen (`Enclosed`…), Bedroom, Bathroom, Ensuite Bathroom | `living_open` = Living room !== Enclosed; `kitchen_full` = Kitchen present; bathrooms |
+| `grouped_attributes.outdoor[]` | Swimming Pool (`Yes`), Pool Size, Balcony, Shower, Garden (when present) | pool, garden |
+| `grouped_attributes.facilities[]` | Furniture, Electricty power (watt), Air Conditioner (count), Water Source, Internet, Parking, Parking size | aircon = count > 0, furnished |
+| `monthlyCosts.items[]` / `yearlyCosts.items[]` | `{label, value}`: Monthly cost included (`Yes full`), Banjar fee + Security, Cleaning Service, Pool Maintenance, Garden Maintenance, Bin Collection, Electricity, Unlimited Internet (`Included`\|`Not included`…); `remark` | `inclusions` (JSON) |
+| `quick_stats[]` | Bedroom, Bathroom, Swimming Pool | cross-check |
+
+Also on the page: `props.meta.wa_phone_number = 6282194359401` (agency line), `wa.me/6282194359401?text=…RF9183D…`
+prefilled links, a second sales line `+62 853 3774 3862` (Uluwatu office). **No per-listing agent name** on this
+page — contact = agency. `props.appData.areas` gives the canonical area/sub-area slugs for URL building:
+`seseh [cemagi-beach-side, seseh-residential-side]`, `pererenan [pererenan-beachside, north-pererenan]`,
+`tanah-lot-area [seseh, west-tanah-lot, north-tanah-lot]`, `uluwatu [west, central, east, bingin-beach-side,
+bingin-residential-side, balangan-beach-side, balangan-residential-side, padang-padang1, nyang-nyang1]`,
+`ungasan [east-2, west-2, melasti1]`, `pandawa [west-1, east-1, kutuh1]`, `other-bali-area []`.
+
+Index pages are the same Inertia shape — check `data-page` there too before falling back to the card-text
+extractor above (which stays the proven fallback).
+
+The three seed URLs to test with:
 - https://bali-home-immo.com/realestate-property/for-rent/villa/monthly/seseh/modern-3-bedroom-villa-for-rental-in-bali-cemagi-beachside-rf9183d
 - https://bali-home-immo.com/realestate-property/for-rent/villa/monthly/seseh/ricefield-view-2-bedroom-villa-for-rent-in-cemagi-beachside-rf11014
 - https://bali-home-immo.com/realestate-property/for-rent/villa/monthly/pererenan/2-bedroom-villa-for-yearly-rental-in-pererenan-rf126

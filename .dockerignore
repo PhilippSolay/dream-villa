@@ -1,0 +1,9 @@
+node_modules
+data
+.env
+.git
+.gitignore
+seed/*.html
+*.log
+.DS_Store
+page.html

@@ -1,0 +1,19 @@
+services:
+  villa:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.villa.rule=Host(`villa.solay.cloud`)
+      - traefik.http.routers.villa.entrypoints=websecure
+      - traefik.http.routers.villa.tls.certresolver=${TRAEFIK_CERTRESOLVER}
+      - traefik.http.services.villa.loadbalancer.server.port=8080
+    networks: [proxy]
+
+networks:
+  proxy:
+    external: true
+    name: ${TRAEFIK_NETWORK}
