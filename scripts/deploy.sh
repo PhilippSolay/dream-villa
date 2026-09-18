@@ -77,7 +77,7 @@ run ssh "$SSH_HOST" "cd $REMOTE_DIR && for i in \$(seq 1 30); do \
   docker compose exec -T villa node -e \"fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\" \
   && exit 0; sleep 2; done; echo 'healthz did not come up within 60s' >&2; exit 1"
 
-echo "== checking https =="
-run curl -sS "$HEALTH_URL"
+echo "== checking https (Traefik re-registers the router a few seconds after a recreate) =="
+run bash -c "for i in 1 2 3 4 5 6; do curl -sf -m 20 $HEALTH_URL && exit 0; sleep 5; done; echo 'public healthz not 200 after 30s' >&2; exit 1"
 echo
 echo "deploy done."
