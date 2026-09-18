@@ -9,6 +9,10 @@ export const DEFAULT_FILTERS = {
   min: null,
   max: null,
   beach: null,
+  land_min: null,
+  land_max: null,
+  build_min: null,
+  build_max: null,
   furnished: 'any',
   term: 'any',
   features: [],
@@ -34,6 +38,10 @@ export function filtersToQuery(f, { limit = 200 } = {}) {
   if (f.min != null) p.set('min', String(f.min));
   if (f.max != null) p.set('max', String(f.max));
   if (f.beach != null) p.set('beach', String(f.beach));
+  if (f.land_min != null) p.set('land_min', String(f.land_min));
+  if (f.land_max != null) p.set('land_max', String(f.land_max));
+  if (f.build_min != null) p.set('build_min', String(f.build_min));
+  if (f.build_max != null) p.set('build_max', String(f.build_max));
   if (f.furnished && f.furnished !== 'any') p.set('furnished', f.furnished);
   if (f.term && f.term !== 'any') p.set('term', f.term);
   if (f.assessed) p.set('assessed', f.assessed);
@@ -53,6 +61,8 @@ export function activeFilterCount(f) {
   for (const key of ['status', 'area', 'bedrooms', 'features']) if (f[key]?.length) n += 1;
   if (f.min != null || f.max != null) n += 1;
   if (f.beach != null) n += 1;
+  if (f.land_min != null || f.land_max != null) n += 1;
+  if (f.build_min != null || f.build_max != null) n += 1;
   if (f.furnished && f.furnished !== 'any') n += 1;
   if (f.term && f.term !== 'any') n += 1;
   if (f.assessed) n += 1;

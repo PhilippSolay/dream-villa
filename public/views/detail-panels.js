@@ -6,6 +6,7 @@ import {
   STATUS_LABELS,
 } from '../lib/ui.js';
 import { TEMPLATES, fill } from '../lib/templates.js';
+import { formatDescription } from '../lib/format.js';
 
 export const RATING_FEATURES = [
   ['quiet', 'Quiet'],
@@ -41,13 +42,6 @@ const FIXED_RED_FLAGS = ['construction', 'main_road', 'balinese_old', 'over_budg
 const STYLES = ['modern', 'tropical', 'joglo', 'balinese_old', 'industrial', 'bamboo'];
 
 const dash = (v) => (v == null || v === '' ? '—' : v);
-
-function paragraphs(text) {
-  return String(text || '')
-    .split(/\n{2,}|\r\n\r\n/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-}
 
 function digits(value) {
   return String(value || '').replace(/\D+/g, '');
@@ -123,7 +117,9 @@ function listingPanel(p, areas) {
 
   return html`<div class="panel">
     ${p.description
-      ? html`<section class="block"><h3>Description</h3>${paragraphs(p.description).map((t) => html`<p>${t}</p>`)}</section>`
+      ? html`<section class="block"><h3>Description</h3>
+          <div class="description">${formatDescription(p.description)}</div>
+        </section>`
       : ''}
 
     ${inclusions.length || p.terms
@@ -136,6 +132,13 @@ function listingPanel(p, areas) {
 
     <section class="block">
       <h3>Location</h3>
+      ${p.lat != null && p.lng != null
+        ? html`<div class="mini-map" id="mini-map" role="img"
+              aria-label="Map of ${p.lat}, ${p.lng}" data-lat="${p.lat}" data-lng="${p.lng}"></div>
+            ${p.pin_source === 'centroid'
+              ? html`<p class="small muted mini-map-note">approximate — area centroid</p>`
+              : ''}`
+        : ''}
       <div class="links">
         ${p.map_url ? html`<a href="${p.map_url}" target="_blank" rel="noopener">${icons.pin()} Open in Google Maps</a>` : ''}
         ${p.lat != null && p.lng != null
@@ -352,14 +355,10 @@ function ratingsPanel(p) {
 
     <section class="block">
       <h3>Status</h3>
-      <div class="pipeline">
-        ${Object.keys(STATUS_LABELS).map(
-          (s) => html`<button type="button" class="chip" data-action="status" data-status="${s}"
-            aria-pressed="${String(p.status === s)}">${STATUS_LABELS[s]}</button>`
-        )}
-      </div>
+      <p class="small muted">The status buttons live in the header, above the tabs — they are there on every tab.</p>
       <p class="small muted" style="margin-top:8px">
-        ${p.status_at ? `Set ${dayLabel(p.status_at)}` : 'Never changed'} · assessed: ${p.assessed}
+        Now ${STATUS_LABELS[p.status] || p.status} ·
+        ${p.status_at ? `set ${dayLabel(p.status_at)}` : 'never changed'} · assessed: ${p.assessed}
       </p>
     </section>
 
@@ -416,22 +415,40 @@ function ratingsPanel(p) {
         </div>`
       )}
     </section>
-
-    <section class="block">
-      <h3>Message templates</h3>
-      ${TEMPLATES.map(
-        (t) => html`<div class="template">
-          <div class="template-head">
-            <strong>${t.key} · ${t.title}</strong>
-            <button type="button" class="btn btn-sm" data-action="copy" data-key="${t.key}">${icons.copy()} Copy</button>
-          </div>
-          <pre>${fill(t.body, p)}</pre>
-        </div>`
-      )}
-    </section>
   </div>`;
 }
 
+
+/** Templates A–G, filled for this villa: copy, or open WhatsApp straight at the contact. */
+function messagesPanel(p) {
+  const contact = (p.contacts || []).find((c) => digits(c.whatsapp));
+
+  return html`<div class="panel">
+    <section class="block">
+      <h3>Message templates</h3>
+      <p class="small muted">Filled for this villa. ${contact
+        ? html`WhatsApp opens a chat with ${contact.name || contact.agency || contact.whatsapp}.`
+        : 'Add a WhatsApp number on the Contact tab to send them straight from here.'}</p>
+      ${TEMPLATES.map((t) => {
+        const body = fill(t.body, p);
+        return html`<div class="template">
+          <div class="template-head">
+            <strong>${t.key} · ${t.title}</strong>
+          </div>
+          <pre>${body}</pre>
+          <div class="template-actions">
+            <button type="button" class="btn btn-sm" data-action="copy" data-key="${t.key}">${icons.copy()} Copy</button>
+            ${contact
+              ? html`<a class="btn btn-sm" target="_blank" rel="noopener"
+                  href="https://wa.me/${digits(contact.whatsapp)}?text=${encodeURIComponent(body)}">
+                  ${icons.whatsapp()} WhatsApp</a>`
+              : ''}
+          </div>
+        </div>`;
+      })}
+    </section>
+  </div>`;
+}
 
 export const PANELS = {
   listing: listingPanel,
@@ -439,4 +456,5 @@ export const PANELS = {
   agent: agentPanel,
   viewing: viewingPanel,
   ratings: ratingsPanel,
+  messages: messagesPanel,
 };

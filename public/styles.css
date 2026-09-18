@@ -513,10 +513,46 @@ input[type='range'] { accent-color: var(--gold); min-height: 34px; width: 100%; 
 
 /* --- detail --------------------------------------------------------------- */
 
-.detail-head { display: grid; gap: 8px; margin-bottom: 10px; }
+.detail-page { display: block; }
+.detail-back { margin-bottom: 10px; padding-left: 0; }
+
+.detail-head { display: grid; gap: 8px; margin: 14px 0 0; }
 .detail-title { font-size: 24px; line-height: 30px; }
 .detail-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .detail-price { font-family: var(--mono); font-size: 16px; }
+
+/* First scan: photos, read, tap a status. Scrolls sideways on a phone, never wraps. */
+.status-row {
+  display: flex;
+  gap: 6px;
+  margin: 12px -14px 0;
+  padding: 0 14px 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.status-row::-webkit-scrollbar { display: none; }
+.status-btn {
+  flex: 0 0 auto;
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.status-btn:hover { border-color: var(--gold); color: var(--ink); }
+.status-btn[aria-pressed='true'] { background: var(--gold); border-color: var(--gold); color: #fff; font-weight: 500; }
+:root[data-theme='dark'] .status-btn[aria-pressed='true'],
+:root:not([data-theme='light']) .status-btn[aria-pressed='true'] { color: #1a1713; }
+.status-btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); margin-left: auto; }
+.status-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+.status-btn-danger[aria-pressed='true'] { background: var(--danger); border-color: var(--danger); color: #fff; }
+:root[data-theme='dark'] .status-btn-danger[aria-pressed='true'],
+:root:not([data-theme='light']) .status-btn-danger[aria-pressed='true'] { color: #fff; }
 
 .tabs {
   display: flex;
@@ -546,17 +582,82 @@ input[type='range'] { accent-color: var(--gold); min-height: 34px; width: 100%; 
 .block { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
 .block > h3 { margin-bottom: 8px; }
 
+/* Full-bleed hero gallery: edge to edge on a phone, container width on desktop. */
+.gallery-wrap { position: relative; margin: 0 -14px; }
 .gallery {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 100%;
-  gap: 8px;
+  gap: 0;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
-  border-radius: var(--radius);
+  scrollbar-width: none;
+  background: var(--gold-soft);
 }
-.gallery img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius); scroll-snap-align: center; background: var(--gold-soft); }
-.gallery-count { font-family: var(--mono); font-size: 13px; color: var(--muted); margin-top: 6px; }
+.gallery::-webkit-scrollbar { display: none; }
+.gallery img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 62vh;
+  object-fit: cover;
+  display: block;
+  scroll-snap-align: center;
+  background: var(--gold-soft);
+}
+.gallery-empty {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  max-height: 46vh;
+  background: var(--gold-soft);
+}
+.gallery-count {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(20, 17, 14, 0.62);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.gallery-nav {
+  display: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--tap);
+  height: var(--tap);
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(20, 17, 14, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+.gallery-nav:hover { background: rgba(20, 17, 14, 0.78); }
+.gallery-prev { left: 10px; }
+.gallery-next { right: 10px; }
+
+.mini-map {
+  position: relative;
+  height: 220px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--gold-soft);
+}
+.mini-map iframe, .mini-map .leaflet-container { width: 100%; height: 100%; border: 0; display: block; }
+.mini-map-note { margin: -4px 0 10px; }
+
+.description { font-size: 15px; }
+.description p { margin: 0 0 10px; }
+.description p:last-child, .description ul:last-child { margin-bottom: 0; }
+.description strong { color: var(--ink); font-weight: 500; }
+.desc-list { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 4px; }
 
 .kv { display: grid; grid-template-columns: minmax(96px, 40%) 1fr; gap: 6px 12px; font-size: 14px; }
 .kv dt { color: var(--muted); }
@@ -603,6 +704,8 @@ input[type='range'] { accent-color: var(--gold); min-height: 34px; width: 100%; 
 .template { border-top: 1px solid var(--line); padding: 10px 0; }
 .template:first-of-type { border-top: 0; }
 .template-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.template-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.template-actions .btn { text-decoration: none; }
 .template pre {
   margin: 8px 0 0;
   padding: 10px;
@@ -660,8 +763,14 @@ td.mono, th.mono { font-family: var(--mono); font-size: 13px; }
   .toolbar { top: calc(var(--header-h) + 52px); }
   .filters-toggle { display: none; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-  .detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .detail-page { max-width: 880px; margin: 0 auto; }
   .detail-title { font-size: 28px; line-height: 32px; }
+  .gallery-wrap { margin: 0; border-radius: var(--radius); overflow: hidden; }
+  .gallery img { aspect-ratio: 16 / 9; }
+  .gallery-nav { display: flex; }
+  .mini-map { height: 280px; }
+  .status-row { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; overflow-x: visible; flex-wrap: nowrap; }
+  .tabs { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
   .filter-cols { grid-template-columns: 1fr 1fr; }
   .scale { max-width: 340px; }
 }

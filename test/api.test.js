@@ -39,7 +39,7 @@ const SEED = [
     description: 'Bright open living with a pool', area: 'cemagi', sub_area: 'Beach Side',
     beach_km: 0.9, beach_source: 'computed', bedrooms: 2, extra_rooms: 0, price_month_idr: 40_000_000,
     term: 'monthly', furnished: 1, style: 'modern', pool: 1, garden: 1, view: 'ocean', joglo: 0,
-    aircon: 1, kitchen_full: 1, living_open: 1, airy: 1, status: 'new',
+    aircon: 1, kitchen_full: 1, living_open: 1, airy: 1, status: 'new', land_m2: 150, build_m2: 120,
     images: [{ src_url: 'https://bhi.test/a1.jpg' }], availability: 'available',
   },
   {
@@ -56,7 +56,7 @@ const SEED = [
   {
     key: 'bhi:D', ref: 'RFD', source: 'bhi', url: 'https://bhi.test/d', title: 'Big Cliff House Uluwatu',
     area: 'uluwatu', beach_km: 1.2, bedrooms: 4, price_month_idr: 60_000_000, term: 'monthly',
-    pool: 1, status: 'new', availability: 'available',
+    pool: 1, status: 'new', availability: 'available', build_m2: 200,
   },
   {
     key: 'bhi:E', ref: 'RFE', source: 'bhi', url: 'https://bhi.test/e', title: 'Gone Cottage Munggu',
@@ -218,6 +218,31 @@ test('list: min/max price', async (t) => {
   const { call } = await setup(t);
   const res = await call({ method: 'GET', url: '/api/properties?min=32000000&max=41000000' });
   assert.deepEqual(keysOf(res.json()), ['bhi:A', 'olx:F']);
+});
+
+test('list: land_min excludes a smaller row and keeps rows with no land recorded', async (t) => {
+  const { call } = await setup(t);
+  // bhi:A has land_m2=150; bhi:B and olx:F have no land_m2 (NULL passes, like beach).
+  const res = await call({ method: 'GET', url: '/api/properties?land_min=200' });
+  assert.deepEqual(keysOf(res.json()), ['bhi:B', 'olx:F']);
+});
+
+test('list: build_max excludes a bigger row', async (t) => {
+  const { call } = await setup(t);
+  // bhi:D has build_m2=200; every other row has no build_m2 (NULL passes).
+  const res = await call({ method: 'GET', url: '/api/properties?scope=all&status=all&hide_gone=0&build_max=150' });
+  assert.deepEqual(keysOf(res.json()), ['bhi:A', 'bhi:B', 'bhi:C', 'bhi:E', 'olx:F']);
+});
+
+test('list: land/build filters reject non-integer or negative values with a 400', async (t) => {
+  const { call } = await setup(t);
+  const bad = await Promise.all([
+    call({ method: 'GET', url: '/api/properties?land_min=abc' }),
+    call({ method: 'GET', url: '/api/properties?land_max=-5' }),
+    call({ method: 'GET', url: '/api/properties?build_min=abc' }),
+    call({ method: 'GET', url: '/api/properties?build_max=-5' }),
+  ]);
+  for (const res of bad) assert.equal(res.statusCode, 400);
 });
 
 test('list: q matches title, description and sub_area', async (t) => {

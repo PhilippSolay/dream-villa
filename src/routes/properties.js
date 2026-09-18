@@ -137,6 +137,10 @@ const listQuerySchema = {
     min: { type: 'integer', minimum: 0 },
     max: { type: 'integer', minimum: 0 },
     beach: { type: 'number', minimum: 0 },
+    land_min: { type: 'integer', minimum: 0 },
+    land_max: { type: 'integer', minimum: 0 },
+    build_min: { type: 'integer', minimum: 0 },
+    build_max: { type: 'integer', minimum: 0 },
     bedrooms: { type: 'string' },
     features: { type: 'string' },
     furnished: { type: 'string', enum: ['1', '0', 'any'] },
@@ -194,6 +198,25 @@ function buildListWhere(query) {
   if (query.beach !== undefined) {
     where.push('(beach_km IS NULL OR beach_km <= ?)');
     params.push(query.beach);
+  }
+
+  // Land/building size: same soft-filter shape as beach — an unmeasured row never
+  // gets excluded just because the slider moved off its default.
+  if (query.land_min !== undefined) {
+    where.push('(land_m2 IS NULL OR land_m2 >= ?)');
+    params.push(query.land_min);
+  }
+  if (query.land_max !== undefined) {
+    where.push('(land_m2 IS NULL OR land_m2 <= ?)');
+    params.push(query.land_max);
+  }
+  if (query.build_min !== undefined) {
+    where.push('(build_m2 IS NULL OR build_m2 >= ?)');
+    params.push(query.build_min);
+  }
+  if (query.build_max !== undefined) {
+    where.push('(build_m2 IS NULL OR build_m2 <= ?)');
+    params.push(query.build_max);
   }
 
   const bedrooms = listParam(query.bedrooms);

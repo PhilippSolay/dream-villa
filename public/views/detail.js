@@ -1,7 +1,7 @@
 // #/p/:id — five tabs (SPEC §5 "Detail"). The active tab lives in the hash query (?tab=).
 
 import {
-  $, $$, html, setHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing, copyText,
+  $, $$, html, raw, setHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing, copyText,
   STATUS_LABELS, redFlagLabel, makassarDate,
 } from '../lib/ui.js';
 import { TEMPLATES, fill } from '../lib/templates.js';
@@ -11,10 +11,14 @@ import { renderPriceBand } from './market.js';
 const TABS = [
   ['listing', 'Listing'],
   ['contact', 'Contact'],
-  ['agent', 'From the agent'],
+  ['agent', 'Agent'],
   ['viewing', 'Viewing'],
   ['ratings', 'Ratings'],
+  ['messages', 'Messages'],
 ];
+
+// The pipeline, in order, with Reject held back for its own danger button at the end.
+const PIPELINE = Object.keys(STATUS_LABELS).filter((s) => s !== 'rejected');
 
 // ---------------------------------------------------------------------------
 // View
@@ -28,13 +32,13 @@ export async function mountDetail(el, ctx) {
   let p = null;
   let alive = true;
   let market = null; // /api/market, fetched once per mount for the area price band
+  let miniMap = null; // Leaflet instance for the Location block; torn down on every re-render
 
   setHtml(el, html`<p class="loading">Loading…</p>`);
 
   function header() {
     const areaLabel = areas.find((a) => a.id === p.area)?.label || p.area;
     return html`<div class="detail-head">
-      <a class="btn btn-sm btn-ghost" href="#/" style="justify-self:start">${icons.back()} Back</a>
       <h1 class="detail-title">${p.title}</h1>
       <div class="detail-facts">
         <span class="detail-price mono">${priceLabel(p)}</span>
@@ -49,35 +53,55 @@ export async function mountDetail(el, ctx) {
     </div>`;
   }
 
+  /** The first scan: photos, then read, then tap a status. Lives above the tabs, so it
+      is reachable from every tab. */
+  function statusRow() {
+    const button = (status, label, extra = '') => html`<button type="button"
+      class="status-btn${raw(extra)}" data-action="status" data-status="${status}"
+      aria-pressed="${String(p.status === status)}">${label}</button>`;
+    return html`<div class="status-row" role="group" aria-label="Status">
+      ${PIPELINE.map((s) => button(s, STATUS_LABELS[s]))}
+      ${button('rejected', 'Reject', ' status-btn-danger')}
+    </div>`;
+  }
+
   function gallery() {
     const urls = p.image_urls || [];
-    if (!urls.length) return html`<div class="card-media" style="border-radius:var(--radius)"><span class="placeholder">No photos</span></div>`;
-    return html`<div>
+    if (!urls.length) {
+      return html`<div class="gallery-wrap"><div class="gallery-empty"><span class="placeholder">No photos</span></div></div>`;
+    }
+    return html`<div class="gallery-wrap">
       <div class="gallery" id="gallery" tabindex="0" aria-label="Photos of ${p.title}">
         ${urls.map((u) => html`<img src="${u}" alt="" loading="lazy" decoding="async" />`)}
       </div>
-      <div class="gallery-count" id="gallery-count">1 / ${urls.length}</div>
+      ${urls.length > 1
+        ? html`<button type="button" class="gallery-nav gallery-prev" data-gallery="prev" aria-label="Previous photo">${icons.back()}</button>
+            <button type="button" class="gallery-nav gallery-next" data-gallery="next" aria-label="Next photo">${icons.forward()}</button>`
+        : ''}
+      <div class="gallery-count mono" id="gallery-count" aria-live="off">1 / ${urls.length}</div>
     </div>`;
   }
 
   function render() {
     setHtml(
       el,
-      html`<div class="detail-layout">
-        <div class="detail-left">${header()}${gallery()}</div>
-        <div class="detail-right">
-          <div class="tabs" role="tablist">
-            ${TABS.map(
-              ([key, label]) => html`<button type="button" class="tab-btn" role="tab" data-tab="${key}"
-                aria-selected="${String(tab === key)}">${label}</button>`
-            )}
-          </div>
-          <div id="tab-panel">${PANELS[tab](p, areas)}</div>
+      html`<div class="detail-page">
+        <a class="btn btn-sm btn-ghost detail-back" href="#/">${icons.back()} Back</a>
+        ${gallery()}
+        ${header()}
+        ${statusRow()}
+        <div class="tabs" role="tablist">
+          ${TABS.map(
+            ([key, label]) => html`<button type="button" class="tab-btn" role="tab" data-tab="${key}"
+              aria-selected="${String(tab === key)}">${label}</button>`
+          )}
         </div>
+        <div id="tab-panel">${PANELS[tab](p, areas)}</div>
       </div>`
     );
 
     fillPriceBand();
+    mountMiniMap();
 
     const strip = $('#gallery', el);
     if (strip) {
@@ -90,6 +114,24 @@ export async function mountDetail(el, ctx) {
         counter.textContent = `${Math.min(index, total)} / ${total}`;
       });
     }
+  }
+
+  /** Leaflet mini map in the Location block. Google's embed is blocked in some webviews,
+      so we draw the pin ourselves with the Leaflet that index.html already loads. */
+  function mountMiniMap() {
+    miniMap?.remove();
+    miniMap = null;
+    const node = $('#mini-map', el);
+    if (!node || !window.L) return;
+    const lat = Number(node.dataset.lat);
+    const lng = Number(node.dataset.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    miniMap = window.L.map(node, { scrollWheelZoom: false, dragging: true }).setView([lat, lng], 15);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    }).addTo(miniMap);
+    window.L.marker([lat, lng]).addTo(miniMap);
   }
 
   /** The area's p25–median–p75 band with this villa's price on it (Listing tab). */
@@ -131,8 +173,13 @@ export async function mountDetail(el, ctx) {
   async function onActionClick(event) {
     const button = event.target.closest('button, a[data-tab]');
     if (!button) return;
-    const { action, tab: nextTab, feature, status, flag, key } = button.dataset;
+    const { action, tab: nextTab, feature, status, flag, key, gallery: step } = button.dataset;
 
+    if (step) {
+      const strip = $('#gallery', el);
+      if (strip) strip.scrollBy({ left: (step === 'prev' ? -1 : 1) * strip.clientWidth, behavior: 'smooth' });
+      return;
+    }
     if (nextTab) {
       tab = nextTab;
       location.hash = `#/p/${id}?tab=${nextTab}`;
@@ -272,6 +319,8 @@ export async function mountDetail(el, ctx) {
 
   const unmount = () => {
     alive = false;
+    miniMap?.remove();
+    miniMap = null;
     el.removeEventListener('click', onActionClick);
     el.removeEventListener('click', onToggleClick);
     el.removeEventListener('submit', onSubmit);

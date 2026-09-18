@@ -43,6 +43,7 @@ export function navigate(to, { replace = false } = {}) {
 export function createRouter({ outlet, load, onRoute }) {
   let unmount = null;
   let current = null;
+  let currentParams = null;
   let token = 0;
   const scrollByRoute = new Map();
 
@@ -54,7 +55,8 @@ export function createRouter({ outlet, load, onRoute }) {
     if (current === 'home') scrollByRoute.set('home', window.scrollY);
 
     // Same view, different query (tab switch) — let the view read it without a remount.
-    if (current === route.name && route.name === 'detail' && unmount?.onQuery) {
+    // Same villa, different ?tab= → update in place. A different :id remounts.
+    if (current === route.name && route.name === 'detail' && unmount?.onQuery && currentParams?.id === route.params?.id) {
       unmount.onQuery(query, route.params);
       onRoute?.(route, query);
       return;
@@ -72,6 +74,7 @@ export function createRouter({ outlet, load, onRoute }) {
     outlet.innerHTML = '';
     outlet.setAttribute('data-view', route.name);
     current = route.name;
+    currentParams = route.params || null;
     onRoute?.(route, query);
 
     let mount;

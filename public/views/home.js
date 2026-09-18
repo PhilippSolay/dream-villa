@@ -11,6 +11,12 @@ const PRICE_MIN_M = 15;
 const PRICE_MAX_M = 80;
 const PRICE_STEP_M = 0.5;
 const BEACH_MAX_KM = 10;
+const LAND_MIN_M2 = 0;
+const LAND_MAX_M2 = 2000;
+const LAND_STEP_M2 = 50;
+const BUILD_MIN_M2 = 0;
+const BUILD_MAX_M2 = 600;
+const BUILD_STEP_M2 = 10;
 const SORTS = [['fit', 'Fit'], ['price', 'Price'], ['beach', 'Beach'], ['new', 'Newest']];
 const BEDROOMS = [1, 2, 3, 4];
 const FEATURES = Object.keys(FEATURE_LABELS);
@@ -129,6 +135,28 @@ function buildFilterPanel({ areas, onChange, sources }) {
     </div>
 
     <div class="filter-group">
+      <span class="label">Land size</span>
+      <div class="range-readout"><span class="mono" data-role="land-readout">0 – 2000 m²</span></div>
+      <div class="range-dual">
+        <input type="range" data-role="land-min" min="${LAND_MIN_M2}" max="${LAND_MAX_M2}" step="${LAND_STEP_M2}"
+          aria-label="Lowest land size, square metres" />
+        <input type="range" data-role="land-max" min="${LAND_MIN_M2}" max="${LAND_MAX_M2}" step="${LAND_STEP_M2}"
+          aria-label="Highest land size, square metres" />
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <span class="label">House size</span>
+      <div class="range-readout"><span class="mono" data-role="build-readout">0 – 600 m²</span></div>
+      <div class="range-dual">
+        <input type="range" data-role="build-min" min="${BUILD_MIN_M2}" max="${BUILD_MAX_M2}" step="${BUILD_STEP_M2}"
+          aria-label="Lowest house size, square metres" />
+        <input type="range" data-role="build-max" min="${BUILD_MIN_M2}" max="${BUILD_MAX_M2}" step="${BUILD_STEP_M2}"
+          aria-label="Highest house size, square metres" />
+      </div>
+    </div>
+
+    <div class="filter-group">
       <span class="label">Furnishing</span>
       <div class="seg" data-role="furnished" role="group" aria-label="Furnishing">
         <button type="button" value="any" aria-pressed="true">Any</button>
@@ -186,10 +214,16 @@ function buildFilterPanel({ areas, onChange, sources }) {
   const readouts = {
     price: $('[data-role="price-readout"]', panel),
     beach: $('[data-role="beach-readout"]', panel),
+    land: $('[data-role="land-readout"]', panel),
+    build: $('[data-role="build-readout"]', panel),
   };
   const minEl = $('[data-role="min"]', panel);
   const maxEl = $('[data-role="max"]', panel);
   const beachEl = $('[data-role="beach"]', panel);
+  const landMinEl = $('[data-role="land-min"]', panel);
+  const landMaxEl = $('[data-role="land-max"]', panel);
+  const buildMinEl = $('[data-role="build-min"]', panel);
+  const buildMaxEl = $('[data-role="build-max"]', panel);
 
   /** Paint the panel from the filter state (never rebuilt — a drag keeps its grip). */
   function sync(f) {
@@ -217,6 +251,18 @@ function buildFilterPanel({ areas, onChange, sources }) {
       f.min == null && f.max == null ? `${PRICE_MIN_M} – ${PRICE_MAX_M} M · any` : `${trim(minM)} – ${trim(maxM)} M`;
     beachEl.value = String(f.beach ?? BEACH_MAX_KM);
     readouts.beach.textContent = f.beach == null ? 'any distance' : `${f.beach} km`;
+    const landLo = f.land_min ?? LAND_MIN_M2;
+    const landHi = f.land_max ?? LAND_MAX_M2;
+    landMinEl.value = String(landLo);
+    landMaxEl.value = String(landHi);
+    readouts.land.textContent =
+      f.land_min == null && f.land_max == null ? `${LAND_MIN_M2} – ${LAND_MAX_M2} m² · any` : `${landLo} – ${landHi} m²`;
+    const buildLo = f.build_min ?? BUILD_MIN_M2;
+    const buildHi = f.build_max ?? BUILD_MAX_M2;
+    buildMinEl.value = String(buildLo);
+    buildMaxEl.value = String(buildHi);
+    readouts.build.textContent =
+      f.build_min == null && f.build_max == null ? `${BUILD_MIN_M2} – ${BUILD_MAX_M2} m² · any` : `${buildLo} – ${buildHi} m²`;
     $('[data-role="source"]', panel).value = f.source || '';
     $('[data-role="assessed"]', panel).checked = f.assessed === 'done';
     $('[data-role="hide-rejected"]', panel).checked =
@@ -264,6 +310,30 @@ function buildFilterPanel({ areas, onChange, sources }) {
       const any = km >= BEACH_MAX_KM;
       readouts.beach.textContent = any ? 'any distance' : `${km} km`;
       onChange({ beach: any ? null : km });
+    } else if (role === 'land-min' || role === 'land-max') {
+      let lo = Number(landMinEl.value);
+      let hi = Number(landMaxEl.value);
+      if (lo > hi) {
+        if (role === 'land-min') hi = lo;
+        else lo = hi;
+        landMinEl.value = String(lo);
+        landMaxEl.value = String(hi);
+      }
+      const full = lo === LAND_MIN_M2 && hi === LAND_MAX_M2;
+      readouts.land.textContent = full ? `${LAND_MIN_M2} – ${LAND_MAX_M2} m² · any` : `${lo} – ${hi} m²`;
+      onChange({ land_min: full ? null : lo, land_max: full ? null : hi });
+    } else if (role === 'build-min' || role === 'build-max') {
+      let lo = Number(buildMinEl.value);
+      let hi = Number(buildMaxEl.value);
+      if (lo > hi) {
+        if (role === 'build-min') hi = lo;
+        else lo = hi;
+        buildMinEl.value = String(lo);
+        buildMaxEl.value = String(hi);
+      }
+      const full = lo === BUILD_MIN_M2 && hi === BUILD_MAX_M2;
+      readouts.build.textContent = full ? `${BUILD_MIN_M2} – ${BUILD_MAX_M2} m² · any` : `${lo} – ${hi} m²`;
+      onChange({ build_min: full ? null : lo, build_max: full ? null : hi });
     } else if (event.target.id === 'f-q') {
       onChange({ q: event.target.value.trim() });
     }
