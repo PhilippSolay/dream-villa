@@ -1513,7 +1513,6 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
   scrollbar-width: none;
 }
 .flow-strip::-webkit-scrollbar { display: none; }
-.flow-strip-label { flex: none; font-family: var(--display); font-size: 17px; color: var(--muted); margin-right: 4px; }
 .flow-chip {
   flex: 0 0 auto;
   display: inline-flex;

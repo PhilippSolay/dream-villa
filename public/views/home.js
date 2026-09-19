@@ -668,7 +668,6 @@ export async function mountHome(el, ctx) {
             ${SORTS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
           </div>
           <div class="flow-strip" id="flow-strip" role="group" aria-label="Work through the listings">
-            <span class="flow-strip-label">Work through</span>
             ${STAGE_ORDER.map(
               (stage) => html`<button type="button" class="flow-chip" data-stage="${stage}" disabled title="${STAGES[stage].hint}">
                 <span>${STAGES[stage].label}</span><b class="mono" data-count>…</b></button>`
