@@ -136,6 +136,15 @@ export const FEATURE_LABELS = {
   living_open: 'Open living',
 };
 
+export const STYLE_LABELS = {
+  modern: 'Modern',
+  tropical: 'Tropical',
+  joglo: 'Joglo',
+  balinese_old: 'Old Balinese',
+  industrial: 'Industrial',
+  bamboo: 'Bamboo',
+};
+
 export const RED_FLAG_LABELS = {
   construction: 'Construction',
   main_road: 'Main road',

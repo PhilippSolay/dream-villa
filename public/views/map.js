@@ -3,6 +3,8 @@
 // ctx.store. Leaflet is expected as window.L (loaded by the shell); this module
 // loads it itself as a fallback. Styles live in views/charts.css (injected once).
 
+import { filtersToQuery } from '../lib/filters.js';
+
 const CHARTS_CSS_HREF = 'views/charts.css';
 const LEAFLET_VERSION = '1.9.4';
 const LEAFLET_JS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
@@ -136,19 +138,11 @@ async function resolveAreas(ctx) {
 }
 
 /** Filters (same names/values as GET /api/properties) → a query string, +limit=500. */
+// The list query is built by the shared filters module: it knows which filter keys the
+// API accepts and how (e.g. the client-only sort 'worth' goes out as 'fit'). A hand-rolled
+// dump of the filter object here once sent sort=worth and got a 400 for every map load.
 function buildQuery(filters) {
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters || {})) {
-    if (v == null || v === '') continue;
-    if (Array.isArray(v)) {
-      if (!v.length) continue;
-      params.set(k, v.join(','));
-    } else {
-      params.set(k, String(v));
-    }
-  }
-  params.set('limit', '500');
-  return params.toString();
+  return filtersToQuery(filters || {}, { limit: 500 });
 }
 
 /** Distinct beach points (deduped by name) across every area. */
@@ -188,6 +182,7 @@ function legendHtml() {
     <div><span class="map-legend-dot" style="background:var(--gold)"></span>Shortlist / contacted / booked</div>
     <div><span class="map-legend-dot" style="background:var(--ok)"></span>Viewed / offer</div>
     <div><span class="map-legend-dot" style="background:var(--danger)"></span>Rejected</div>
+    <div><span class="map-legend-dot map-legend-anchor"></span>Your places</div>
     <div class="map-legend-ring">Ring = 4 km from beach</div>
   `;
 }
@@ -270,6 +265,23 @@ export async function mountMap(el, ctx) {
       fill: false,
     }).bindTooltip(beach.name, { direction: 'top', sticky: true }).addTo(ringsLayer);
   }
+
+  // The people's own places (anchors): gold diamonds with the name on hover.
+  const anchorsLayer = L.layerGroup().addTo(map);
+  ctx.api
+    .get('/api/anchors')
+    .then((list) => {
+      if (destroyed) return;
+      for (const a of list || []) {
+        L.marker([a.lat, a.lng], {
+          icon: L.divIcon({ className: 'map-anchor', html: '<span></span>', iconSize: [16, 16], iconAnchor: [8, 8] }),
+          keyboard: false,
+        })
+          .bindTooltip(a.name, { direction: 'top', offset: [0, -8] })
+          .addTo(anchorsLayer);
+      }
+    })
+    .catch(() => {}); // anchors are decoration on the map; a failed fetch just leaves them off
 
   const legend = L.control({ position: 'bottomleft' });
   legend.onAdd = () => {

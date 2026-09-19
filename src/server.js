@@ -15,6 +15,7 @@ import agentRoutes from './routes/agent.js';
 import statsRoutes from './routes/stats.js';
 import importRoutes from './routes/import.js';
 import duplicatesRoutes from './routes/duplicates.js';
+import anchorsRoutes from './routes/anchors.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -52,6 +53,7 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
   await app.register(statsRoutes, { db, env });
   await app.register(importRoutes, { db, env });
   await app.register(duplicatesRoutes, { db, env });
+  await app.register(anchorsRoutes, { db, env });
 
   return app;
 }

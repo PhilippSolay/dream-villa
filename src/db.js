@@ -147,6 +147,18 @@ export const MIGRATIONS = [
         UNIQUE(property_id, by)
       );`),
   },
+  // Anchors: the people's own places (gym, school, co-working). Distances to them are
+  // derived on every row; the scraper never writes here.
+  {
+    name: '005_anchors',
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS anchors (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        lat REAL NOT NULL, lng REAL NOT NULL,
+        by INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );`),
+  },
 ];
 
 function runMigrations(db) {
