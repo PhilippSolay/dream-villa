@@ -87,6 +87,11 @@ export async function mountDetail(el, ctx) {
   // filtered/sorted order). A deep link or reload has no list yet, so fetch the current
   // filters once and adopt that order instead.
 
+  // A listing opened from the map, the market tables, the agent page or a shared link can
+  // sit outside the current filters; then the pager walks the whole market instead, newest
+  // first, so there is always a next/previous property to explore.
+  const EVERYTHING_QUERY = 'scope=all&status=all&hide_gone=0&removed=show&sort=new&limit=500';
+
   async function ensureListIds() {
     const ids = store.get().list_ids;
     if (Array.isArray(ids) && ids.includes(id)) {
@@ -97,8 +102,15 @@ export async function mountDetail(el, ctx) {
       const fetched = await api.get(`/api/properties?${filtersToQuery(store.get().filters, { limit: 500 })}`);
       if (!alive) return;
       const fresh = fetched.map((r) => r.id);
-      store.set({ list_ids: fresh });
-      listIds = fresh.includes(id) ? fresh : null;
+      if (fresh.includes(id)) {
+        store.set({ list_ids: fresh });
+        listIds = fresh;
+        return;
+      }
+      const everything = await api.get(`/api/properties?${EVERYTHING_QUERY}`);
+      if (!alive) return;
+      const all = everything.map((r) => r.id);
+      listIds = all.includes(id) ? all : null;
     } catch {
       listIds = null; // a pager that fails to resolve is never worth a red box — just hide it
     }

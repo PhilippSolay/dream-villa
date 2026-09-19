@@ -332,7 +332,10 @@ export async function mountMap(el, ctx) {
       return;
     }
     if (seq !== requestSeq || destroyed) return;
-    drawMarkers(Array.isArray(rows) ? rows : []);
+    const list = Array.isArray(rows) ? rows : [];
+    drawMarkers(list);
+    // The detail page's prev/next pager follows whatever the map last drew.
+    ctx.store.set({ list_ids: list.map((p) => p.id) });
   }
 
   const initialFilters = (ctx.store.get() || {}).filters || {};
