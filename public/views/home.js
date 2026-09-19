@@ -667,15 +667,15 @@ export async function mountHome(el, ctx) {
           <div class="seg" id="sort" role="group" aria-label="Sort listings">
             ${SORTS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
           </div>
+          <div class="flow-strip" id="flow-strip" role="group" aria-label="Work through the listings">
+            <span class="flow-strip-label">Work through</span>
+            ${STAGE_ORDER.map(
+              (stage) => html`<button type="button" class="flow-chip" data-stage="${stage}" disabled title="${STAGES[stage].hint}">
+                <span>${STAGES[stage].label}</span><b class="mono" data-count>…</b></button>`
+            )}
+          </div>
+          <span class="small muted toolbar-count" id="list-count"></span>
         </div>
-        <div class="flow-strip" id="flow-strip" role="group" aria-label="Work through the listings">
-          <span class="flow-strip-label">Work through</span>
-          ${STAGE_ORDER.map(
-            (stage) => html`<button type="button" class="flow-chip" data-stage="${stage}" disabled title="${STAGES[stage].hint}">
-              <span>${STAGES[stage].label}</span><b class="mono" data-count>…</b></button>`
-          )}
-        </div>
-        <div class="section-head"><h2 id="list-title">Listings</h2><span class="small muted" id="list-count"></span></div>
         <div class="grid" id="grid"><p class="loading">Loading…</p></div>
         <p class="small muted" id="updated"></p>
       </div>
