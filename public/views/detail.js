@@ -332,25 +332,33 @@ export async function mountDetail(el, ctx) {
       slide of view. Native loading="lazy" cannot do this: Safari re-evaluates lazy images
       on document scroll only, so a photo inside the horizontal strip never loads on a
       desktop where the page itself does not move (a blank frame at "3 / 12"). */
+  function revealPhoto(img) {
+    if (!img?.dataset.src) return;
+    img.src = img.dataset.src;
+    delete img.dataset.src;
+  }
+
+  /** The slide at `index` (0-based) and its two neighbours get their src. Driven by the
+      strip's own scroll events, so it works even where the observer below does not fire. */
+  function revealAround(strip, index) {
+    const photos = strip.children;
+    for (let i = index - 1; i <= index + 1; i += 1) revealPhoto(photos[i]);
+  }
+
   function watchGallery(strip) {
     galleryObserver?.disconnect();
     galleryObserver = null;
     const pending = $$('img[data-src]', strip);
     if (!pending.length) return;
-    const load = (img) => {
-      if (!img.dataset.src) return;
-      img.src = img.dataset.src;
-      delete img.dataset.src;
-    };
     if (typeof IntersectionObserver !== 'function') {
-      pending.forEach(load);
+      pending.forEach(revealPhoto);
       return;
     }
     galleryObserver = new IntersectionObserver(
       (entries, observer) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          load(entry.target);
+          revealPhoto(entry.target);
           observer.unobserve(entry.target);
         }
       },
@@ -368,6 +376,7 @@ export async function mountDetail(el, ctx) {
     const count = strip.children.length;
     const index = Math.round(strip.scrollLeft / width);
     const next = (index + direction + count) % count;
+    revealAround(strip, next);
     strip.scrollTo({ left: next * width, behavior: 'smooth' });
   }
 
@@ -434,6 +443,7 @@ export async function mountDetail(el, ctx) {
         const total = p.image_urls.length;
         const index = Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth)) + 1;
         counter.textContent = `${Math.min(index, total)} / ${total}`;
+        revealAround(strip, index - 1);
       });
     }
   }
