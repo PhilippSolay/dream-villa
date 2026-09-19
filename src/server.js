@@ -30,8 +30,16 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
   const imagesDir = path.resolve(ROOT, env.IMAGES_DIR || 'data/images');
   fs.mkdirSync(imagesDir, { recursive: true });
 
-  await app.register(fastifyStatic, { root: publicDir, prefix: '/' });
-  await app.register(fastifyStatic, { root: imagesDir, prefix: '/images/', decorateReply: false });
+  // App files revalidate on every load (etag → 304), so a deploy is visible at once. Behind
+  // Cloudflare a `public, max-age` would be held for hours by both the edge and the phone.
+  // Listing images never change under a given path, so those may be cached for a month.
+  await app.register(fastifyStatic, {
+    root: publicDir,
+    prefix: '/',
+    cacheControl: false,
+    setHeaders: (reply) => reply.header('Cache-Control', 'no-cache'), // @fastify/static 10 hands over the Fastify reply
+  });
+  await app.register(fastifyStatic, { root: imagesDir, prefix: '/images/', decorateReply: false, maxAge: '30d' });
 
   app.get('/healthz', async (request, reply) => {
     let dbOk = false;
