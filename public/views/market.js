@@ -253,7 +253,7 @@ function renderStatTiles(stats) {
   const goneWindow = (stats.daily || []).reduce((a, d) => a + d.gone, 0);
   const tiles = [
     ['In filter', sum(stats.by_area, 'in_filter')],
-    ['Flagged', sum(stats.by_area, 'flagged')],
+    ['Featured', sum(stats.by_area, 'flagged')],
     ['Shortlist+', shortlistPlus],
     ['Viewed', sum(stats.by_area, 'viewed')],
     ['New (7d)', newLast7],
@@ -374,7 +374,7 @@ function renderBySourceTable(rows) {
       <td class="mkt-mono">${fmtMoney(r.median_price)}</td>
     </tr>`).join('');
   return `<div class="mkt-table-wrap"><table class="mkt-table">
-    <thead><tr><th>Source</th><th>Listings</th><th>In filter</th><th>Flagged</th><th>Median</th></tr></thead>
+    <thead><tr><th>Source</th><th>Listings</th><th>In filter</th><th>Featured</th><th>Median</th></tr></thead>
     <tbody>${body}</tbody>
   </table></div>`;
 }
@@ -463,7 +463,7 @@ function renderCounts(counts) {
   return `<div class="mkt-counts">
     <span><strong>${c.in_filter ?? 0}</strong> in filter</span>
     <span><strong>${c.market ?? 0}</strong> market</span>
-    <span><strong>${c.flagged ?? 0}</strong> flagged</span>
+    <span><strong>${c.flagged ?? 0}</strong> featured</span>
     <span><strong>${c.shortlist ?? 0}</strong> shortlist</span>
     <span><strong>${c.gone ?? 0}</strong> gone</span>
   </div>`;
@@ -894,7 +894,7 @@ function renderSourceShare(rows) {
     </tr>`)
     .join('');
   return `<div class="mkt-table-wrap"><table class="mkt-table">
-    <thead><tr><th>Source</th><th>Listings</th><th>In filter</th><th>Share</th><th>Flagged</th><th>Share</th></tr></thead>
+    <thead><tr><th>Source</th><th>Listings</th><th>In filter</th><th>Share</th><th>Featured</th><th>Share</th></tr></thead>
     <tbody>${body}</tbody></table></div>`;
 }
 

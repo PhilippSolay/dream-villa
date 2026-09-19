@@ -82,7 +82,7 @@ export function cardHtml(p, areas, { reason = false } = {}) {
           ${removed
             ? html`<span class="pill pill-removed" title="Removed${p.removed_at ? ` · ${dayLabel(p.removed_at)}` : ''}">Removed</span>`
             : ''}
-          ${p.flagged ? html`<span class="pill pill-flagged">Flagged</span>` : ''}
+          ${p.flagged ? html`<span class="pill pill-flagged">Featured</span>` : ''}
         </span>
         <span class="card-ring">${fitRing(p.fit_score, 40)}</span>
       </div>
@@ -122,6 +122,33 @@ function checkboxes(items, name) {
   );
 }
 
+/** One coast: its heading with All / Clear, then the checkboxes. Both coasts feed the one `area` filter. */
+function areaGroup(label, key, items) {
+  return html`<div class="group-head">
+      <span class="group-label">${label}</span>
+      <span class="group-actions">
+        <button type="button" class="link-btn" data-area-set="${key}" data-area-mode="all">All</button>
+        <button type="button" class="link-btn" data-area-set="${key}" data-area-mode="none">Clear</button>
+      </span>
+    </div>
+    <div class="filter-cols">${checkboxes(items, 'area')}</div>`;
+}
+
+/** Position of a range input's value along its track, as a CSS percentage. */
+function rangePct(input) {
+  const min = Number(input.min);
+  const max = Number(input.max);
+  const span = max - min || 1;
+  return `${((Number(input.value) - min) / span) * 100}%`;
+}
+
+/** Summary line for the collapsed Area group: "Any", the names, or a count. */
+function areaHint(selected, areas) {
+  if (!selected.length) return 'Any';
+  if (selected.length > 2) return `${selected.length} selected`;
+  return selected.map((id) => areas.find((a) => a.id === id)?.label || id).join(', ');
+}
+
 function buildFilterPanel({ areas, onChange, sources }) {
   const panel = document.createElement('form');
   panel.className = 'filters';
@@ -136,13 +163,14 @@ function buildFilterPanel({ areas, onChange, sources }) {
       <input type="search" id="f-q" data-filter="q" placeholder="Title, ref or words" />
     </div>
 
-    <div class="filter-group">
-      <span class="label">Area</span>
-      <div class="group-label">West coast</div>
-      <div class="filter-cols">${checkboxes(west, 'area')}</div>
-      <div class="group-label">Bukit</div>
-      <div class="filter-cols">${checkboxes(bukit, 'bukit-area')}</div>
-    </div>
+    <details class="filter-group filter-area" open>
+      <summary>
+        <span class="label">Area</span>
+        <span class="summary-hint"><span data-role="area-hint">Any</span>${icons.chevron()}</span>
+      </summary>
+      ${areaGroup('West coast', 'west', west)}
+      ${areaGroup('Bukit', 'bukit', bukit)}
+    </details>
 
     <div class="filter-group">
       <span class="label">Bedrooms</span>
@@ -256,8 +284,17 @@ function buildFilterPanel({ areas, onChange, sources }) {
     <button type="button" class="btn btn-sm" data-role="reset">Reset filters</button>`
   );
 
-  // Areas are two blocks but one filter; normalise the second block's name.
-  for (const input of $$('[data-filter="bukit-area"]', panel)) input.dataset.filter = 'area';
+  /** Gold fill between the thumbs (dual) or up to the thumb (single) — CSS reads these vars. */
+  function paintRanges() {
+    for (const dual of $$('.range-dual', panel)) {
+      const [lo, hi] = $$('input[type="range"]', dual);
+      dual.style.setProperty('--lo', rangePct(lo));
+      dual.style.setProperty('--hi', rangePct(hi));
+    }
+    for (const single of $$('input[type="range"]:not(.range-dual input)', panel)) {
+      single.style.setProperty('--val', rangePct(single));
+    }
+  }
 
   const readouts = {
     price: $('[data-role="price-readout"]', panel),
@@ -322,6 +359,8 @@ function buildFilterPanel({ areas, onChange, sources }) {
     $('[data-role="hide-rejected"]', panel).checked =
       !(f.status || []).includes('rejected') && !(f.status || []).includes('all');
     $('[data-role="in-filter"]', panel).checked = f.scope === 'in_filter';
+    $('[data-role="area-hint"]', panel).textContent = areaHint(f.area || [], areas);
+    paintRanges();
   }
 
   function listFrom(selector, key) {
@@ -389,13 +428,20 @@ function buildFilterPanel({ areas, onChange, sources }) {
     } else if (event.target.id === 'f-q') {
       onChange({ q: event.target.value.trim() });
     }
+    if (event.target.type === 'range') paintRanges();
   });
 
   panel.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    const { bedrooms, status } = button.dataset;
-    if (bedrooms) {
+    const { bedrooms, status, areaSet, areaMode } = button.dataset;
+    if (areaSet) {
+      const ids = (areaSet === 'west' ? west : bukit).map((a) => a.value);
+      onChange((f) => {
+        const rest = (f.area || []).filter((id) => !ids.includes(id));
+        return { area: areaMode === 'all' ? [...rest, ...ids] : rest };
+      });
+    } else if (bedrooms) {
       const n = Number(bedrooms);
       onChange((f) => ({
         bedrooms: (f.bedrooms || []).includes(n) ? f.bedrooms.filter((b) => b !== n) : [...(f.bedrooms || []), n].sort(),

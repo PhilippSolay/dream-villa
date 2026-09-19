@@ -79,6 +79,7 @@ export const icons = {
   external: () => svg('<path d="M11 4h5v5"/><path d="M16 4 9 11"/><path d="M14.5 12v3.5A1.5 1.5 0 0 1 13 17H5a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 5 6h3.5"/>'),
   back: () => svg('<path d="M12 4 6 10l6 6"/>'),
   forward: () => svg('<path d="m8 4 6 6-6 6"/>'),
+  chevron: () => svg('<path d="m5 8 5 5 5-5"/>'),
   close: () => svg('<path d="M5 5l10 10M15 5 5 15"/>'),
   plus: () => svg('<path d="M10 4.5v11M4.5 10h11"/>'),
   check: () => svg('<path d="M4.5 10.5 8 14l7.5-8"/>'),
