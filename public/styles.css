@@ -1419,6 +1419,16 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
 .who-no { background: var(--danger); border-color: transparent; color: #fff; }
 .pill-match { background: var(--ok); border-color: transparent; color: #fff; margin-left: 4px; }
 
+/* --- value: price per m² vs the area, yearly saving ----------------------- */
+.value-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.value-ppm2 { font-size: 13px; }
+.pill-vs-good { border-color: var(--ok); color: var(--ok); }
+.pill-vs-steep { border-color: var(--warn); color: var(--warn); }
+.pill-vs-par { border-color: var(--line-strong); color: var(--muted); }
+.pill-save { background: var(--gold-soft); border-color: transparent; color: var(--ink); }
+.card-body .value-row { margin-top: -2px; }
+.detail-head .value-row { margin-top: 2px; }
+
 .verdict-seg {
   display: inline-flex;
   gap: 2px;

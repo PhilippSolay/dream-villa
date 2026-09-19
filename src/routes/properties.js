@@ -119,14 +119,65 @@ function verdictsByProperty(db, ids) {
   return out;
 }
 
-/** Adds what the shared search needs on every row: the verdicts and who set the status. */
+// --- value: price per m² against the area, and what a yearly term saves -------
+
+function median(values) {
+  if (!values.length) return null;
+  const s = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
+}
+
+/** area → median monthly price per m² of house, over live listings that have both figures. */
+function areaMediansPerM2(db) {
+  const rows = db
+    .prepare(
+      `SELECT area, price_month_idr * 1.0 / build_m2 AS ppm2 FROM properties
+        WHERE build_m2 > 0 AND price_month_idr > 0
+          AND (availability IS NULL OR availability NOT IN ('gone', 'unlisted'))`
+    )
+    .all();
+  const byArea = new Map();
+  for (const r of rows) {
+    if (!byArea.has(r.area)) byArea.set(r.area, []);
+    byArea.get(r.area).push(r.ppm2);
+  }
+  const out = {};
+  for (const [area, values] of byArea) out[area] = Math.round(median(values));
+  return out;
+}
+
+/**
+ * Pure: the row's price per m² of house, the area's median, the gap in %, and the saving a
+ * yearly term offers over paying monthly (only when the listing really offers both — a
+ * yearly-only listing's monthly price is derived, so there is nothing to compare).
+ */
+export function valueFields(row, mediansByArea, area) {
+  const monthly = Number(row.price_month_idr) || 0;
+  const size = Number(row.build_m2) || 0;
+  const pricePerM2 = monthly > 0 && size > 0 ? Math.round(monthly / size) : null;
+  const areaMedian = mediansByArea[area] ?? null;
+  const vs = pricePerM2 != null && areaMedian ? Math.round((pricePerM2 / areaMedian - 1) * 100) : null;
+
+  const yearly = Number(row.price_year_idr) || 0;
+  let saving = null;
+  if (row.term === 'both' && monthly > 0 && yearly > 0) {
+    const pct = Math.round((1 - yearly / 12 / monthly) * 100);
+    if (pct > 0) saving = pct;
+  }
+  return { price_per_m2: pricePerM2, area_price_per_m2: areaMedian, vs_area_pct: vs, yearly_saving_pct: saving };
+}
+
+/** Adds the derived, person-facing fields to every row: verdicts, who set the status, value. */
 function withShared(db, rows) {
   const verdicts = verdictsByProperty(db, rows.map((r) => r.id));
   const names = userNames(db);
+  const medians = areaMediansPerM2(db);
   return rows.map((r) => ({
     ...r,
     verdicts: verdicts.get(r.id) || [],
     status_by_name: r.status_by == null ? null : names.get(r.status_by) || null,
+    ...valueFields(r, medians, r.area),
   }));
 }
 

@@ -10,6 +10,7 @@ import { renderPriceBand } from './market.js';
 import { filtersToQuery } from '../lib/filters.js';
 import { verdictPairHtml, verdictControlHtml, bindVerdicts, initialOf } from '../lib/verdicts.js';
 import { STAGES, isStage, loadStageIds, nextStage } from '../lib/flow.js';
+import { valueBadgesHtml } from '../lib/value.js';
 
 // Prev/next pager: property rows fetched ahead of need, keyed by id. Module-scoped so
 // it survives the remount that happens when navigating from one listing to the next
@@ -72,6 +73,7 @@ export async function mountDetail(el, ctx) {
         ${(p.red_flags || []).map((f) => html`<span class="pill pill-flag">${redFlagLabel(f)}</span>`)}
         ${fitRing(p.fit_score, 44)}
       </div>
+      ${valueBadgesHtml(p, areaLabel)}
     </div>`;
   }
 

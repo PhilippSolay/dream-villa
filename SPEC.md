@@ -318,3 +318,11 @@ The status pipeline is one shared value per listing. Alongside it, each person h
 - **Schema** (migration `004_verdicts`): `verdicts (id, property_id, by, verdict CHECK IN ('yes','maybe','no'), created_at, updated_at, UNIQUE(property_id, by))`. Person-owned: the scraper never writes it.
 - **API**: `POST /api/properties/:id/verdict {verdict: 'yes'|'maybe'|'no'|null}` upserts the caller's row (null deletes it) and returns the row payload. Every list and detail row carries `verdicts: [{by, by_name, verdict, updated_at}]` and `status_by_name`. `GET /api/properties?verdict=` filters relative to the caller: `match` (both yes), `waiting_me` (the other called, I have not), `waiting_other` (I called, the other has not), `disagree` (both called, differently), `unvoted` (nobody). `GET /api/me` also returns `users: [{id, name}]`.
 - **UI**: fifth section **Shared** (`#/shared`): Matches, Your turn, Waiting for ‹name›, Disagree, Fresh picks (featured and unvoted). Cards everywhere carry both initials coloured by call, a Match pill, and the viewer's Yes / Maybe / No (tap the pressed one to clear). The detail page shows the same row under the status buttons, and the pressed status button carries the initial of whoever set it. The filter panel gains a "Shared" chip group mapping to `verdict=`.
+
+## 13. Amendment 2026-09-19 — value fields
+
+Derived on every list and detail row, never stored:
+
+- `price_per_m2` = `round(price_month_idr / build_m2)` when both are present; `area_price_per_m2` = the area's median of that figure over live listings (not gone/unlisted); `vs_area_pct` = the gap in whole percent.
+- `yearly_saving_pct` = `round((1 − price_year_idr / 12 / price_month_idr) × 100)` only when `term = 'both'` and the saving is positive. A yearly-only listing has a derived monthly price, so it gets no badge.
+- UI: cards and the detail header show `200k/m²`, a pill "28% under" / "12% over" / "at par" (±3 % band) against the area, and "Yearly saves 18%".
