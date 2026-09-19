@@ -8,6 +8,7 @@ import { TEMPLATES, fill } from '../lib/templates.js';
 import { PANELS, RATING_FEATURES, VIEWING_SCALES, INCLUDED_KEYS } from './detail-panels.js';
 import { renderPriceBand } from './market.js';
 import { filtersToQuery } from '../lib/filters.js';
+import { verdictPairHtml, verdictControlHtml, bindVerdicts, initialOf } from '../lib/verdicts.js';
 
 // Prev/next pager: property rows fetched ahead of need, keyed by id. Module-scoped so
 // it survives the remount that happens when navigating from one listing to the next
@@ -73,12 +74,27 @@ export async function mountDetail(el, ctx) {
   /** The first scan: photos, then read, then tap a status. Lives above the tabs, so it
       is reachable from every tab. */
   function statusRow() {
+    // The pressed button carries the initial of whoever set it (SPEC: everything attributed).
+    const who = (status) =>
+      p.status === status && p.status_by_name
+        ? html`<span class="who who-set" title="Set by ${p.status_by_name}" aria-label="set by ${p.status_by_name}">${initialOf(p.status_by_name)}</span>`
+        : '';
     const button = (status, label, extra = '') => html`<button type="button"
       class="status-btn${raw(extra)}" data-action="status" data-status="${status}"
-      aria-pressed="${String(p.status === status)}">${label}</button>`;
+      aria-pressed="${String(p.status === status)}">${label}${who(status)}</button>`;
     return html`<div class="status-row" role="group" aria-label="Status">
       ${PIPELINE.map((s) => button(s, STATUS_LABELS[s]))}
       ${button('rejected', 'Reject', ' status-btn-danger')}
+    </div>`;
+  }
+
+  /** Shared search: both people's calls and the viewer's own Yes / Maybe / No. */
+  function verdictRow() {
+    const viewer = { user: store.get().user, users: store.get().users || [] };
+    if (!viewer.user) return '';
+    return html`<div class="verdict-row">
+      <div class="verdict-row-label"><span class="label">Your call</span>${verdictPairHtml(p, viewer)}</div>
+      ${verdictControlHtml(p, viewer.user.id)}
     </div>`;
   }
 
@@ -203,6 +219,7 @@ export async function mountDetail(el, ctx) {
         ${gallery()}
         ${header()}
         ${statusRow()}
+        ${verdictRow()}
         <div class="tabs" role="tablist">
           ${TABS.map(
             ([key, label]) => html`<button type="button" class="tab-btn" role="tab" data-tab="${key}"
@@ -547,11 +564,13 @@ export async function mountDetail(el, ctx) {
   el.addEventListener('click', onDuplicateClick);
   el.addEventListener('submit', onSubmit);
   window.addEventListener('keydown', onKeydown);
+  const unbindVerdicts = bindVerdicts(el, { api, onSaved: () => load({ skipCache: true }) });
 
   await load();
 
   const unmount = () => {
     alive = false;
+    unbindVerdicts();
     miniMap?.remove();
     miniMap = null;
     el.removeEventListener('click', onActionClick);

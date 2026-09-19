@@ -14,7 +14,7 @@ import { finishRow } from '../scrape/ingest.js';
 import { mapUrl } from '../scrape/pins.js';
 import {
   addRedFlags, badRequest, getProperty, heroUrl, imageUrls, imagesDirFor, int, jsonArray,
-  notFound, placeholders, readMultipart, rescoreOne, safeJson, saveImage, str, strictSchemas, withByName,
+  notFound, placeholders, readMultipart, rescoreOne, safeJson, saveImage, str, strictSchemas, userNames, withByName,
 } from './_common.js';
 
 const MAX_FILES = 10;
@@ -92,9 +92,62 @@ export function publicRow(row) {
   return { ...parsed, hero_url: heroUrl(parsed), reasons: reasonsFor(parsed), removed_at: removedAt };
 }
 
+// --- shared search: per-person verdicts -------------------------------------
+
+export const PERSON_VERDICTS = ['yes', 'maybe', 'no']; // (VERDICTS above belongs to viewings)
+/** List filters, all relative to the person asking (`request.user.id`). */
+export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'unvoted'];
+
+/** property_id → [{by, by_name, verdict, updated_at}] for the rows about to be returned. */
+function verdictsByProperty(db, ids) {
+  const out = new Map();
+  if (!ids.length) return out;
+  const rows = withByName(
+    db,
+    db
+      .prepare(
+        `SELECT property_id, by, verdict, updated_at FROM verdicts
+          WHERE property_id IN (${placeholders(ids)}) ORDER BY by`
+      )
+      .all(...ids)
+  );
+  for (const r of rows) {
+    const { property_id: pid, ...v } = r;
+    if (!out.has(pid)) out.set(pid, []);
+    out.get(pid).push(v);
+  }
+  return out;
+}
+
+/** Adds what the shared search needs on every row: the verdicts and who set the status. */
+function withShared(db, rows) {
+  const verdicts = verdictsByProperty(db, rows.map((r) => r.id));
+  const names = userNames(db);
+  return rows.map((r) => ({
+    ...r,
+    verdicts: verdicts.get(r.id) || [],
+    status_by_name: r.status_by == null ? null : names.get(r.status_by) || null,
+  }));
+}
+
+/** WHERE clause for `verdict=` — "mine" is the caller's call, "other" anyone else's. */
+function verdictWhere(filter, userId) {
+  const mine = '(SELECT verdict FROM verdicts WHERE property_id = properties.id AND by = ?)';
+  const other = '(SELECT verdict FROM verdicts WHERE property_id = properties.id AND by != ? ORDER BY updated_at DESC LIMIT 1)';
+  const sql = {
+    match: `${mine} = 'yes' AND ${other} = 'yes'`,
+    waiting_other: `${mine} IS NOT NULL AND ${other} IS NULL`,
+    waiting_me: `${mine} IS NULL AND ${other} IS NOT NULL`,
+    disagree: `${mine} IS NOT NULL AND ${other} IS NOT NULL AND ${mine} != ${other}`,
+    unvoted: `${mine} IS NULL AND ${other} IS NULL`,
+  }[filter];
+  const count = (sql.match(/\?/g) || []).length;
+  return { sql: `(${sql})`, params: new Array(count).fill(userId) };
+}
+
 function rowPayload(db, id) {
   const row = getProperty(db, id);
-  return row ? publicRow(row) : null;
+  return row ? withShared(db, [publicRow(row)])[0] : null;
 }
 
 /** '' → null, 'a,b' → ['a','b']. */
@@ -155,6 +208,7 @@ const listQuerySchema = {
     hide_gone: { type: 'integer', enum: [0, 1] },
     removed: { type: 'string', enum: ['hide', 'show', 'only'] },
     max_age_days: { type: 'integer', minimum: 1, maximum: 365 },
+    verdict: { type: 'string', enum: VERDICT_FILTERS },
     sort: { type: 'string', enum: Object.keys(SORT_SQL) },
     limit: { type: 'integer', minimum: 1, maximum: 500 },
     offset: { type: 'integer', minimum: 0 },
@@ -355,6 +409,11 @@ export default async function propertiesRoutes(app, opts) {
     const removedSecondary =
       query.removed === 'show' ? "CASE WHEN availability IN ('gone', 'unlisted') THEN 1 ELSE 0 END, " : '';
     const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
+    if (query.verdict) {
+      const v = verdictWhere(query.verdict, request.user.id);
+      built.where.push(v.sql);
+      built.params.push(...v.params);
+    }
     const whereSql = built.where.length ? `WHERE ${built.where.join(' AND ')}` : '';
 
     const rows = db
@@ -365,11 +424,14 @@ export default async function propertiesRoutes(app, opts) {
     const contacts = contactsByProperty(db, ids);
     const counts = countsByProperty(db, ids);
 
-    return rows.map((row) => ({
-      ...publicRow(row),
-      contacts: contacts.get(row.id) || [],
-      counts: counts.get(row.id) || { viewings: 0, ratings: 0, feedback: 0 },
-    }));
+    return withShared(
+      db,
+      rows.map((row) => ({
+        ...publicRow(row),
+        contacts: contacts.get(row.id) || [],
+        counts: counts.get(row.id) || { viewings: 0, ratings: 0, feedback: 0 },
+      }))
+    );
   });
 
   // --- detail -------------------------------------------------------------
@@ -402,18 +464,20 @@ export default async function propertiesRoutes(app, opts) {
       const ratings = withByName(db, db.prepare('SELECT * FROM ratings WHERE property_id = ? ORDER BY id DESC').all(id));
       const feedback = withByName(db, db.prepare('SELECT * FROM feedback WHERE property_id = ? ORDER BY id DESC').all(id));
 
-      return {
-        ...parsed,
-        hero_url: heroUrl(parsed),
-        image_urls: imageUrls(parsed),
-        reasons: reasonsFor(parsed),
-        price_history: parsed.price_history || [],
-        contacts,
-        agent_info: agentInfo,
-        viewings,
-        ratings,
-        feedback,
-      };
+      return withShared(db, [
+        {
+          ...parsed,
+          hero_url: heroUrl(parsed),
+          image_urls: imageUrls(parsed),
+          reasons: reasonsFor(parsed),
+          price_history: parsed.price_history || [],
+          contacts,
+          agent_info: agentInfo,
+          viewings,
+          ratings,
+          feedback,
+        },
+      ])[0];
     }
   );
 
@@ -582,6 +646,37 @@ export default async function propertiesRoutes(app, opts) {
       db.prepare('UPDATE properties SET status = ?, status_by = ?, status_at = ? WHERE id = ?')
         .run(request.body.status, request.user.id, nowIso(), id);
       rescoreOne(db, id);
+      return rowPayload(db, id);
+    }
+  );
+
+  // --- verdict (shared search) ----------------------------------------------
+  // One tap per person: yes / maybe / no, or null to take it back. Only the caller's own
+  // row moves; the other person's call is never touched from here.
+  app.post(
+    '/api/properties/:id/verdict',
+    {
+      ...auth,
+      schema: {
+        params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
+        body: {
+          type: 'object', additionalProperties: false, required: ['verdict'],
+          properties: { verdict: { type: ['string', 'null'], enum: [...PERSON_VERDICTS, null] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!getProperty(db, id)) return notFound(reply);
+      const { verdict } = request.body;
+      if (verdict === null) {
+        db.prepare('DELETE FROM verdicts WHERE property_id = ? AND by = ?').run(id, request.user.id);
+      } else {
+        db.prepare(
+          `INSERT INTO verdicts (property_id, by, verdict, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(property_id, by) DO UPDATE SET verdict = excluded.verdict, updated_at = excluded.updated_at`
+        ).run(id, request.user.id, verdict, nowIso(), nowIso());
+      }
       return rowPayload(db, id);
     }
   );

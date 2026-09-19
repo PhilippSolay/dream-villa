@@ -43,7 +43,7 @@ export async function mountLogin(el, ctx) {
     try {
       await api.post('/api/login', { email, password }, { skipAuthRedirect: true });
       const me = await api.get('/api/me');
-      store.set({ user: me.user });
+      store.set({ user: me.user, users: me.users || [] });
       const { areas } = await api.get('/api/areas');
       store.set({ areas });
       ctx.refreshCounts?.();

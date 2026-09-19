@@ -85,6 +85,7 @@ export const icons = {
   check: () => svg('<path d="M4.5 10.5 8 14l7.5-8"/>'),
   flag: () => svg('<path d="M5 17V4.5h9l-1.8 3 1.8 3H5"/>'),
   home: () => svg('<path d="M3.5 9 10 3.8 16.5 9v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1Z"/>'),
+  users: () => svg('<circle cx="7.5" cy="7" r="2.8"/><path d="M2.5 16.5c.6-3 2.6-4.6 5-4.6s4.4 1.6 5 4.6"/><circle cx="14" cy="8" r="2.3"/><path d="M13.4 12.3c2.2.3 3.7 1.8 4.2 4.2"/>'),
   map: () => svg('<path d="M3.5 5.6 7.5 4l5 1.8 4-1.6v10.2l-4 1.6-5-1.8-4 1.6Z"/><path d="M7.5 4v12.2M12.5 5.8V18"/>'),
   chart: () => svg('<path d="M3.5 16.5h13"/><path d="M6 13.5V9M10 13.5V5M14 13.5v-5"/>'),
   robot: () => svg('<rect x="4" y="7" width="12" height="8" rx="2.4"/><path d="M10 4v3"/><circle cx="7.8" cy="11" r=".9"/><circle cx="12.2" cy="11" r=".9"/>'),

@@ -164,7 +164,9 @@ export async function registerAuth(app, db, env = process.env) {
   app.get('/api/me', async (request, reply) => {
     const user = resolveUser(request);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
-    return { user };
+    // The roster (names only) lets the UI say "Waiting for Abigaïl" instead of "the other".
+    const users = db.prepare('SELECT id, name FROM users ORDER BY id').all();
+    return { user, users };
   });
 
   return app;

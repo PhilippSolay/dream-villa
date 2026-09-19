@@ -37,6 +37,7 @@ function isDark() {
 
 const TABS = [
   { route: 'home', href: '#/', label: 'Home', icon: icons.home },
+  { route: 'shared', href: '#/shared', label: 'Shared', icon: icons.users },
   { route: 'map', href: '#/map', label: 'Map', icon: icons.map },
   { route: 'market', href: '#/market', label: 'Market', icon: icons.chart },
   { route: 'agent', href: '#/agent', label: 'Agent', icon: icons.robot },
@@ -118,6 +119,7 @@ async function loadOptional(path, name, message) {
 
 const VIEWS = {
   home: () => import('./views/home.js').then((m) => m.mountHome),
+  shared: () => import('./views/shared.js').then((m) => m.mountShared),
   detail: () => import('./views/detail.js').then((m) => m.mountDetail),
   login: () => import('./views/login.js').then((m) => m.mountLogin),
   agent: () => import('./views/agent.js').then((m) => m.mountAgent),
@@ -184,7 +186,7 @@ async function boot() {
   renderTabs('home');
   try {
     const me = await api.get('/api/me', { skipAuthRedirect: true });
-    store.set({ user: me.user });
+    store.set({ user: me.user, users: me.users || [] });
     const { areas } = await api.get('/api/areas');
     store.set({ areas });
     refreshCounts();

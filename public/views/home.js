@@ -3,9 +3,10 @@
 
 import { filtersToQuery, activeFilterCount, defaultFilters } from '../lib/filters.js';
 import {
-  $, $$, html, setHtml, icons, priceLabel, beachLabel, statusPill, fitRing,
+  $, $$, html, setHtml, toHtml, icons, priceLabel, beachLabel, statusPill, fitRing,
   FEATURE_LABELS, STATUS_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar, dayLabel,
 } from '../lib/ui.js';
+import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 
 const PRICE_MIN_M = 15;
 const PRICE_MAX_M = 80;
@@ -69,7 +70,13 @@ function areaLine(p, areas) {
   return p.sub_area ? `${label} · ${p.sub_area}` : label;
 }
 
-export function cardHtml(p, areas, { reason = false } = {}) {
+/**
+ * @param {object} p the listing row
+ * @param {Array} areas
+ * @param {{reason?: boolean, viewer?: {user: object, users: object[]}|null}} [opts]
+ *   `viewer` adds the shared-search foot: both people's calls and the viewer's own control.
+ */
+export function cardHtml(p, areas, { reason = false, viewer = null } = {}) {
   const bedrooms = p.bedrooms == null ? null : `${p.bedrooms} BR${p.extra_rooms ? ` +${p.extra_rooms}` : ''}`;
   const beach = beachLabel(p.beach_km);
   const age = ageLabel(p.first_seen);
@@ -110,6 +117,9 @@ export function cardHtml(p, areas, { reason = false } = {}) {
     ${p.map_url
       ? html`<a class="pin-link card-pin" href="${p.map_url}" target="_blank" rel="noopener"
           aria-label="Open the map pin for ${p.title}">${icons.pin()}</a>`
+      : ''}
+    ${viewer?.user
+      ? html`<div class="card-foot">${verdictPairHtml(p, viewer)}${verdictControlHtml(p, viewer.user.id, { compact: true })}</div>`
       : ''}
   </article>`;
 }
@@ -152,7 +162,7 @@ function areaHint(selected, areas) {
   return selected.map((id) => areas.find((a) => a.id === id)?.label || id).join(', ');
 }
 
-function buildFilterPanel({ areas, onChange, sources }) {
+function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
   const panel = document.createElement('form');
   panel.className = 'filters';
   panel.setAttribute('novalidate', '');
@@ -263,6 +273,15 @@ function buildFilterPanel({ areas, onChange, sources }) {
     </div>
 
     <div class="filter-group">
+      <span class="label">Shared</span>
+      <div class="chips" data-role="verdict">
+        ${verdictFilterOptions(otherName).map(
+          ([value, label]) => html`<button type="button" class="chip" data-verdict-filter="${value}" aria-pressed="false">${label}</button>`
+        )}
+      </div>
+    </div>
+
+    <div class="filter-group">
       <span class="label">Status</span>
       <div class="chips" data-role="status">
         ${Object.entries(STATUS_LABELS).map(
@@ -350,6 +369,9 @@ function buildFilterPanel({ areas, onChange, sources }) {
     }
     for (const b of $$('[data-status]', panel)) {
       b.setAttribute('aria-pressed', String((f.status || []).includes(b.dataset.status)));
+    }
+    for (const b of $$('[data-verdict-filter]', panel)) {
+      b.setAttribute('aria-pressed', String((f.verdict || null) === b.dataset.verdictFilter));
     }
     for (const group of ['furnished', 'term']) {
       for (const b of $$(`[data-role="${group}"] button`, panel)) {
@@ -463,8 +485,10 @@ function buildFilterPanel({ areas, onChange, sources }) {
   panel.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    const { bedrooms, status, areaSet, areaMode } = button.dataset;
-    if (areaSet) {
+    const { bedrooms, status, areaSet, areaMode, verdictFilter } = button.dataset;
+    if (verdictFilter) {
+      onChange((f) => ({ verdict: f.verdict === verdictFilter ? null : verdictFilter }));
+    } else if (areaSet) {
       const ids = (areaSet === 'west' ? west : bukit).map((a) => a.value);
       onChange((f) => {
         const rest = (f.area || []).filter((id) => !ids.includes(id));
@@ -541,9 +565,12 @@ export async function mountHome(el, ctx) {
 
   const grid = $('#grid', el);
   const rail = $('#rail', el);
+  const viewer = () => ({ user: store.get().user, users: store.get().users || [] });
+  const other = (store.get().users || []).find((u) => u.id !== store.get().user?.id);
   const { panel, sync, setHistogram } = buildFilterPanel({
     areas,
     sources: [...knownSources],
+    otherName: firstName(other),
     onChange: (patch) => {
       const filters = store.get().filters;
       if (patch === 'reset') {
@@ -625,7 +652,7 @@ export async function mountHome(el, ctx) {
       setHtml(
         grid,
         rows.length
-          ? rows.map((p) => cardHtml(p, areas))
+          ? rows.map((p) => cardHtml(p, areas, { viewer: viewer() }))
           : html`<p class="empty">Nothing matches these filters. Try widening the price range or turning off "In-filter only".</p>`
       );
       // The detail page's prev/next arrows read this: the ordered ids of whatever the
@@ -655,6 +682,16 @@ export async function mountHome(el, ctx) {
     openSheet('Filters', panel, { onClose: place });
   });
 
+  // A verdict tap redraws just that card with the row the API sent back.
+  const unbindVerdicts = bindVerdicts(el, {
+    api,
+    onSaved: (row, button) => {
+      const card = button.closest('article.card');
+      if (card && row) card.outerHTML = toHtml(cardHtml(row, areas, { viewer: viewer() }));
+      ctx.refreshCounts?.();
+    },
+  });
+
   $('#sort', el).addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
@@ -672,6 +709,7 @@ export async function mountHome(el, ctx) {
   return () => {
     alive = false;
     reload.cancel?.();
+    unbindVerdicts();
     mq.removeEventListener('change', place);
     closeSheet();
   };

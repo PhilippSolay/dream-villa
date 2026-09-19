@@ -1,0 +1,141 @@
+// Per-person verdicts (Yes / Maybe / No) and the shared-search filters built on them:
+// match, waiting_other, waiting_me, disagree, unvoted. Two logins, one temp DB per test.
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { openDb } from '../src/db.js';
+import { seedUsers } from '../src/auth.js';
+import { buildServer } from '../src/server.js';
+import { upsertProperty, rescoreAll } from '../src/scrape/store.js';
+
+const ENV = {
+  NODE_ENV: 'test',
+  SESSION_SECRET: 'test-session-secret-0123456789abcdef',
+  ADMIN_TOKEN: 'test-admin-token-0123456789abcdef',
+  AGENT_TOKEN: 'test-agent-token-0123456789abcdef',
+  USER1_EMAIL: 'philipp@example.com',
+  USER1_NAME: 'Philipp',
+  USER1_PASSWORD: 'correct horse battery staple',
+  USER2_EMAIL: 'abigail@example.com',
+  USER2_NAME: 'Abigail',
+  USER2_PASSWORD: 'another long passphrase',
+};
+
+const SEED = ['A', 'B', 'C', 'D'].map((k, i) => ({
+  key: `bhi:${k}`, ref: `RF${k}`, source: 'bhi', url: `https://bhi.test/${k}`, title: `Villa ${k}`,
+  area: 'cemagi', beach_km: 1 + i, bedrooms: 2, price_month_idr: 40_000_000, term: 'monthly',
+  pool: 1, status: 'new', availability: 'available',
+}));
+
+async function setup(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'villa-verdicts-'));
+  const env = { ...ENV, IMAGES_DIR: path.join(dir, 'images') };
+  const db = openDb(path.join(dir, 'villa.db'));
+  seedUsers(db, env);
+  for (const row of SEED) upsertProperty(db, { ...row, first_seen: '2026-09-10T00:00:00.000Z' }, { now: '2026-09-10T00:00:00.000Z' });
+  rescoreAll(db);
+  const ids = {};
+  for (const r of db.prepare('SELECT id, key FROM properties').all()) ids[r.key.split(':')[1]] = r.id;
+  const app = await buildServer({ db, env });
+  t.after(async () => {
+    await app.close();
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function loginAs(email, password) {
+    const res = await app.inject({ method: 'POST', url: '/api/login', payload: { email, password } });
+    assert.equal(res.statusCode, 200);
+    const raw = res.headers['set-cookie'];
+    const cookie = (Array.isArray(raw) ? raw[0] : raw).split(';')[0];
+    return (opts) => app.inject({ ...opts, headers: { cookie, ...(opts.headers || {}) } });
+  }
+  const philipp = await loginAs(env.USER1_EMAIL, env.USER1_PASSWORD);
+  const abigail = await loginAs(env.USER2_EMAIL, env.USER2_PASSWORD);
+  const vote = (as, id, verdict) => as({ method: 'POST', url: `/api/properties/${id}/verdict`, payload: { verdict } });
+  const list = async (as, params) => (await as({ method: 'GET', url: `/api/properties?scope=all&status=all&${params}` })).json();
+  const keysOf = (rows) => rows.map((r) => r.key).sort();
+
+  return { db, app, ids, philipp, abigail, vote, list, keysOf };
+}
+
+test('me: carries both people so the UI can name the other one', async (t) => {
+  const { philipp } = await setup(t);
+  const body = (await philipp({ method: 'GET', url: '/api/me' })).json();
+  assert.equal(body.user.name, 'Philipp');
+  assert.deepEqual(body.users.map((u) => u.name), ['Philipp', 'Abigail']);
+  assert.equal(Object.keys(body.users[0]).sort().join(','), 'id,name', 'no emails in the roster');
+});
+
+test('verdict: upsert per person, replace on repeat, null removes', async (t) => {
+  const { ids, philipp, abigail, vote } = await setup(t);
+
+  let res = await vote(philipp, ids.A, 'maybe');
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().verdicts.map((v) => [v.by_name, v.verdict]), [['Philipp', 'maybe']]);
+
+  res = await vote(philipp, ids.A, 'yes');
+  assert.deepEqual(res.json().verdicts.map((v) => [v.by_name, v.verdict]), [['Philipp', 'yes']], 'replaced, not appended');
+
+  res = await vote(abigail, ids.A, 'no');
+  assert.deepEqual(
+    res.json().verdicts.map((v) => [v.by_name, v.verdict]).sort(),
+    [['Abigail', 'no'], ['Philipp', 'yes']]
+  );
+
+  res = await vote(philipp, ids.A, null);
+  assert.deepEqual(res.json().verdicts.map((v) => [v.by_name, v.verdict]), [['Abigail', 'no']], 'null clears mine only');
+
+  res = await vote(philipp, ids.A, 'sure');
+  assert.equal(res.statusCode, 400, 'only yes / maybe / no');
+  res = await vote(philipp, 999_999, 'yes');
+  assert.equal(res.statusCode, 404);
+});
+
+test('list and detail: rows carry verdicts and status_by_name', async (t) => {
+  const { ids, philipp, abigail, vote, list } = await setup(t);
+  await vote(abigail, ids.B, 'yes');
+  await philipp({ method: 'POST', url: `/api/properties/${ids.B}/status`, payload: { status: 'shortlist' } });
+
+  const rows = await list(philipp, 'sort=new');
+  const b = rows.find((r) => r.key === 'bhi:B');
+  assert.deepEqual(b.verdicts.map((v) => [v.by_name, v.verdict]), [['Abigail', 'yes']]);
+  assert.equal(b.status_by_name, 'Philipp');
+  const a = rows.find((r) => r.key === 'bhi:A');
+  assert.deepEqual(a.verdicts, []);
+  assert.equal(a.status_by_name, null);
+
+  const detail = (await philipp({ method: 'GET', url: `/api/properties/${ids.B}` })).json();
+  assert.deepEqual(detail.verdicts.map((v) => [v.by_name, v.verdict]), [['Abigail', 'yes']]);
+  assert.equal(detail.status_by_name, 'Philipp');
+});
+
+test('list: verdict filters are relative to whoever is asking', async (t) => {
+  const { ids, philipp, abigail, vote, list, keysOf } = await setup(t);
+  // A: both yes (match). B: only Philipp voted. C: Philipp yes, Abigail no (disagree). D: nobody.
+  await vote(philipp, ids.A, 'yes');
+  await vote(abigail, ids.A, 'yes');
+  await vote(philipp, ids.B, 'maybe');
+  await vote(philipp, ids.C, 'yes');
+  await vote(abigail, ids.C, 'no');
+
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=match')), ['bhi:A']);
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=match')), ['bhi:A']);
+
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=waiting_other')), ['bhi:B'], 'Philipp voted on B, Abigail has not');
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=waiting_me')), ['bhi:B'], "the same listing is Abigail's turn");
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=waiting_me')), []);
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=waiting_other')), []);
+
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=disagree')), ['bhi:C']);
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=disagree')), ['bhi:C']);
+
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=unvoted')), ['bhi:D']);
+
+  const bad = await philipp({ method: 'GET', url: '/api/properties?verdict=whatever' });
+  assert.equal(bad.statusCode, 400);
+});
