@@ -210,12 +210,12 @@
 .map-view {
   position: relative;
   width: 100%;
-  height: calc(100dvh - var(--header-h, 56px) - var(--tabbar-h, var(--nav-h, 0px)));
+  height: var(--map-h, calc(100dvh - 56px));
 }
 
 .map-container {
   width: 100%;
-  height: calc(100dvh - var(--header-h, 56px) - var(--tabbar-h, var(--nav-h, 0px)));
+  height: var(--map-h, calc(100dvh - 56px));
   background: var(--bg, #fff);
 }
 

@@ -51,7 +51,9 @@
   --body: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  --header-h: 56px;
+  --nav-top-h: 54px;
+  --rail-w: 96px;
+  --map-h: calc(100dvh - var(--nav-top-h));
   --tabbar-h: 64px;
   --tabbar-inset: 12px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -177,11 +179,11 @@ small, .small { font-size: 13px; }
 
 /* --- glass: the one recipe every floating surface shares ------------------- */
 
-.app-header,
+.sidebar,
 .tabbar,
 .sheet,
 .toast,
-.count-chip,
+.nav-stats,
 .user-btn,
 .card-badges .pill,
 .card-ring,
@@ -199,51 +201,38 @@ small, .small { font-size: 13px; }
   box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
 }
 
-/* --- header --------------------------------------------------------------- */
+/* --- nav, phone shape: stats + tools in a slim row at the top of the page, tabs
+       in the floating capsule at the bottom. The rail shape lives in the desktop block. */
 
-.app-header {
-  position: sticky;
-  top: 0;
-  z-index: 40;
+.sidebar { display: contents; }
+
+.nav-top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  height: var(--header-h);
-  padding: 0 14px;
-  border: 0;
-  border-radius: 0;
-  box-shadow: inset 0 -1px 0 var(--glass-line);
+  min-height: var(--nav-top-h);
+  padding: 10px 14px 0;
 }
 
-.wordmark {
-  font-family: var(--display);
-  font-size: 23px;
-  text-decoration: none;
-  white-space: nowrap;
-  letter-spacing: 0.005em;
-}
-
-.counts {
-  flex: 1;
+.nav-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  display: flex;
-  justify-content: flex-end;
-  overflow: hidden;
-}
-
-.count-chip {
+  padding: 6px 13px;
+  border-radius: 999px;
   font-size: 12px;
   color: var(--muted);
-  border-radius: 999px;
-  padding: 5px 12px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   box-shadow: inset 0 1px 0 var(--glass-edge);
 }
-.count-chip b { color: var(--gold); font-weight: 600; }
+.nav-stats:empty { display: none; }
+.stat { display: inline-flex; align-items: baseline; gap: 4px; }
+.stat b { color: var(--gold); font-weight: 600; font-family: var(--mono); font-size: 13px; }
 
-.header-actions { display: flex; align-items: center; gap: 6px; }
+.nav-tools { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 
 .icon-btn {
   min-width: var(--tap);
@@ -576,7 +565,7 @@ button.chip[aria-pressed='true'] { background: var(--gold-soft); border-color: v
 
 .toolbar {
   position: sticky;
-  top: var(--header-h);
+  top: 0;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -990,7 +979,8 @@ td.mono, th.mono { font-family: var(--mono); font-size: 13px; }
 /* --- map view: full-bleed under the floating tab bar ---------------------- */
 
 main.view:has(> .map-view) { padding: 0; max-width: none; }
-.map-view, .map-container { height: calc(100dvh - var(--header-h)); }
+/* Leaflet's panes carry z-index 400+; keep them inside the map so the nav stays on top. */
+.map-view, .mini-map { isolation: isolate; }
 .leaflet-bar { border-radius: 14px; overflow: hidden; }
 .leaflet-bar a { background: transparent; color: var(--ink); border-bottom-color: var(--glass-line); }
 .leaflet-bar a:hover { background: var(--gold-soft); }
@@ -1003,31 +993,71 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
 /* --- desktop -------------------------------------------------------------- */
 
 @media (min-width: 900px) {
-  main.view { padding: 18px 24px 48px; }
-  .tabbar {
-    position: sticky;
-    top: calc(var(--header-h) + 10px);
-    left: auto;
-    right: auto;
-    bottom: auto;
+  :root { --map-h: 100dvh; }
+  main.view { padding: 18px 24px 48px calc(var(--rail-w) + 36px); max-width: calc(1200px + var(--rail-w) + 12px); }
+
+  /* nav, rail shape: stats on top, tabs, tools pinned to the bottom */
+  .sidebar {
     display: flex;
-    gap: 2px;
-    width: max-content;
-    height: auto;
-    margin: 12px auto 0;
-    padding: 5px;
-    z-index: 39;
+    flex-direction: column;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: var(--rail-w);
+    z-index: 40;
+    padding: 12px 8px 10px;
+    border-radius: var(--radius-xl);
   }
-  .tab { flex-direction: row; gap: 8px; min-height: 40px; padding: 0 16px; font-size: 14px; }
-  .tab[aria-current='page'] { color: var(--ink); }
-  .tab[aria-current='page'] .icon { transform: none; color: var(--gold); }
+  .nav-top { display: contents; }
+  .nav-stats {
+    order: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 6px 4px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    white-space: normal;
+    overflow: visible;
+  }
+  .nav-stats:empty { display: none; }
+  .stat { flex-direction: column; align-items: center; gap: 0; text-align: center; }
+  .stat b { font-size: 19px; line-height: 22px; }
+  .stat span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .count-wide { display: inline-flex; }
+  .tabbar {
+    order: 1;
+    position: static;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    height: auto;
+    margin: 12px 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .tab { min-height: 62px; padding: 0 6px; font-size: 11px; }
+  .nav-tools { order: 2; flex-direction: column; align-items: center; gap: 8px; margin: auto 0 0; }
+
   .toasts { bottom: 28px; }
   .home-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 24px; align-items: start; }
   .rail {
     display: block;
     position: sticky;
-    top: calc(var(--header-h) + 74px);
-    max-height: calc(100vh - var(--header-h) - 96px);
+    top: 18px;
+    max-height: calc(100vh - 36px);
     overflow-y: auto;
     padding: 18px;
     background: var(--surface-card);
@@ -1037,7 +1067,7 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
     scrollbar-width: thin;
   }
   .rail-title { margin-bottom: 12px; }
-  .toolbar { top: calc(var(--header-h) + 66px); }
+  .toolbar { top: 0; padding-top: 18px; margin-top: -18px; }
   .toolbar::before { inset: 0 -24px -10px; }
   .filters-toggle { display: none; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
@@ -1050,9 +1080,9 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
   .tabs { width: max-content; max-width: 100%; }
   .filter-cols { grid-template-columns: 1fr 1fr; }
   .scale { max-width: 340px; }
-  .map-view, .map-container { height: calc(100dvh - var(--header-h) - 62px); }
   .leaflet-bottom { bottom: 0; }
-  main.view:has(> .map-view) { padding: 12px 0 0; }
+  main.view:has(> .map-view) { padding: 0 0 0 calc(var(--rail-w) + 24px); max-width: none; }
+  .leaflet-left { left: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1070,10 +1100,9 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
   color: var(--ink);
 }
 
-/* the header chip loses its least important half on narrow phones */
+/* the stats chip loses its least important third on narrow phones */
 @media (max-width: 480px) {
   .count-wide { display: none; }
-  .wordmark { font-size: 20px; }
 }
 
 /* --- Agent page: intake sources -------------------------------------------- */

@@ -22,20 +22,22 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header class="app-header">
-      <a class="wordmark" href="#/">Dream House</a>
-      <div class="counts" id="counts" aria-live="polite"></div>
-      <div class="header-actions">
-        <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch theme"></button>
-        <button type="button" class="user-btn" id="user-btn" aria-label="Account">·</button>
+    <!-- One nav, two shapes: a floating bottom capsule on a phone (stats + tools in a slim
+         row at the top of the page), a fixed left rail on desktop with everything in it. -->
+    <nav class="sidebar" id="sidebar" aria-label="Sections">
+      <div class="nav-top">
+        <div class="nav-stats" id="counts" aria-live="polite"></div>
+        <div class="nav-tools">
+          <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch theme"></button>
+          <button type="button" class="user-btn" id="user-btn" aria-label="Account">·</button>
+        </div>
       </div>
-    </header>
-
-    <nav class="tabbar" id="tabbar" aria-label="Sections">
-      <a class="tab" href="#/" data-route="home"></a>
-      <a class="tab" href="#/map" data-route="map"></a>
-      <a class="tab" href="#/market" data-route="market"></a>
-      <a class="tab" href="#/agent" data-route="agent"></a>
+      <div class="tabbar" id="tabbar">
+        <a class="tab" href="#/" data-route="home"></a>
+        <a class="tab" href="#/map" data-route="map"></a>
+        <a class="tab" href="#/market" data-route="market"></a>
+        <a class="tab" href="#/agent" data-route="agent"></a>
+      </div>
     </nav>
 
     <main class="view" id="view"></main>

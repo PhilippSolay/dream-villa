@@ -445,7 +445,6 @@ export async function mountHome(el, ctx) {
             ${SORTS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
           </div>
         </div>
-        <p class="small muted" id="worth-subtitle" hidden>Flagged first, then new today</p>
         <div class="section-head"><h2 id="list-title">Listings</h2><span class="small muted" id="list-count"></span></div>
         <div class="grid" id="grid"><p class="loading">Loading…</p></div>
         <p class="small muted" id="updated"></p>
@@ -490,7 +489,6 @@ export async function mountHome(el, ctx) {
     const n = activeFilterCount(f);
     badge.textContent = String(n);
     badge.hidden = n === 0;
-    $('#worth-subtitle', el).hidden = f.sort !== 'worth';
   }
 
   function rememberSources(rows) {

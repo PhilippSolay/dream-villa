@@ -58,8 +58,9 @@ function renderHeader() {
   if (counts) {
     setHtml(
       chip,
-      html`<span class="count-chip"><b>${counts.flagged}</b> flagged<span class="count-sep"> · </span><b>${counts.new_today}</b> new<span
-        class="count-wide"> today</span><span class="count-wide"> · <b>${counts.shortlist}</b> shortlist</span></span>`
+      html`<span class="stat"><b>${counts.flagged}</b><span>flagged</span></span>
+        <span class="stat"><b>${counts.new_today}</b><span>new today</span></span>
+        <span class="stat count-wide"><b>${counts.shortlist}</b><span>shortlist</span></span>`
     );
   } else {
     chip.textContent = '';
