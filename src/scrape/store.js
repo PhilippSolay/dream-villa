@@ -233,6 +233,35 @@ export function markGone(db, id, now = nowIso()) {
   db.prepare('UPDATE properties SET availability = ?, last_seen = ? WHERE id = ?').run('gone', now, id);
 }
 
+/**
+ * Soft "no longer offered by the agent" (villa tracker filters, adjacent to SPEC §3
+ * `availability`): a row of a source that ran cleanly this scrape but no longer lists
+ * it, and whose `last_seen` is older than `staleDays`, is marked `unlisted` — distinct
+ * from `gone`, which only the recheck sets (an explicit 404/archived page). `last_seen`
+ * is left untouched (the row wasn't actually seen), and a row already `gone` or already
+ * `unlisted` is left alone. A row that is seen again later resets on its own: every
+ * normalised listing carries `availability: 'available'` (or `from:<date>`) by default
+ * (normalise.js), and updateProperty()'s UPDATE_FACT_COLUMNS rule already overwrites a
+ * differing non-null incoming value — no extra logic needed on the upsert path.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string[]} sourceIds sources that actually ran this scrape (never manual/fb/inbox)
+ * @param {{now?:string, staleDays?:number}} [opts]
+ * @returns {{n:number}} rows newly marked
+ */
+export function markUnlisted(db, sourceIds, { now = nowIso(), staleDays = 3 } = {}) {
+  if (!sourceIds || !sourceIds.length) return { n: 0 };
+  const cutoff = new Date(Date.parse(now) - staleDays * 86_400_000).toISOString();
+  const info = db
+    .prepare(
+      `UPDATE properties SET availability = 'unlisted'
+        WHERE source IN (${sourceIds.map(() => '?').join(', ')})
+          AND (availability IS NULL OR availability NOT IN ('gone', 'unlisted'))
+          AND last_seen < ?`
+    )
+    .run(...sourceIds, cutoff);
+  return { n: info.changes };
+}
+
 export function startRun(db, kind, sources = []) {
   const info = db
     .prepare('INSERT INTO runs (started_at, kind, sources) VALUES (?, ?, ?)')
@@ -278,4 +307,4 @@ export function countsSummary(db) {
   return { total, in_filter, market, flagged, gone, by_area };
 }
 
-export default { PERSON_FIELDS, parseRow, upsertProperty, rescoreAll, markGone, startRun, finishRun, countsSummary };
+export default { PERSON_FIELDS, parseRow, upsertProperty, rescoreAll, markGone, markUnlisted, startRun, finishRun, countsSummary };

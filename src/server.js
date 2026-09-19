@@ -9,10 +9,12 @@ import { registerAuth } from './auth.js';
 import { nowIso } from './db.js';
 import propertiesRoutes from './routes/properties.js';
 import marketRoutes from './routes/market.js';
+import marketMetricsRoutes from './routes/market-metrics.js';
 import adminRoutes from './routes/admin.js';
 import agentRoutes from './routes/agent.js';
 import statsRoutes from './routes/stats.js';
 import importRoutes from './routes/import.js';
+import duplicatesRoutes from './routes/duplicates.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -44,10 +46,12 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
   // API route modules (SPEC §4). Each receives { db, env }.
   await app.register(propertiesRoutes, { db, env });
   await app.register(marketRoutes, { db, env });
+  await app.register(marketMetricsRoutes, { db, env });
   await app.register(adminRoutes, { db, env });
   await app.register(agentRoutes, { db, env });
   await app.register(statsRoutes, { db, env });
   await app.register(importRoutes, { db, env });
+  await app.register(duplicatesRoutes, { db, env });
 
   return app;
 }

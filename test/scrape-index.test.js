@@ -7,6 +7,7 @@ import path from 'node:path';
 import { openDb } from '../src/db.js';
 import { runScrape } from '../src/scrape/index.js';
 import { getAdapters } from '../src/scrape/adapters/index.js';
+import { upsertProperty } from '../src/scrape/store.js';
 
 function tmpDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'villa-scrape-'));
@@ -191,3 +192,86 @@ test('runScrape — one adapter failing does not abort the run', async () => {
     cleanup(t);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Unlisted (soft "removed by agent" — villa tracker filters)
+// ---------------------------------------------------------------------------
+
+test('runScrape — unlisted: a stale row from a source that ran cleanly goes unlisted, one day stale is left alone, an untouched source is left alone, and re-seeing it restores it', async () => {
+  const t = tmpDb();
+  try {
+    await runScrape({ db: t.db, ...RUN, log: () => {} });
+
+    const day = 86_400_000;
+    const now2 = '2026-09-21T00:00:00.000Z';
+    t.db
+      .prepare("UPDATE properties SET last_seen = ? WHERE key = 'stub:S1'")
+      .run(new Date(Date.parse(now2) - 4 * day).toISOString());
+    t.db
+      .prepare("UPDATE properties SET last_seen = ? WHERE key = 'stub:S2'")
+      .run(new Date(Date.parse(now2) - 1 * day).toISOString());
+
+    // A row from a source that isn't running this time must be left alone even though stale.
+    upsertProperty(
+      t.db,
+      {
+        key: 'manual:X', ref: 'X', source: 'manual', url: 'https://manual.test/x', title: 'Manual entry',
+        area: 'cemagi', bedrooms: 2, price_month_idr: 40_000_000, term: 'monthly', availability: 'available',
+      },
+      { now: new Date(Date.parse(now2) - 10 * day).toISOString() }
+    );
+
+    // This run's adapter no longer yields S1 (the agent removed it) but still yields S2.
+    const onlyS2 = { ...stubAdapter(), async *list() { yield { ...PARTIALS[1] }; } };
+    const summary = await runScrape({ db: t.db, adapters: [onlyS2], images: false, now: now2, log: () => {} });
+
+    assert.equal(summary.unlisted.n, 1);
+    assert.ok(summary.notes.includes('unlisted +1'));
+
+    const s1 = t.db.prepare("SELECT availability, last_seen FROM properties WHERE key = 'stub:S1'").get();
+    assert.equal(s1.availability, 'unlisted');
+    assert.notEqual(s1.last_seen, now2, 'last_seen is untouched by the unlisted pass');
+
+    const s2 = t.db.prepare("SELECT availability, last_seen FROM properties WHERE key = 'stub:S2'").get();
+    assert.equal(s2.availability, 'available', 'one day stale is not enough');
+    assert.equal(s2.last_seen, now2, 'a row seen again just updates normally');
+
+    const manual = t.db.prepare("SELECT availability FROM properties WHERE key = 'manual:X'").get();
+    assert.equal(manual.availability, 'available', 'a source that did not run this time is left alone');
+
+    // Re-seeing the unlisted row restores it.
+    await runScrape({ db: t.db, adapters: [stubAdapter()], images: false, now: '2026-09-22T00:00:00.000Z', log: () => {} });
+    const s1Again = t.db.prepare("SELECT availability FROM properties WHERE key = 'stub:S1'").get();
+    assert.equal(s1Again.availability, 'available');
+  } finally {
+    cleanup(t);
+  }
+});
+
+test('runScrape — unlisted: a source that errors out this run never marks its own rows unlisted', async () => {
+  const t = tmpDb();
+  try {
+    await runScrape({ db: t.db, ...RUN, log: () => {} });
+
+    const day = 86_400_000;
+    const now2 = '2026-09-25T00:00:00.000Z';
+    t.db
+      .prepare("UPDATE properties SET last_seen = ? WHERE source = 'stub'")
+      .run(new Date(Date.parse(now2) - 5 * day).toISOString());
+
+    const broken = {
+      id: 'stub',
+      // eslint-disable-next-line require-yield
+      async *list() { throw new Error('blocked: 403'); },
+      async detail() { return null; },
+    };
+    const summary = await runScrape({ db: t.db, adapters: [broken], images: false, now: now2, log: () => {} });
+
+    assert.equal(summary.unlisted.n, 0);
+    const rows = t.db.prepare("SELECT availability FROM properties WHERE source = 'stub'").all();
+    assert.ok(rows.every((r) => r.availability !== 'unlisted'), 'a source that errored this run never ran cleanly');
+  } finally {
+    cleanup(t);
+  }
+});
+

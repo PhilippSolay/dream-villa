@@ -18,7 +18,7 @@ import { ingestListing } from './ingest.js';
 import { processInbox } from './inbox.js';
 import { dedupeAll } from './dedupe.js';
 import { recheckAll } from './recheck.js';
-import { rescoreAll, startRun, finishRun, countsSummary } from './store.js';
+import { rescoreAll, startRun, finishRun, countsSummary, markUnlisted } from './store.js';
 import { runBackup, DEFAULT_BACKUP_DIR, DEFAULT_KEEP } from '../backup.js';
 import { disabledSourceIds } from '../sources.js';
 
@@ -171,6 +171,9 @@ export async function runScrape({
   if (skippedSources.length) summary.notes.push(`disabled sources: ${skippedSources.join(', ')}`);
 
   // --- adapters -------------------------------------------------------------
+  // Sources whose `list()` threw (blocked or otherwise) never "ran cleanly" — they
+  // never see the unlisted pass below (SPEC-adjacent villa tracker filters).
+  const erroredAdapterIds = new Set();
   for (const adapter of list) {
     const per = { seen: 0, new: 0, updated: 0, unchanged: 0, skipped: 0, errors: 0 };
     summary.per_source[adapter.id] = per;
@@ -232,6 +235,7 @@ export async function runScrape({
       const msg = String((err && err.message) || err);
       per.errors += 1;
       summary.errors.push(`${adapter.id}: ${msg}`);
+      erroredAdapterIds.add(adapter.id);
       log(`[scrape] ${adapter.id} stopped: ${msg}`);
     }
 
@@ -362,6 +366,20 @@ export async function runScrape({
   summary.not_seen_today = stale.n;
   summary.not_seen_3_days = staleOld.n;
   summary.notes.push(`not_seen_today: ${stale.n} (of which ${staleOld.n} not seen for ${STALE_DAYS}+ days)`);
+
+  // --- unlisted (soft "removed by agent") ------------------------------------
+  // A source that ran cleanly this run (not disabled, not blocked, not errored — see
+  // `erroredAdapterIds` above) and no longer lists a row it previously saw marks that
+  // row `unlisted` once it has gone STALE_DAYS+ without being seen. Manual/fb/inbox
+  // rows are never touched: they never appear in `ids`, which only ever holds adapter
+  // registry sources (src/scrape/adapters/index.js).
+  const cleanSourceIds = ids.filter((id) => !erroredAdapterIds.has(id));
+  try {
+    summary.unlisted = markUnlisted(db, cleanSourceIds, { now, staleDays: STALE_DAYS });
+    if (summary.unlisted.n) summary.notes.push(`unlisted +${summary.unlisted.n}`);
+  } catch (err) {
+    summary.errors.push(`unlisted: ${String((err && err.message) || err)}`);
+  }
 
   // --- close the run --------------------------------------------------------
   const counts = countsSummary(db);

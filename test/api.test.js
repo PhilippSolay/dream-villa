@@ -298,6 +298,95 @@ test('list: limit/offset page through the result', async (t) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/properties — age of post, removed listings
+// ---------------------------------------------------------------------------
+
+function isoDaysAgo(days) {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
+/** Adds an old row, a yesterday row, and an `unlisted` row (SEED's bhi:E is `gone`). */
+async function setupAgeAndRemoved(t) {
+  const ctx = await setup(t);
+  upsertProperty(
+    ctx.db,
+    {
+      key: 'bhi:OLD', ref: 'RFOLD', source: 'bhi', url: 'https://bhi.test/old', title: 'Old Listing Cemagi',
+      area: 'cemagi', bedrooms: 2, price_month_idr: 40_000_000, term: 'monthly', status: 'new',
+      availability: 'available', first_seen: isoDaysAgo(30),
+    },
+    { now: isoDaysAgo(30) }
+  );
+  upsertProperty(
+    ctx.db,
+    {
+      key: 'bhi:NEW', ref: 'RFNEW', source: 'bhi', url: 'https://bhi.test/new', title: 'New Listing Cemagi',
+      area: 'cemagi', bedrooms: 2, price_month_idr: 40_000_000, term: 'monthly', status: 'new',
+      availability: 'available', first_seen: isoDaysAgo(1),
+    },
+    { now: isoDaysAgo(1) }
+  );
+  upsertProperty(
+    ctx.db,
+    {
+      key: 'bhi:UNLISTED', ref: 'RFUNL', source: 'bhi', url: 'https://bhi.test/unlisted', title: 'Unlisted Villa Cemagi',
+      area: 'cemagi', bedrooms: 2, price_month_idr: 40_000_000, term: 'monthly', status: 'new',
+      availability: 'unlisted', first_seen: isoDaysAgo(20),
+    },
+    { now: isoDaysAgo(5) }
+  );
+  return ctx;
+}
+
+test('list: max_age_days=7 excludes a row first seen 30 days ago and keeps one from yesterday', async (t) => {
+  const { call } = await setupAgeAndRemoved(t);
+  const keys = keysOf(
+    (await call({ method: 'GET', url: '/api/properties?scope=all&status=all&max_age_days=7' })).json()
+  );
+  assert.ok(keys.includes('bhi:NEW'), 'a row from yesterday stays in');
+  assert.ok(!keys.includes('bhi:OLD'), 'a row from 30 days ago is excluded');
+});
+
+test('list: max_age_days=0 is a 400', async (t) => {
+  const { call } = await setup(t);
+  const res = await call({ method: 'GET', url: '/api/properties?max_age_days=0' });
+  assert.equal(res.statusCode, 400);
+});
+
+test('list: removed=only returns only gone/unlisted rows', async (t) => {
+  const { call } = await setupAgeAndRemoved(t);
+  const keys = keysOf(
+    (await call({ method: 'GET', url: '/api/properties?scope=all&status=all&removed=only' })).json()
+  );
+  assert.deepEqual(keys, ['bhi:E', 'bhi:UNLISTED']);
+});
+
+test('list: removed=show includes gone/unlisted rows, sorted after live ones', async (t) => {
+  const { call } = await setupAgeAndRemoved(t);
+  const rows = (await call({ method: 'GET', url: '/api/properties?scope=all&status=all&removed=show' })).json();
+  assert.equal(rows.length, SEED.length + 3);
+  const removedFlags = rows.map((r) => r.availability === 'gone' || r.availability === 'unlisted');
+  const firstRemoved = removedFlags.indexOf(true);
+  assert.ok(firstRemoved > -1, 'at least one removed row is present');
+  assert.ok(removedFlags.slice(firstRemoved).every(Boolean), 'every row after the first removed one is also removed');
+  const removedAt = rows.find((r) => r.key === 'bhi:E').removed_at;
+  assert.ok(removedAt, 'a removed row carries a computed removed_at');
+});
+
+test('list: hide_gone=0 still works and returns everything', async (t) => {
+  const { call } = await setupAgeAndRemoved(t);
+  const rows = (await call({ method: 'GET', url: '/api/properties?scope=all&status=all&hide_gone=0' })).json();
+  assert.equal(rows.length, SEED.length + 3);
+});
+
+test('list: hide_gone=1 (default) still hides gone and unlisted rows', async (t) => {
+  const { call } = await setupAgeAndRemoved(t);
+  const keys = keysOf((await call({ method: 'GET', url: '/api/properties?scope=all&status=all' })).json());
+  assert.ok(!keys.includes('bhi:E'));
+  assert.ok(!keys.includes('bhi:UNLISTED'));
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/properties/:id
 // ---------------------------------------------------------------------------
 

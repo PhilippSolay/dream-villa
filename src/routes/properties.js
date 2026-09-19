@@ -83,10 +83,13 @@ const nullableString = { type: ['string', 'null'] };
 // ---------------------------------------------------------------------------
 
 /** parseRow minus `raw` (debug-only and large), plus the two computed fields the UI needs. */
-function publicRow(row) {
+export function publicRow(row) {
   const parsed = parseRow(row);
   delete parsed.raw;
-  return { ...parsed, hero_url: heroUrl(parsed), reasons: reasonsFor(parsed) };
+  // `removed_at`: computed, not stored — gone/unlisted rows carry the date they were
+  // last actually seen, which is when the removal was detected (SPEC §3 last_seen).
+  const removedAt = parsed.availability === 'gone' || parsed.availability === 'unlisted' ? parsed.last_seen : null;
+  return { ...parsed, hero_url: heroUrl(parsed), reasons: reasonsFor(parsed), removed_at: removedAt };
 }
 
 function rowPayload(db, id) {
@@ -150,6 +153,8 @@ const listQuerySchema = {
     flagged: { type: 'integer', enum: [0, 1] },
     q: { type: 'string', maxLength: 120 },
     hide_gone: { type: 'integer', enum: [0, 1] },
+    removed: { type: 'string', enum: ['hide', 'show', 'only'] },
+    max_age_days: { type: 'integer', minimum: 1, maximum: 365 },
     sort: { type: 'string', enum: Object.keys(SORT_SQL) },
     limit: { type: 'integer', minimum: 1, maximum: 500 },
     offset: { type: 'integer', minimum: 0 },
@@ -264,10 +269,27 @@ function buildListWhere(query) {
     params.push(like, like, like, like);
   }
 
-  const hideGone = query.hide_gone === undefined ? 1 : query.hide_gone;
-  if (hideGone === 1) where.push("(availability IS NULL OR availability != 'gone')");
+  // Age of post (SPEC filter drawer "Posted within"): first_seen is ISO text, so the
+  // cutoff is computed in JS and compared as a string rather than trusting SQLite's
+  // own datetime() math against a stored format that might drift.
+  if (query.max_age_days !== undefined) {
+    const cutoff = new Date(Date.now() - query.max_age_days * 86_400_000).toISOString();
+    where.push('first_seen >= ?');
+    params.push(cutoff);
+  }
 
-  return { where, params };
+  // Removed listings: `gone` (recheck saw a 404/archived page) and `unlisted` (a source
+  // stopped listing it) both mean "no longer offered by the agent". `hide_gone` is kept
+  // for backwards compatibility and maps onto the new tri-state.
+  let removed = query.removed;
+  if (!removed) {
+    const hideGoneCompat = query.hide_gone === undefined ? 1 : query.hide_gone;
+    removed = hideGoneCompat === 1 ? 'hide' : 'show';
+  }
+  if (removed === 'hide') where.push("(availability IS NULL OR availability NOT IN ('gone', 'unlisted'))");
+  else if (removed === 'only') where.push("availability IN ('gone', 'unlisted')");
+
+  return { where, params, removed };
 }
 
 /** property_id → contacts[] for the page of rows we are about to return. */
@@ -326,7 +348,13 @@ export default async function propertiesRoutes(app, opts) {
 
     const limit = query.limit ?? 200;
     const offset = query.offset ?? 0;
-    const order = SORT_SQL[query.sort || 'fit'];
+    // `removed=show` sorts live listings first, removed ones after, then the chosen sort
+    // within each group (SPEC filter drawer "Removed"). Only the explicit new param
+    // triggers this: `hide_gone=0` keeps its old, purely-a-filter behaviour so an
+    // existing integration's sort order is not silently rearranged underneath it.
+    const removedSecondary =
+      query.removed === 'show' ? "CASE WHEN availability IN ('gone', 'unlisted') THEN 1 ELSE 0 END, " : '';
+    const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
     const whereSql = built.where.length ? `WHERE ${built.where.join(' AND ')}` : '';
 
     const rows = db

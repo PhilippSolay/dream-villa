@@ -7,6 +7,22 @@ import {
 import { TEMPLATES, fill } from '../lib/templates.js';
 import { PANELS, RATING_FEATURES, VIEWING_SCALES, INCLUDED_KEYS } from './detail-panels.js';
 import { renderPriceBand } from './market.js';
+import { filtersToQuery } from '../lib/filters.js';
+
+// Prev/next pager: property rows fetched ahead of need, keyed by id. Module-scoped so
+// it survives the remount that happens when navigating from one listing to the next
+// (SPEC §5 "Detail").
+const PAGER_CACHE = new Map();
+const PAGER_CACHE_MAX = 5;
+
+function cachePut(pid, row) {
+  PAGER_CACHE.delete(pid);
+  PAGER_CACHE.set(pid, row);
+  while (PAGER_CACHE.size > PAGER_CACHE_MAX) {
+    const oldest = PAGER_CACHE.keys().next().value;
+    PAGER_CACHE.delete(oldest);
+  }
+}
 
 const TABS = [
   ['listing', 'Listing'],
@@ -25,7 +41,7 @@ const PIPELINE = Object.keys(STATUS_LABELS).filter((s) => s !== 'rejected');
 // ---------------------------------------------------------------------------
 
 export async function mountDetail(el, ctx) {
-  const { api, store } = ctx;
+  const { api, store, navigate } = ctx;
   const id = Number(ctx.params.id);
   const areas = store.get().areas || [];
   let tab = PANELS[ctx.query.tab] ? ctx.query.tab : 'listing';
@@ -33,6 +49,7 @@ export async function mountDetail(el, ctx) {
   let alive = true;
   let market = null; // /api/market, fetched once per mount for the area price band
   let miniMap = null; // Leaflet instance for the Location block; torn down on every re-render
+  let listIds = null; // ordered ids for the prev/next pager (SPEC §5); null hides it
 
   setHtml(el, html`<p class="loading">Loading…</p>`);
 
@@ -65,6 +82,87 @@ export async function mountDetail(el, ctx) {
     </div>`;
   }
 
+  // --- prev/next pager ---------------------------------------------------
+  // Source of truth is store.list_ids (home publishes the order it last rendered, in
+  // filtered/sorted order). A deep link or reload has no list yet, so fetch the current
+  // filters once and adopt that order instead.
+
+  async function ensureListIds() {
+    const ids = store.get().list_ids;
+    if (Array.isArray(ids) && ids.includes(id)) {
+      listIds = ids;
+      return;
+    }
+    try {
+      const fetched = await api.get(`/api/properties?${filtersToQuery(store.get().filters, { limit: 500 })}`);
+      if (!alive) return;
+      const fresh = fetched.map((r) => r.id);
+      store.set({ list_ids: fresh });
+      listIds = fresh.includes(id) ? fresh : null;
+    } catch {
+      listIds = null; // a pager that fails to resolve is never worth a red box — just hide it
+    }
+  }
+
+  function pagerInfo() {
+    if (!listIds) return null;
+    const idx = listIds.indexOf(id);
+    if (idx === -1) return null;
+    return {
+      idx,
+      total: listIds.length,
+      prevId: idx > 0 ? listIds[idx - 1] : null,
+      nextId: idx < listIds.length - 1 ? listIds[idx + 1] : null,
+    };
+  }
+
+  function pager() {
+    const info = pagerInfo();
+    if (!info) return '';
+    const { idx, total, prevId, nextId } = info;
+    return html`<div class="pager">
+      <button type="button" class="pager-btn" data-pager="prev" aria-label="Previous listing"${raw(prevId == null ? ' disabled' : '')}>${icons.back()}</button>
+      <span class="pager-count mono">${idx + 1} / ${total}</span>
+      <button type="button" class="pager-btn" data-pager="next" aria-label="Next listing"${raw(nextId == null ? ' disabled' : '')}>${icons.forward()}</button>
+    </div>`;
+  }
+
+  function goToPager(dir) {
+    const info = pagerInfo();
+    if (!info) return;
+    const targetId = dir === 'prev' ? info.prevId : info.nextId;
+    if (targetId == null) return;
+    navigate(`#/p/${targetId}?tab=${tab}`);
+  }
+
+  /** Prefetches the next listing into PAGER_CACHE so tapping `>` feels instant. Runs once
+      idle; on a slow connection this just means the tap fetches like normal. */
+  function schedulePreload() {
+    const info = pagerInfo();
+    if (!info || info.nextId == null || PAGER_CACHE.has(info.nextId)) return;
+    const nextId = info.nextId;
+    const run = () => {
+      if (!alive) return;
+      api
+        .get(`/api/properties/${nextId}`)
+        .then((row) => {
+          if (alive) cachePut(nextId, row);
+        })
+        .catch(() => {}); // best-effort — a failed prefetch just means load() fetches later
+    };
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 2000 });
+    else setTimeout(run, 300);
+  }
+
+  /** ArrowLeft/ArrowRight move through the list, same as tapping the pager — but not while
+      a form field has focus (typing "left" in a notes box must not navigate away). */
+  function onKeydown(event) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) return;
+    goToPager(event.key === 'ArrowLeft' ? 'prev' : 'next');
+  }
+
   function gallery() {
     const urls = p.image_urls || [];
     if (!urls.length) {
@@ -86,7 +184,10 @@ export async function mountDetail(el, ctx) {
     setHtml(
       el,
       html`<div class="detail-page">
-        <a class="btn btn-sm btn-ghost detail-back" href="#/">${icons.back()} Back</a>
+        <div class="detail-top">
+          <a class="btn btn-sm btn-ghost detail-back" href="#/">${icons.back()} Back</a>
+          ${pager()}
+        </div>
         ${gallery()}
         ${header()}
         ${statusRow()}
@@ -101,6 +202,7 @@ export async function mountDetail(el, ctx) {
     );
 
     fillPriceBand();
+    fillDuplicates();
     mountMiniMap();
 
     const strip = $('#gallery', el);
@@ -148,12 +250,125 @@ export async function mountDetail(el, ctx) {
     }
   }
 
-  async function load() {
+  // --- possible duplicates (Listing tab) ------------------------------------
+  // The automatic dedupe (SPEC §6) only merges what it is sure of; these are the near
+  // misses, scored and explained, for a person to settle. Merging keeps THIS listing.
+
+  function duplicateRow(c) {
+    const o = c.property;
+    const pct = Math.round(c.score * 100);
+    return html`<div class="dup" data-dup="${o.id}">
+      <a class="dup-thumb" href="#/p/${o.id}" aria-label="Open ${o.title}">
+        ${o.hero_url
+          ? html`<img src="${o.hero_url}" alt="" loading="lazy" decoding="async" />`
+          : html`<span class="placeholder small">No photo</span>`}
+      </a>
+      <div class="dup-main">
+        <div class="dup-head">
+          <a href="#/p/${o.id}">${o.title}</a>
+          <span class="pill">${o.source}${o.ref ? ` · ${o.ref}` : ''}</span>
+        </div>
+        <p class="small mono muted">${priceLabel(o)}${o.bedrooms != null ? ` · ${o.bedrooms} BR` : ''}${o.sub_area ? ` · ${o.sub_area}` : ''}</p>
+        <div class="dup-score">
+          <span class="dup-bar" role="img" aria-label="Match ${pct} of 100">
+            <span class="dup-bar-fill" style="width:${pct}%"></span>
+          </span>
+          <span class="mono small">${c.score.toFixed(2)}</span>
+        </div>
+        <p class="small muted">${c.reasons.join(' · ')}</p>
+        <div class="dup-actions">
+          <button type="button" class="btn btn-sm" data-dup-action="merge" data-other="${o.id}">Merge into this</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-dup-action="dismiss" data-other="${o.id}">Not a duplicate</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  async function fillDuplicates() {
+    const block = $('#duplicates-block', el);
+    const list = $('#duplicates-list', el);
+    if (!block || !list) return;
     try {
-      p = await api.get(`/api/properties/${id}`);
+      const res = await api.get(`/api/properties/${id}/duplicates`);
+      if (!alive || !list.isConnected) return;
+      const candidates = res.candidates || [];
+      block.hidden = candidates.length === 0;
+      setHtml(list, candidates.map(duplicateRow));
+    } catch {
+      block.hidden = true; // a duplicate check that fails is never worth a red box
+    }
+  }
+
+  /** Merging is hard to undo, so the button asks a second time in place. */
+  function resetMergeConfirms() {
+    for (const b of $$('button[data-dup-action="merge"][data-confirm]', el)) {
+      delete b.dataset.confirm;
+      b.textContent = 'Merge into this';
+      b.classList.remove('btn-confirm');
+    }
+  }
+
+  async function onDuplicateClick(event) {
+    const button = event.target.closest('button[data-dup-action]');
+    if (!button) return;
+    const other = Number(button.dataset.other);
+    const action = button.dataset.dupAction;
+
+    if (action === 'merge' && button.dataset.confirm !== '1') {
+      resetMergeConfirms();
+      button.dataset.confirm = '1';
+      button.textContent = 'Confirm merge';
+      button.classList.add('btn-confirm');
+      return;
+    }
+
+    button.disabled = true;
+    try {
+      if (action === 'merge') {
+        await api.post('/api/duplicates/merge', { keep_id: id, merge_id: other });
+        await afterWrite('Merged — this listing kept, the other marked gone');
+      } else {
+        await api.post('/api/duplicates/dismiss', { a: id, b: other });
+        toast('Marked as not a duplicate');
+        await fillDuplicates();
+      }
+    } catch (err) {
+      toast(err.message, 'error');
+      button.disabled = false;
+    }
+  }
+
+  async function load({ skipCache = false } = {}) {
+    const idsTask = ensureListIds();
+    const cached = skipCache ? null : PAGER_CACHE.get(id);
+
+    if (cached) {
+      p = cached;
+      await idsTask;
       if (!alive) return;
       render();
+      schedulePreload();
+      try {
+        const fresh = await api.get(`/api/properties/${id}`);
+        if (!alive) return;
+        p = fresh;
+        cachePut(id, fresh);
+        render();
+      } catch {
+        /* a background refresh failing just leaves the cached view up — never a red box */
+      }
+      return;
+    }
+
+    try {
+      const [fetched] = await Promise.all([api.get(`/api/properties/${id}`), idsTask]);
+      if (!alive) return;
+      p = fetched;
+      cachePut(id, p);
+      render();
+      schedulePreload();
     } catch (err) {
+      if (!alive) return;
       setHtml(el, html`<p class="empty">Could not load this listing: ${err.message}</p>`);
     }
   }
@@ -161,7 +376,7 @@ export async function mountDetail(el, ctx) {
   /** Every write re-reads the row: assessed, flags and the fit score can all move. */
   async function afterWrite(message) {
     toast(message);
-    await load();
+    await load({ skipCache: true });
     ctx.refreshCounts?.();
   }
 
@@ -173,8 +388,12 @@ export async function mountDetail(el, ctx) {
   async function onActionClick(event) {
     const button = event.target.closest('button, a[data-tab]');
     if (!button) return;
-    const { action, tab: nextTab, feature, status, flag, key, gallery: step } = button.dataset;
+    const { action, tab: nextTab, feature, status, flag, key, gallery: step, pager: pagerDir } = button.dataset;
 
+    if (pagerDir) {
+      goToPager(pagerDir);
+      return;
+    }
     if (step) {
       const strip = $('#gallery', el);
       if (strip) strip.scrollBy({ left: (step === 'prev' ? -1 : 1) * strip.clientWidth, behavior: 'smooth' });
@@ -313,7 +532,9 @@ export async function mountDetail(el, ctx) {
   // #view outlives this view, so every listener it gets must come off again.
   el.addEventListener('click', onActionClick);
   el.addEventListener('click', onToggleClick);
+  el.addEventListener('click', onDuplicateClick);
   el.addEventListener('submit', onSubmit);
+  window.addEventListener('keydown', onKeydown);
 
   await load();
 
@@ -323,7 +544,9 @@ export async function mountDetail(el, ctx) {
     miniMap = null;
     el.removeEventListener('click', onActionClick);
     el.removeEventListener('click', onToggleClick);
+    el.removeEventListener('click', onDuplicateClick);
     el.removeEventListener('submit', onSubmit);
+    window.removeEventListener('keydown', onKeydown);
   };
   unmount.onQuery = (query) => {
     const next = PANELS[query.tab] ? query.tab : 'listing';

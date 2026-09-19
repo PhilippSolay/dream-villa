@@ -170,6 +170,14 @@ function listingPanel(p, areas) {
     </section>
 
     <section class="block"><h3>Price history</h3>${sparkline(p.price_history)}</section>
+
+    <!-- Filled by detail.js once /api/properties/:id/duplicates answers; stays hidden
+         when nothing looks like this villa. -->
+    <section class="block" id="duplicates-block" hidden>
+      <h3>Possible duplicates</h3>
+      <p class="small muted">The same villa, listed again somewhere else. Merging keeps this listing.</p>
+      <div id="duplicates-list" aria-live="polite"></div>
+    </section>
   </div>`;
 }
 

@@ -3,7 +3,7 @@
 // (config.sources, see src/sources.js).
 
 import {
-  $, $$, html, setHtml, icons, toast, makassarDate, makassarTime, dayLabel, durationLabel,
+  $, $$, html, setHtml, icons, toast, makassarDate, makassarTime, dayLabel, durationLabel, priceLabel,
 } from '../lib/ui.js';
 
 const WEIGHT_LABELS = {
@@ -168,6 +168,51 @@ function inboxList(rows, sources) {
   });
 }
 
+// --- duplicates to review (SPEC §6, manual half) ----------------------------
+// The scorer's near misses, both sides side by side. The person picks the survivor;
+// neither side is automatically the keeper here.
+
+function dupSide(o, side) {
+  return html`<div class="dup-side" data-side="${side}">
+    <a class="dup-thumb" href="#/p/${o.id}" aria-label="Open ${o.title}">
+      ${o.hero_url
+        ? html`<img src="${o.hero_url}" alt="" loading="lazy" decoding="async" />`
+        : html`<span class="placeholder small">No photo</span>`}
+    </a>
+    <div class="dup-main">
+      <div class="dup-head">
+        <a href="#/p/${o.id}">${o.title}</a>
+        <span class="pill">${o.source}${o.ref ? ` · ${o.ref}` : ''}</span>
+      </div>
+      <p class="small mono muted">${priceLabel(o)}${o.bedrooms != null ? ` · ${o.bedrooms} BR` : ''}${o.sub_area ? ` · ${o.sub_area}` : ''}</p>
+    </div>
+  </div>`;
+}
+
+function dupPair(pair) {
+  const pct = Math.round(pair.score * 100);
+  return html`<div class="dup-pair" data-a="${pair.a.id}" data-b="${pair.b.id}">
+    <div class="dup-score">
+      <span class="dup-bar" role="img" aria-label="Match ${pct} of 100">
+        <span class="dup-bar-fill" style="width:${pct}%"></span>
+      </span>
+      <span class="mono small">${pair.score.toFixed(2)}</span>
+    </div>
+    <div class="dup-sides">${dupSide(pair.a, 'a')}${dupSide(pair.b, 'b')}</div>
+    <p class="small muted">${pair.reasons.join(' · ')}</p>
+    <div class="dup-actions">
+      <button type="button" class="btn btn-sm" data-pair-action="keep-a">Keep left</button>
+      <button type="button" class="btn btn-sm" data-pair-action="keep-b">Keep right</button>
+      <button type="button" class="btn btn-sm btn-ghost" data-pair-action="dismiss">Not duplicates</button>
+    </div>
+  </div>`;
+}
+
+function duplicatesList(pairs) {
+  if (!pairs.length) return html`<p class="empty">Nothing that looks like a double listing.</p>`;
+  return pairs.map(dupPair);
+}
+
 export async function mountAgent(el, ctx) {
   const { api } = ctx;
   let alive = true;
@@ -180,14 +225,16 @@ export async function mountAgent(el, ctx) {
   let inbox = [];
   let sources = [];
   let contacts = [];
+  let duplicates = [];
   try {
-    [runs, notes, config, inbox, sources, contacts] = await Promise.all([
+    [runs, notes, config, inbox, sources, contacts, duplicates] = await Promise.all([
       api.get('/api/runs?limit=14'),
       api.get('/api/notes?limit=14'),
       api.get('/api/config'),
       api.get('/api/inbox?status=pending'),
       api.get('/api/sources').then((r) => r.sources || []),
       api.get('/api/contacts').catch(() => []),
+      api.get('/api/duplicates?limit=30').then((r) => r.pairs || []).catch(() => []),
     ]);
   } catch (err) {
     setHtml(el, html`<p class="empty">Could not load the agent page: ${err.message}</p>`);
@@ -229,6 +276,14 @@ export async function mountAgent(el, ctx) {
           <button class="btn btn-primary" type="submit">Add source</button>
         </form>
       </details>
+    </section>
+
+    <section class="block" style="margin-top:14px" id="duplicates-block">
+      <div class="section-head" style="margin:0 0 8px">
+        <h3>Duplicates to review</h3>
+        <span class="small muted">Same villa, listed twice</span>
+      </div>
+      <div id="duplicates-list" aria-live="polite">${duplicatesList(duplicates)}</div>
     </section>
 
     <section class="block" style="margin-top:14px">
@@ -288,6 +343,63 @@ export async function mountAgent(el, ctx) {
       <div id="inbox-list" style="margin-top:10px">${inboxList(inbox, sources)}</div>
     </section>`
   );
+
+  // --- duplicates ----------------------------------------------------------
+
+  async function reloadDuplicates() {
+    try {
+      const res = await api.get('/api/duplicates?limit=30');
+      if (!alive) return;
+      duplicates = res.pairs || [];
+      setHtml($('#duplicates-list', el), duplicatesList(duplicates));
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  /** A merge cannot be undone from the UI, so the button asks a second time in place. */
+  function resetPairConfirms() {
+    for (const b of $$('button[data-pair-action][data-confirm]', el)) {
+      delete b.dataset.confirm;
+      b.textContent = b.dataset.pairAction === 'keep-a' ? 'Keep left' : 'Keep right';
+      b.classList.remove('btn-confirm');
+    }
+  }
+
+  el.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-pair-action]');
+    if (!button) return;
+    const row = button.closest('.dup-pair');
+    const a = Number(row.dataset.a);
+    const b = Number(row.dataset.b);
+    const action = button.dataset.pairAction;
+
+    if (action !== 'dismiss' && button.dataset.confirm !== '1') {
+      resetPairConfirms();
+      button.dataset.confirm = '1';
+      button.textContent = action === 'keep-a' ? 'Confirm keep left' : 'Confirm keep right';
+      button.classList.add('btn-confirm');
+      return;
+    }
+
+    button.disabled = true;
+    try {
+      if (action === 'dismiss') {
+        await api.post('/api/duplicates/dismiss', { a, b });
+        toast('Marked as not duplicates');
+      } else {
+        const keep = action === 'keep-a' ? a : b;
+        const merge = action === 'keep-a' ? b : a;
+        await api.post('/api/duplicates/merge', { keep_id: keep, merge_id: merge });
+        toast(`Merged — listing ${keep} kept, ${merge} marked gone`);
+        ctx.refreshCounts?.();
+      }
+      await reloadDuplicates();
+    } catch (err) {
+      toast(err.message, 'error');
+      button.disabled = false;
+    }
+  });
 
   // --- sources -------------------------------------------------------------
 

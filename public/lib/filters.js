@@ -18,10 +18,13 @@ export const DEFAULT_FILTERS = {
   features: [],
   assessed: null,
   source: null,
-  hide_gone: 1,
+  removed: 'hide',
+  max_age_days: null,
   flagged: null,
   q: '',
-  sort: 'fit',
+  // 'worth' is a client-only display order (flagged, fit desc, then new-today, newest
+  // first) — filtersToQuery sends the API its nearest real sort, 'fit', for that value.
+  sort: 'worth',
 };
 
 export function defaultFilters() {
@@ -46,10 +49,11 @@ export function filtersToQuery(f, { limit = 200 } = {}) {
   if (f.term && f.term !== 'any') p.set('term', f.term);
   if (f.assessed) p.set('assessed', f.assessed);
   if (f.source) p.set('source', f.source);
+  if (f.max_age_days != null) p.set('max_age_days', String(f.max_age_days));
   if (f.flagged === 1) p.set('flagged', '1');
   if (f.q) p.set('q', f.q);
-  p.set('hide_gone', String(f.hide_gone ?? 1));
-  p.set('sort', f.sort || 'fit');
+  p.set('removed', f.removed || 'hide');
+  p.set('sort', f.sort === 'worth' || !f.sort ? 'fit' : f.sort);
   p.set('limit', String(limit));
   return p.toString();
 }
@@ -68,6 +72,7 @@ export function activeFilterCount(f) {
   if (f.assessed) n += 1;
   if (f.source) n += 1;
   if (f.q) n += 1;
-  if ((f.hide_gone ?? 1) !== 1) n += 1;
+  if (f.max_age_days != null) n += 1;
+  if ((f.removed || 'hide') !== 'hide') n += 1;
   return n;
 }

@@ -120,6 +120,19 @@ export const MIGRATIONS = [
   { name: '001_initial_schema', up: (db) => db.exec(DDL_001) },
   // SPEC §4 lists `notes` among the person-editable fields of PATCH /api/properties/:id.
   { name: '002_property_notes', up: (db) => addColumn(db, 'properties', 'notes', 'TEXT') },
+  // Pairs a person has looked at and said "not the same villa". The duplicate checker
+  // (src/scrape/duplicates.js) never offers a dismissed pair again. Always stored with
+  // property_a < property_b so the UNIQUE index catches the pair in either direction.
+  {
+    name: '003_duplicate_dismissals',
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS duplicate_dismissals (
+        id INTEGER PRIMARY KEY,
+        property_a INTEGER NOT NULL, property_b INTEGER NOT NULL,
+        by INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(property_a, property_b)
+      );`),
+  },
 ];
 
 function runMigrations(db) {

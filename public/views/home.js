@@ -4,7 +4,7 @@
 import { filtersToQuery, activeFilterCount, defaultFilters } from '../lib/filters.js';
 import {
   $, $$, html, setHtml, icons, priceLabel, beachLabel, statusPill, fitRing,
-  FEATURE_LABELS, STATUS_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar,
+  FEATURE_LABELS, STATUS_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar, dayLabel,
 } from '../lib/ui.js';
 
 const PRICE_MIN_M = 15;
@@ -17,9 +17,35 @@ const LAND_STEP_M2 = 50;
 const BUILD_MIN_M2 = 0;
 const BUILD_MAX_M2 = 600;
 const BUILD_STEP_M2 = 10;
-const SORTS = [['fit', 'Fit'], ['price', 'Price'], ['beach', 'Beach'], ['new', 'Newest']];
+const SORTS = [['worth', 'Worth a look'], ['fit', 'Fit'], ['price', 'Price'], ['beach', 'Beach'], ['new', 'Newest']];
 const BEDROOMS = [1, 2, 3, 4];
 const FEATURES = Object.keys(FEATURE_LABELS);
+const AGE_OPTIONS = [['', 'Any'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']];
+const REMOVED_OPTIONS = [['hide', 'Hide'], ['show', 'Show'], ['only', 'Only']];
+
+/** first_seen → "today" / "3d" / "5w" / "4mo" (SPEC §5 card, age of post filter). */
+function ageLabel(firstSeenIso) {
+  if (!firstSeenIso) return null;
+  const ms = Date.now() - new Date(firstSeenIso).getTime();
+  if (!Number.isFinite(ms)) return null;
+  const days = Math.max(0, Math.floor(ms / 86_400_000));
+  if (days === 0) return 'today';
+  if (days < 7) return `${days}d`;
+  if (days < 60) return `${Math.max(1, Math.round(days / 7))}w`;
+  return `${Math.max(1, Math.round(days / 30))}mo`;
+}
+
+/** sort=worth: flagged listings (fit desc — already this order from the API's own
+ *  sort=fit) followed by today's non-flagged arrivals (newest first). Client-side only:
+ *  the API has no 'worth' sort, so the request itself goes out as sort=fit (filters.js). */
+function worthOrder(rows) {
+  const today = todayMakassar();
+  const flagged = rows.filter((r) => r.flagged);
+  const newToday = rows
+    .filter((r) => !r.flagged && makassarDate(r.first_seen) === today)
+    .sort((a, b) => new Date(b.first_seen).getTime() - new Date(a.first_seen).getTime());
+  return [...flagged, ...newToday];
+}
 
 function featureChips(p, max = 4) {
   const out = [];
@@ -43,6 +69,8 @@ function areaLine(p, areas) {
 export function cardHtml(p, areas, { reason = false } = {}) {
   const bedrooms = p.bedrooms == null ? null : `${p.bedrooms} BR${p.extra_rooms ? ` +${p.extra_rooms}` : ''}`;
   const beach = beachLabel(p.beach_km);
+  const age = ageLabel(p.first_seen);
+  const removed = p.availability === 'gone' || p.availability === 'unlisted';
   return html`<article class="card">
     <a class="card-hit" href="#/p/${p.id}" aria-label="${p.title}">
       <div class="card-media">
@@ -50,12 +78,19 @@ export function cardHtml(p, areas, { reason = false } = {}) {
           ? html`<img src="${p.hero_url}" alt="" loading="lazy" decoding="async" />`
           : html`<span class="placeholder">No photo yet</span>`}
         <span class="card-badges">
-          ${statusPill(p.status)}${p.flagged ? html`<span class="pill pill-flagged">Flagged</span>` : ''}
+          ${statusPill(p.status)}
+          ${removed
+            ? html`<span class="pill pill-removed" title="Removed${p.removed_at ? ` · ${dayLabel(p.removed_at)}` : ''}">Removed</span>`
+            : ''}
+          ${p.flagged ? html`<span class="pill pill-flagged">Flagged</span>` : ''}
         </span>
         <span class="card-ring">${fitRing(p.fit_score, 40)}</span>
       </div>
       <div class="card-body">
-        <div class="card-top"><span class="card-price mono">${priceLabel(p)}</span></div>
+        <div class="card-top">
+          <span class="card-price mono">${priceLabel(p)}</span>
+          ${age ? html`<span class="card-age mono">${age}</span>` : ''}
+        </div>
         <div class="card-title">${p.title}</div>
         ${reason
           ? ''
@@ -175,6 +210,20 @@ function buildFilterPanel({ areas, onChange, sources }) {
     </div>
 
     <div class="filter-group">
+      <span class="label">Posted within</span>
+      <div class="seg seg-tap" data-role="age" role="group" aria-label="Posted within">
+        ${AGE_OPTIONS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <span class="label">Removed</span>
+      <div class="seg seg-tap" data-role="removed" role="group" aria-label="Removed">
+        ${REMOVED_OPTIONS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
+      </div>
+    </div>
+
+    <div class="filter-group">
       <span class="label">Features</span>
       <div class="filter-cols">
         ${checkboxes(FEATURES.map((f) => ({ value: f, label: FEATURE_LABELS[f] })), 'features')}
@@ -201,7 +250,6 @@ function buildFilterPanel({ areas, onChange, sources }) {
     <div class="filter-group">
       <label class="check"><input type="checkbox" data-role="assessed" /><span>Assessed on location</span></label>
       <label class="check"><input type="checkbox" data-role="hide-rejected" /><span>Hide rejected</span></label>
-      <label class="check"><input type="checkbox" data-role="hide-gone" /><span>Hide delisted</span></label>
       <label class="check"><input type="checkbox" data-role="in-filter" /><span>In-filter only</span></label>
     </div>
 
@@ -242,6 +290,12 @@ function buildFilterPanel({ areas, onChange, sources }) {
         b.setAttribute('aria-pressed', String((f[group] || 'any') === b.value));
       }
     }
+    for (const b of $$('[data-role="age"] button', panel)) {
+      b.setAttribute('aria-pressed', String(String(f.max_age_days ?? '') === b.value));
+    }
+    for (const b of $$('[data-role="removed"] button', panel)) {
+      b.setAttribute('aria-pressed', String((f.removed || 'hide') === b.value));
+    }
     const minM = f.min != null ? f.min / 1e6 : PRICE_MIN_M;
     const maxM = f.max != null ? f.max / 1e6 : PRICE_MAX_M;
     minEl.value = String(minM);
@@ -267,7 +321,6 @@ function buildFilterPanel({ areas, onChange, sources }) {
     $('[data-role="assessed"]', panel).checked = f.assessed === 'done';
     $('[data-role="hide-rejected"]', panel).checked =
       !(f.status || []).includes('rejected') && !(f.status || []).includes('all');
-    $('[data-role="hide-gone"]', panel).checked = (f.hide_gone ?? 1) === 1;
     $('[data-role="in-filter"]', panel).checked = f.scope === 'in_filter';
   }
 
@@ -283,7 +336,6 @@ function buildFilterPanel({ areas, onChange, sources }) {
     else if (t.dataset.filter === 'features') onChange({ features: listFrom('[data-filter="features"]') });
     else if (t.dataset.role === 'source') onChange({ source: t.value || null });
     else if (t.dataset.role === 'assessed') onChange({ assessed: t.checked ? 'done' : null });
-    else if (t.dataset.role === 'hide-gone') onChange({ hide_gone: t.checked ? 1 : 0 });
     else if (t.dataset.role === 'in-filter') onChange({ scope: t.checked ? 'in_filter' : 'all' });
     else if (t.dataset.role === 'hide-rejected') {
       onChange((f) => ({ status: t.checked ? (f.status || []).filter((s) => s !== 'rejected' && s !== 'all') : ['all'] }));
@@ -358,6 +410,10 @@ function buildFilterPanel({ areas, onChange, sources }) {
       onChange({ furnished: button.value });
     } else if (button.parentElement?.dataset.role === 'term') {
       onChange({ term: button.value });
+    } else if (button.parentElement?.dataset.role === 'age') {
+      onChange({ max_age_days: button.value ? Number(button.value) : null });
+    } else if (button.parentElement?.dataset.role === 'removed') {
+      onChange({ removed: button.value });
     } else if (button.dataset.role === 'reset') {
       onChange('reset');
     }
@@ -381,7 +437,6 @@ export async function mountHome(el, ctx) {
     html`<div class="home-layout">
       <aside class="rail" id="rail"><h2 class="rail-title">Filters</h2></aside>
       <div class="home-main">
-        <section id="strip-section"></section>
         <div class="toolbar">
           <button type="button" class="btn btn-sm filters-toggle" id="filters-btn">
             ${icons.filter()}<span>Filters</span><span class="filter-count" id="filter-count" hidden></span>
@@ -390,6 +445,7 @@ export async function mountHome(el, ctx) {
             ${SORTS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
           </div>
         </div>
+        <p class="small muted" id="worth-subtitle" hidden>Flagged first, then new today</p>
         <div class="section-head"><h2 id="list-title">Listings</h2><span class="small muted" id="list-count"></span></div>
         <div class="grid" id="grid"><p class="loading">Loading…</p></div>
         <p class="small muted" id="updated"></p>
@@ -429,11 +485,12 @@ export async function mountHome(el, ctx) {
 
   function paintToolbar() {
     const f = store.get().filters;
-    for (const b of $$('#sort button', el)) b.setAttribute('aria-pressed', String((f.sort || 'fit') === b.value));
+    for (const b of $$('#sort button', el)) b.setAttribute('aria-pressed', String((f.sort || 'worth') === b.value));
     const badge = $('#filter-count', el);
     const n = activeFilterCount(f);
     badge.textContent = String(n);
     badge.hidden = n === 0;
+    $('#worth-subtitle', el).hidden = f.sort !== 'worth';
   }
 
   function rememberSources(rows) {
@@ -455,11 +512,13 @@ export async function mountHome(el, ctx) {
   }
 
   const reload = debounce(async () => {
-    const query = filtersToQuery(store.get().filters);
+    const filters = store.get().filters;
+    const query = filtersToQuery(filters);
     try {
-      const rows = await api.get(`/api/properties?${query}`);
+      const fetched = await api.get(`/api/properties?${query}`);
       if (!alive) return;
-      rememberSources(rows);
+      const rows = filters.sort === 'worth' ? worthOrder(fetched) : fetched;
+      rememberSources(fetched);
       $('#list-count', el).textContent = `${rows.length} listing${rows.length === 1 ? '' : 's'}`;
       setHtml(
         grid,
@@ -467,36 +526,14 @@ export async function mountHome(el, ctx) {
           ? rows.map((p) => cardHtml(p, areas))
           : html`<p class="empty">Nothing matches these filters. Try widening the price range or turning off "In-filter only".</p>`
       );
+      // The detail page's prev/next arrows read this: the ordered ids of whatever the
+      // list last rendered (any sort, filters applied), and the query that produced it.
+      store.set({ list_ids: rows.map((p) => p.id), list_query: query });
     } catch (err) {
       if (!alive) return;
       setHtml(grid, html`<p class="empty">Could not load listings: ${err.message}</p>`);
     }
   }, 220);
-
-  async function loadStrip() {
-    try {
-      const [flagged, recent] = await Promise.all([
-        api.get('/api/properties?scope=in_filter&flagged=1&sort=fit&limit=20'),
-        api.get('/api/properties?scope=all&status=all&sort=new&limit=40'),
-      ]);
-      if (!alive) return;
-      const today = todayMakassar();
-      const newToday = recent.filter((r) => makassarDate(r.first_seen) === today);
-      const seen = new Set();
-      const cards = [...flagged, ...newToday].filter((p) => (seen.has(p.id) ? false : seen.add(p.id)));
-      if (!cards.length) return;
-      setHtml(
-        $('#strip-section', el),
-        html`<div class="section-head">
-            <h2>Worth a look</h2>
-            <span class="small muted">Flagged first, then new today</span>
-          </div>
-          <div class="strip">${cards.map((p) => cardHtml(p, areas, { reason: true }))}</div>`
-      );
-    } catch {
-      /* the strip is a bonus; the grid below is the real list */
-    }
-  }
 
   async function loadUpdated() {
     try {
@@ -528,7 +565,6 @@ export async function mountHome(el, ctx) {
   sync(store.get().filters);
   paintToolbar();
   reload();
-  loadStrip();
   loadUpdated();
 
   return () => {

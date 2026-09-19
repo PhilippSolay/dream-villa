@@ -13,42 +13,84 @@ import { parsePrice, parseBedrooms, normaliseListing, titleCase } from '../scrap
 import { finishRow } from '../scrape/ingest.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
 import { dedupeAll } from '../scrape/dedupe.js';
-import { strictSchemas } from './_common.js';
+import { strictSchemas, saveImage, imagesDirFor, jsonArray } from './_common.js';
 
 const MAX_POSTS = 200;
+// A 200-post batch with an embedded cover photo per post can run ~15 MB; Fastify's
+// global bodyLimit is much smaller, so this route gets its own (route-level only —
+// every other route keeps the default).
+const IMPORT_BODY_LIMIT = 40 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Skip classification (task step 1). Priority: wanted > offtopic > no_signal,
-// so an unambiguous "for sale" / "kost" / "per night" post reads as offtopic
-// even when it also carries no price, and a "looking for" post reads as wanted
-// even when it happens to quote a budget.
+// so an unambiguous "for sale" / "kost" / "per night" / land post reads as
+// offtopic even when it also carries no price, and a "looking for" post reads
+// as wanted even when it happens to quote a budget.
 // ---------------------------------------------------------------------------
 
 const WANTED_RE = /\b(?:looking for|wanted|dicari|mencari)\b/i;
+// A rent WORD in the text is one rent signal; the other is a price that itself
+// carries a period ("IDR 40.000.000/month") — parsePrice already tells us that,
+// so classifySkip ORs the two rather than requiring the word every time (a
+// harvested post routinely says "/month" with no other rent vocabulary at all).
 const RENT_SIGNAL_RE = /\b(?:rent|rental|lease|sewa|disewakan|kontrak|monthly|yearly|bulan|tahun)\b|\/mo\b|\/yr\b/i;
 const SALE_ONLY_RE = /\bfor sale\b/i;
 const ROOM_KOST_APT_RE = /\b(?:kost|kos-kosan|room only|apartment|apartemen)\b/i;
 const DAILY_NIGHTLY_RE = /\b(?:per night|nightly|harian)\b|\/night\b/i;
 
-function hasQualifyingPrice(text) {
-  const p = parsePrice(text);
-  return Boolean(p) && (p.amount >= 1_000_000 || p.per === 'month' || p.per === 'year');
-}
+/**
+ * Land offers slip through the checks above: a per-are land post rarely says
+ * "for sale" and can otherwise look like a rental at a glance ("50 juta/are/
+ * year"). Offtopic when the text talks about land and never mentions a villa/
+ * house/bedroom word, or when the only price given is per-are.
+ */
+const LAND_RE = /\b(?:land|tanah|are\b|\/are\b|per are|sqm land only)\b/i;
+const VILLA_HOUSE_RE = /\b(?:villa|house|home|rumah|bedroom|kamar|br\b)\b/i;
+const PER_ARE_PRICE_RE = /\/\s?are\s?\/\s?(?:year|tahun|month|bulan)\b/i;
 
 /** @returns {'wanted'|'offtopic'|'no_signal'|null} null = on-topic, proceed to import. */
 function classifySkip(text) {
   if (WANTED_RE.test(text)) return 'wanted';
-  const hasRentSignal = RENT_SIGNAL_RE.test(text);
+
+  const priceInfo = parsePrice(text);
+  const qualifyingPrice = Boolean(priceInfo) && (priceInfo.amount >= 1_000_000 || priceInfo.per === 'month' || priceInfo.per === 'year');
+  // A price with an explicit period (parsePrice's `per`) is itself a rent signal —
+  // a villa quoted at "X/month" or "X/year" is being offered as a rental, whatever
+  // vocabulary surrounds it.
+  const hasRentSignal = RENT_SIGNAL_RE.test(text) || (priceInfo && priceInfo.per != null);
+
   const saleOnly = SALE_ONLY_RE.test(text) && !hasRentSignal;
-  if (saleOnly || ROOM_KOST_APT_RE.test(text) || DAILY_NIGHTLY_RE.test(text)) return 'offtopic';
-  if (!(hasQualifyingPrice(text) && hasRentSignal)) return 'no_signal';
+  const landOnly = LAND_RE.test(text) && !VILLA_HOUSE_RE.test(text);
+  if (saleOnly || ROOM_KOST_APT_RE.test(text) || DAILY_NIGHTLY_RE.test(text) || landOnly || PER_ARE_PRICE_RE.test(text)) {
+    return 'offtopic';
+  }
+  if (!(qualifyingPrice && hasRentSignal)) return 'no_signal';
   return null;
 }
 
 // ---------------------------------------------------------------------------
-// Area — SPEC §7 keyword scan, first match (in this list's order) wins; a group's
-// own name is the fallback when the post text names no area at all.
+// Area — SPEC §7 keyword scan, first match (in this list's order) wins.
+//
+// Bug (2026-09, first real import: "SESEH CEMAGI KEDUNGU VILLA & LAND", 892
+// posts): the old group-name fallback tagged every post whose group's own NAME
+// happened to mention an area word, regardless of what the post itself said —
+// 72 posts wrongly landed on 'seseh'. Dropped entirely; a post that names no
+// target area is 'other', full stop — no group-name fallback.
+//
+// A second failure mode: a Canggu-based post routinely says "10 minutes to
+// Pererenan" — that is a distance reference, not the villa's own location, so a
+// target-area word only counts when it is not immediately preceded by a
+// proximity phrase ("to/from/minutes/min/mins/drive/near/close to/dekat").
 // ---------------------------------------------------------------------------
+
+/** Areas we don't track. A post naming one of these and no (non-proximity)
+ *  target-area word reads as 'other' — see detectArea. Cepaka is deliberately
+ *  NOT here: it is itself a §7 target keyword (-> tanah_lot), not an exclusion. */
+const OUT_OF_TARGET_RE =
+  /\b(?:canggu|berawa|batu\s+bolong|babakan|padonan|umalas|kerobokan|seminyak|sanur|ubud|jimbaran|nusa\s+dua|denpasar|tibubeneng)\b/i;
+
+const PROXIMITY_RE = /\b(?:to|from|minutes?|mins?|drive|near|close to|dekat)\b/i;
+const PROXIMITY_WINDOW_CHARS = 25;
 
 const AREA_KEYWORDS = [
   [/\bseseh\b/i, 'seseh'],
@@ -59,6 +101,7 @@ const AREA_KEYWORDS = [
   [/\bnyanyi\b/i, 'nyanyi'],
   [/\bkedungu\b/i, 'kedungu'],
   [/tanah\s*lot/i, 'tanah_lot'],
+  [/\bcepaka\b/i, 'tanah_lot'],
   [/\bbuwit\b/i, 'buwit'],
   [/\bmengwi\b/i, 'mengwi'],
   [/kaba[-\s]?kaba/i, 'tanah_lot'],
@@ -74,13 +117,35 @@ const AREA_KEYWORDS = [
   [/\bkutuh\b/i, 'pandawa'],
 ];
 
+/** True when a proximity phrase sits in the ~25 chars right before this match —
+ *  "10 minutes to Pererenan" is a distance reference, not the villa's location. */
+function isProximityMention(text, matchIndex) {
+  const start = Math.max(0, matchIndex - PROXIMITY_WINDOW_CHARS);
+  return PROXIMITY_RE.test(text.slice(start, matchIndex));
+}
+
+/** First keyword (in list order) with at least one non-proximity occurrence. */
 function areaFromKeywords(text) {
-  for (const [re, area] of AREA_KEYWORDS) if (re.test(text)) return area;
+  const s = String(text || '');
+  for (const [re, area] of AREA_KEYWORDS) {
+    const global = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+    let m;
+    while ((m = global.exec(s))) {
+      if (!isProximityMention(s, m.index)) return area;
+      if (global.lastIndex === m.index) global.lastIndex += 1; // guard against zero-length matches
+    }
+  }
   return null;
 }
 
-function detectArea(text, groupName) {
-  return areaFromKeywords(text) || (groupName && areaFromKeywords(groupName)) || 'other';
+/** (a) an out-of-target place with no target word at all -> 'other'; (b) the
+ *  target-area scan (first match) as normal; (c) otherwise 'other'. No
+ *  group-name fallback (see the bug note above). */
+function detectArea(text) {
+  const s = String(text || '');
+  const target = areaFromKeywords(s);
+  if (!target && OUT_OF_TARGET_RE.test(s)) return 'other';
+  return target || 'other';
 }
 
 // ---------------------------------------------------------------------------
@@ -116,17 +181,40 @@ function priceFieldsFrom(priceInfo) {
 }
 
 // ---------------------------------------------------------------------------
-// Title — first sentence/line of the post, trimmed to 90 chars. A SHOUTY line
-// gets run through normalise's titleCase before it goes in; note that
-// normaliseListing title-cases whatever title it is given regardless (it does
-// this for every source, not just FB), so this mainly documents the intent —
-// titleCase is idempotent, so pre-casing an all-caps line changes nothing later.
+// Title — harvested FB text routinely carries repost-header noise ahead of the
+// real first line ("Villa Inbali", "3d", "posted to", the group's own name,
+// "· Follow") and junk at the tail ("See less", "Comment as …", a lone number).
+// Strip both, then take the first remaining line >= 12 chars; short/junk-only
+// text falls back to the first 90 chars of the raw post. A SHOUTY result gets
+// run through normalise's titleCase (idempotent — normaliseListing title-cases
+// whatever title it is given regardless, for every source, not just FB).
 // ---------------------------------------------------------------------------
 
-function firstSentenceOrLine(text) {
-  const line = String(text || '').trim().split(/\r?\n/)[0].trim();
-  const sentence = /^[^.!?\n]+[.!?]?/.exec(line);
-  return (sentence ? sentence[0] : line).trim();
+const HEADER_TIMESTAMP_RE = /^\d+\s?[mhdw]$/i;
+const HEADER_PHRASE_RE = /^(?:posted to|· ?Follow|Follow)$/i;
+const TRAILING_SEE_LESS_RE = /^see less$/i;
+const TRAILING_COMMENT_AS_RE = /^comment as\b/i;
+const LONE_NUMBER_RE = /^\d+$/;
+const MIN_TITLE_LENGTH = 12;
+const MAX_TITLE_LENGTH = 90;
+
+function isLeadingHeaderLine(line, posterName, groupName) {
+  const t = line.trim();
+  if (t.length < 4) return true;
+  if (posterName && t === String(posterName).trim()) return true;
+  if (groupName && t === String(groupName).trim()) return true;
+  if (HEADER_TIMESTAMP_RE.test(t)) return true;
+  if (HEADER_PHRASE_RE.test(t)) return true;
+  return false;
+}
+
+function isTrailingJunkLine(line) {
+  const t = line.trim();
+  if (!t) return true;
+  if (TRAILING_SEE_LESS_RE.test(t)) return true;
+  if (TRAILING_COMMENT_AS_RE.test(t)) return true;
+  if (LONE_NUMBER_RE.test(t)) return true;
+  return false;
 }
 
 function isAllCaps(s) {
@@ -134,9 +222,35 @@ function isAllCaps(s) {
   return letters.length >= 3 && letters === letters.toUpperCase();
 }
 
-function buildTitle(text) {
-  let candidate = firstSentenceOrLine(text);
-  if (candidate.length > 90) candidate = candidate.slice(0, 90).trim();
+function clip90(s) {
+  const t = String(s || '').trim();
+  return t.length > MAX_TITLE_LENGTH ? t.slice(0, MAX_TITLE_LENGTH).trim() : t;
+}
+
+function buildTitle(text, posterName, groupName) {
+  const raw = String(text || '');
+  const lines = raw.split(/\r?\n/);
+
+  let start = 0;
+  while (start < lines.length && isLeadingHeaderLine(lines[start], posterName, groupName)) start += 1;
+  let end = lines.length;
+  while (end > start && isTrailingJunkLine(lines[end - 1])) end -= 1;
+
+  let candidate = null;
+  for (let i = start; i < end; i += 1) {
+    const line = lines[i].trim();
+    if (line.length >= MIN_TITLE_LENGTH) {
+      candidate = line;
+      break;
+    }
+  }
+  if (!candidate) candidate = clip90(raw);
+  candidate = clip90(candidate);
+
+  // Never let the title equal poster_name (a stray header line long enough to
+  // otherwise qualify, e.g. a long display name).
+  if (posterName && candidate === String(posterName).trim()) candidate = clip90(raw);
+
   return isAllCaps(candidate) ? titleCase(candidate) : candidate;
 }
 
@@ -185,23 +299,68 @@ function findOrCreateContact(db, { whatsapp, name, role, instagram, notes }) {
 }
 
 // ---------------------------------------------------------------------------
+// Cover image — the harvester sometimes captures the post's image directly (a
+// base64 JPEG/PNG) because a signed CDN url would otherwise get redacted.
+// Decoded through the same resizeToJpeg used by the daily scraper's own image
+// step, written to <IMAGES_DIR>/<id>/1.jpg. Never throws: an invalid or
+// oversized image is simply not attached, and the caller counts it in
+// skipped_images while still importing the rest of the post.
+// ---------------------------------------------------------------------------
+
+const MAX_IMAGE_BYTES = 600 * 1024;
+
+/** @returns {Promise<boolean>} true when the image was decoded, resized and attached. */
+async function attachCoverImage(db, imagesDir, propertyId, image) {
+  if (!image || typeof image.data_base64 !== 'string' || !image.data_base64) return false;
+
+  let buffer;
+  try {
+    buffer = Buffer.from(image.data_base64, 'base64');
+  } catch {
+    return false;
+  }
+  if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) return false;
+
+  let saved;
+  try {
+    saved = await saveImage(imagesDir, propertyId, '1.jpg', buffer);
+  } catch {
+    return false; // not a decodable image
+  }
+
+  const existing = db.prepare('SELECT images, hero_file FROM properties WHERE id = ?').get(propertyId);
+  // Keep any already-downloaded gallery entries (they carry a `.file`); a plain
+  // src_url-only entry has nothing worth keeping over the file we just wrote.
+  const kept = jsonArray(existing?.images).filter((im) => im && im.file && im.file !== saved.file);
+  const images = [{ src_url: null, file: saved.file, w: saved.w, h: saved.h }, ...kept];
+
+  db.prepare('UPDATE properties SET images = ?, hero_file = COALESCE(hero_file, ?) WHERE id = ?')
+    .run(JSON.stringify(images), saved.file, propertyId);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // One post -> one property row.
 // ---------------------------------------------------------------------------
 
-function upsertPost(db, config, groupId, post) {
+async function upsertPost(db, config, groupId, post, imagesDir) {
   const text = post.text;
   const partial = {
     source: 'fb',
     ref: post.post_id,
     url: post.url,
-    title: buildTitle(text),
+    title: buildTitle(text, post.poster_name, post.group_name),
     description: text,
     note: post.group_name || null,
-    area: detectArea(text, post.group_name),
+    area: detectArea(text),
     bedrooms: detectBedrooms(text),
     ...priceFieldsFrom(parsePrice(text)),
   };
 
+  // normaliseListing -> placePins -> scoreRow (finishRow chains the latter two,
+  // ingest.js's own pipeline). title/area/price/bedrooms are listing facts, so a
+  // later re-import with corrected text overwrites them via upsertProperty's
+  // UPDATE_FACT_COLUMNS — never the person fields.
   const { row } = normaliseListing(partial, config);
   // first_seen/last_seen = posted_at so a backfilled batch gives a real time series,
   // not "today" for every post (CLAUDE.md: the scraper only ever touches listing facts;
@@ -210,7 +369,8 @@ function upsertPost(db, config, groupId, post) {
   row.last_seen = post.posted_at;
   // Image URLs are frequently absent (signed CDN URLs get redacted by the harvesting
   // tool) — leave row.images unset in that case so hero_file/heroUrl stay null rather
-  // than pointing at nothing.
+  // than pointing at nothing. (A separate post.image — a base64 cover photo — is
+  // handled below, after the row has an id.)
   if (Array.isArray(post.images) && post.images.length) {
     row.images = post.images.map((src_url) => ({ src_url }));
   }
@@ -241,7 +401,13 @@ function upsertPost(db, config, groupId, post) {
     db.prepare('INSERT OR IGNORE INTO property_contacts (property_id, contact_id) VALUES (?, ?)').run(result.id, contact.id);
   }
 
-  return result;
+  let imageSkipped = false;
+  if (post.image) {
+    const attached = await attachCoverImage(db, imagesDir, result.id, post.image);
+    if (!attached) imageSkipped = true;
+  }
+
+  return { ...result, imageSkipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +416,7 @@ function upsertPost(db, config, groupId, post) {
 
 export default async function importRoutes(app, opts) {
   const { db, env = process.env } = opts;
-  void env;
+  const imagesDir = imagesDirFor(env);
   const auth = { onRequest: app.requireUser };
 
   strictSchemas(app);
@@ -259,6 +425,7 @@ export default async function importRoutes(app, opts) {
     '/api/import/posts',
     {
       ...auth,
+      bodyLimit: IMPORT_BODY_LIMIT,
       schema: {
         body: {
           type: 'object',
@@ -287,6 +454,17 @@ export default async function importRoutes(app, opts) {
                   poster_name: { type: ['string', 'null'], maxLength: 200 },
                   poster_url: { type: ['string', 'null'], maxLength: 2000 },
                   images: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 2000 } },
+                  // The harvester's own captured cover photo — a fallback for when a
+                  // signed CDN url (the `images` field above) would get redacted.
+                  image: {
+                    type: ['object', 'null'],
+                    additionalProperties: false,
+                    properties: {
+                      data_base64: { type: 'string', minLength: 1, maxLength: 1_500_000 },
+                      w: { type: ['integer', 'null'] },
+                      h: { type: ['integer', 'null'] },
+                    },
+                  },
                   phone: { type: ['string', 'null'], maxLength: 60 },
                   whatsapp: { type: ['string', 'null'], maxLength: 60 },
                   group_name: { type: ['string', 'null'], maxLength: 200 },
@@ -305,6 +483,7 @@ export default async function importRoutes(app, opts) {
       const ids = [];
       let newCount = 0;
       let updatedCount = 0;
+      let skippedImages = 0;
 
       for (const post of posts) {
         const skip = classifySkip(post.text);
@@ -312,7 +491,7 @@ export default async function importRoutes(app, opts) {
           skipped[skip] += 1;
           continue;
         }
-        const result = upsertPost(db, config, groupId, post);
+        const result = await upsertPost(db, config, groupId, post, imagesDir);
         ids.push(result.id);
         // A re-import of an already-seen post_id is "updated" for this summary
         // whether or not any listing fact actually changed (upsertProperty may
@@ -320,18 +499,20 @@ export default async function importRoutes(app, opts) {
         // point of view it is not a new listing either way.
         if (result.action === 'inserted') newCount += 1;
         else updatedCount += 1;
+        if (result.imageSkipped) skippedImages += 1;
       }
 
       // SPEC §6 dedupe: fb cross-posts of the same villa share an image or a
       // description prefix. Run once over the whole table after the batch —
-      // never over dedupe.js's own rule, only the imported rows are freshly
-      // scored, so rescoreAll is not needed here.
+      // never dedupe.js's own rule; only the imported rows are freshly scored,
+      // so rescoreAll is not needed here.
       const { merged } = dedupeAll(db);
 
       const notes = [
         `skipped_no_signal=${skipped.no_signal}`,
         `skipped_offtopic=${skipped.offtopic}`,
         `skipped_wanted=${skipped.wanted}`,
+        `skipped_images=${skippedImages}`,
       ];
       for (const m of merged) notes.push(`kept #${m.kept_id} <- merged #${m.merged_id} (${m.reason})`);
 
@@ -346,6 +527,7 @@ export default async function importRoutes(app, opts) {
         new: newCount,
         updated: updatedCount,
         skipped,
+        skipped_images: skippedImages,
         merged: merged.length,
         ids,
       };

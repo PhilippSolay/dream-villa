@@ -210,7 +210,7 @@ function altUrlsFor(keep, drop) {
   return [...new Set(all)].filter((u) => u !== keep.url);
 }
 
-function mergeOne(db, keep, drop, reason, now) {
+function mergeOne(db, keep, drop, reason, now, by = null) {
   const sets = {};
 
   const alt = altUrlsFor(keep, drop);
@@ -239,11 +239,30 @@ function mergeOne(db, keep, drop, reason, now) {
   let raw = safeJson(drop.raw);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) raw = { raw: drop.raw ?? null };
   raw.merged_into = keep.id;
+  raw.merged_at = now;
+  raw.merged_reason = reason;
+  if (by != null) raw.merged_by = by;
 
   db.prepare('UPDATE properties SET availability = ?, last_seen = ?, raw = ? WHERE id = ?')
     .run('gone', now, JSON.stringify(raw), drop.id);
 
   return { kept_id: keep.id, merged_id: drop.id, reason };
+}
+
+/**
+ * One merge, chosen by a person: `keepId` survives, `mergeId` becomes `gone` with
+ * `raw.merged_into/_by/_at`. Same machinery as the automatic pass — the only difference
+ * is that the caller, not `first_seen`, decides which row is the keeper.
+ *
+ * @returns {{kept_id:number, merged_id:number, reason:string} | {error:string}}
+ */
+export function mergeInto(db, keepId, mergeId, { by = null, reason = 'merged by hand', now = nowIso() } = {}) {
+  const keep = db.prepare('SELECT * FROM properties WHERE id = ?').get(keepId);
+  const drop = db.prepare('SELECT * FROM properties WHERE id = ?').get(mergeId);
+  if (!keep || !drop) return { error: 'not_found' };
+  if (keep.id === drop.id) return { error: 'same_row' };
+  if (drop.availability === 'gone') return { error: 'already_gone' };
+  return db.transaction(() => mergeOne(db, keep, drop, reason, now, by))();
 }
 
 /**
@@ -273,4 +292,4 @@ export function dedupeAll(db, { now = nowIso() } = {}) {
   return { merged };
 }
 
-export default { dedupeAll, findDuplicates, diceTrigram, matchReason, refParts, sameComplexDifferentUnit };
+export default { dedupeAll, findDuplicates, mergeInto, diceTrigram, matchReason, refParts, sameComplexDifferentUnit };

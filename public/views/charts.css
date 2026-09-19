@@ -296,3 +296,163 @@
 .mkt-band { max-height: 80px; }
 .mkt-price-marker { fill: var(--gold, #b8902e); stroke: var(--surface, #fff); stroke-width: 2; }
 .mkt-band-caption { margin: 4px 0 0; font-size: 12px; color: var(--muted, #6b6357); }
+
+/* --- Market metrics (GET /api/market/metrics) ----------------------------- */
+
+.mkt-explainer {
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted, #8a8271);
+  margin: -6px 0 12px;
+}
+
+.mkt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.mkt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line, #e4ddd0);
+  border-radius: 999px;
+  background: var(--bg, #f7f4ec);
+  color: var(--muted, #8a8271);
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mkt-chip:hover { color: var(--ink, #1a1712); }
+.mkt-chip.is-on {
+  background: var(--gold-soft, #ead9a8);
+  border-color: var(--gold, #b8902e);
+  color: var(--ink, #1a1712);
+}
+
+.mkt-legend { margin-top: 8px; }
+.mkt-legend-item { font-size: 12px; padding: 0 12px; }
+.mkt-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--muted, #8a8271);
+}
+.mkt-legend-item.is-on .mkt-legend-swatch { background: var(--gold, #b8902e); height: 3px; }
+
+.mkt-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 4px;
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 11px;
+  color: var(--muted, #8a8271);
+}
+.mkt-legend-key { display: inline-flex; align-items: center; gap: 6px; }
+.mkt-legend-key .mkt-legend-swatch { width: 12px; height: 8px; border-radius: 2px; }
+
+.mkt-tile-hint {
+  display: block;
+  font-family: var(--mono, var(--font-mono, ui-monospace, monospace));
+  font-size: 10px;
+  color: var(--muted, #8a8271);
+  margin-top: 2px;
+}
+
+/* 1. Asking price trend */
+.mkt-trend + .mkt-trend { margin-top: 12px; }
+.mkt-trend-line { fill: none; stroke: var(--muted, #8a8271); stroke-width: 1.4; opacity: 0.55; }
+.mkt-trend-dot { fill: var(--muted, #8a8271); opacity: 0.7; }
+.mkt-trend-series:hover .mkt-trend-line,
+.mkt-trend-series.is-sel .mkt-trend-line { stroke: var(--gold, #b8902e); stroke-width: 2.2; opacity: 1; }
+.mkt-trend-series:hover .mkt-trend-dot,
+.mkt-trend-series.is-sel .mkt-trend-dot { fill: var(--gold, #b8902e); opacity: 1; }
+
+/* 2. Supply flow */
+.mkt-flow-new { fill: var(--gold-soft, #ead9a8); stroke: var(--gold, #b8902e); stroke-width: 0.8; }
+.mkt-flow-removed { fill: var(--danger, #b3432b); opacity: 0.35; }
+.mkt-flow-net { fill: none; stroke: var(--ink, #1a1712); stroke-width: 1.4; stroke-dasharray: 3 2; }
+
+/* 7. Beach premium — grouped bars */
+.mkt-group-bar { stroke: var(--gold, #b8902e); stroke-width: 0.8; }
+.mkt-br-1 { fill: var(--surface, #fff); }
+.mkt-br-2 { fill: var(--gold-soft, #ead9a8); }
+.mkt-br-3 { fill: var(--gold, #b8902e); }
+.mkt-br-4p { fill: var(--ink, #1a1712); }
+.mkt-legend-key .mkt-legend-swatch.mkt-br-1 { background: var(--surface, #fff); border: 1px solid var(--gold, #b8902e); }
+.mkt-legend-key .mkt-legend-swatch.mkt-br-2 { background: var(--gold-soft, #ead9a8); }
+.mkt-legend-key .mkt-legend-swatch.mkt-br-3 { background: var(--gold, #b8902e); }
+.mkt-legend-key .mkt-legend-swatch.mkt-br-4p { background: var(--ink, #1a1712); }
+
+/* 8. Inclusions premium — paired tiles */
+.mkt-pairs { display: flex; flex-wrap: wrap; gap: 18px; }
+.mkt-pair { flex: 1 1 240px; min-width: 200px; }
+.mkt-pair-title {
+  display: block;
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted, #8a8271);
+  margin-bottom: 8px;
+}
+
+/* 5 / 9 / 10 — tables */
+.mkt-table-sm { min-width: 320px; }
+.mkt-table .mkt-sort {
+  border: 0;
+  background: none;
+  padding: 0;
+  min-height: 44px;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.mkt-table .mkt-sort.is-on { color: var(--gold, #b8902e); }
+.mkt-row-total td { border-top: 1px solid var(--line, #e4ddd0); font-weight: 600; }
+
+.mkt-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line, #e4ddd0);
+  color: var(--muted, #8a8271);
+}
+.mkt-pill-merged { background: var(--gold-soft, #ead9a8); border-color: var(--gold, #b8902e); color: var(--ink, #1a1712); }
+
+/* 11. Budget bands — heat table */
+.mkt-heat-table { min-width: 360px; }
+.mkt-heat-head .mkt-n { display: block; margin: 2px 0 0; }
+.mkt-heat {
+  position: relative;
+  text-align: center;
+  min-width: 52px;
+}
+.mkt-heat-fill {
+  position: absolute;
+  inset: 2px;
+  border-radius: 4px;
+  background: var(--gold, #b8902e);
+  pointer-events: none;
+}
+.mkt-heat-n { position: relative; color: var(--ink, #1a1712); }
+
+@media (max-width: 420px) {
+  .mkt-chip { padding: 0 11px; font-size: 12px; }
+}
+
+.mkt-tiles.is-narrow { grid-template-columns: minmax(140px, 240px); }
