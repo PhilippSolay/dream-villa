@@ -41,17 +41,36 @@ async function setup(t) {
   return { app };
 }
 
-test('app files: no-cache, so every load revalidates against the etag', async (t) => {
+test('index: no-cache HTML that points at versioned app.js and styles.css', async (t) => {
   const { app } = await setup(t);
-  for (const url of ['/', '/index.html', '/app.js', '/styles.css', '/views/home.js', '/lib/ui.js']) {
+  assert.match(app.assetVersion, /^[0-9a-f]{10}$/, 'a content hash of public/');
+  for (const url of ['/', '/index.html']) {
     const res = await app.inject({ method: 'GET', url });
     assert.equal(res.statusCode, 200, url);
-    assert.equal(res.headers['cache-control'], 'no-cache', `${url} must not be held by browser or edge`);
-    assert.ok(res.headers.etag, `${url} keeps an etag so revalidation is a cheap 304`);
+    assert.equal(res.headers['cache-control'], 'no-cache', `${url}: the phone must ask every time`);
+    assert.match(res.headers['content-type'], /text\/html/);
+    assert.ok(res.body.includes(`src="/v/${app.assetVersion}/app.js"`), `${url} loads the versioned app.js`);
+    assert.ok(res.body.includes(`href="/v/${app.assetVersion}/styles.css"`), `${url} loads the versioned styles.css`);
+    assert.ok(!res.body.includes('src="/app.js"'), 'no unversioned script left');
+  }
+});
+
+test('versioned app files: immutable for a year; the plain paths still work with no-cache', async (t) => {
+  const { app } = await setup(t);
+  const v = app.assetVersion;
+  for (const file of ['app.js', 'styles.css', 'views/home.js', 'views/charts.css', 'lib/ui.js']) {
+    const res = await app.inject({ method: 'GET', url: `/v/${v}/${file}` });
+    assert.equal(res.statusCode, 200, file);
+    assert.equal(res.headers['cache-control'], 'public, max-age=31536000, immutable', file);
+    const plain = await app.inject({ method: 'GET', url: `/${file}` });
+    assert.equal(plain.statusCode, 200, file);
+    assert.equal(plain.headers['cache-control'], 'no-cache', `/${file} is the dev / fallback path`);
+    assert.ok(plain.headers.etag, `/${file} keeps an etag so revalidation is a cheap 304`);
   }
   const first = await app.inject({ method: 'GET', url: '/app.js' });
   const again = await app.inject({ method: 'GET', url: '/app.js', headers: { 'if-none-match': first.headers.etag } });
   assert.equal(again.statusCode, 304);
+  assert.equal((await app.inject({ method: 'GET', url: '/v/0000000000/app.js' })).statusCode, 404, 'a stale version is not served');
 });
 
 test('listing images: long public cache', async (t) => {

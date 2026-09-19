@@ -5,7 +5,8 @@
 
 import { filtersToQuery } from '../lib/filters.js';
 
-const CHARTS_CSS_HREF = 'views/charts.css';
+// Resolved against this module's own URL, so it follows the /v/<hash>/ asset prefix.
+const CHARTS_CSS_HREF = new URL('./charts.css', import.meta.url).pathname;
 const LEAFLET_VERSION = '1.9.4';
 const LEAFLET_JS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
 const LEAFLET_CSS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`;

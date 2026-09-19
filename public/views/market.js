@@ -5,7 +5,8 @@
 
 import { dayLabel } from '../lib/ui.js';
 
-const CHARTS_CSS_HREF = 'views/charts.css';
+// Resolved against this module's own URL, so it follows the /v/<hash>/ asset prefix.
+const CHARTS_CSS_HREF = new URL('./charts.css', import.meta.url).pathname;
 const OVERVIEW_DAYS = 30;
 const PIPELINE_LABELS = {
   new: 'New', shortlist: 'Shortlist', contacted: 'Contacted', viewing_booked: 'Viewing booked',

@@ -1,5 +1,6 @@
 // Fastify app factory. Routes for the app itself land here in later steps.
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,28 @@ import anchorsRoutes from './routes/anchors.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Content hash of everything under public/ (files starting with `_` are local scratch and
+ * skipped). It becomes the `/v/<hash>/` prefix the page loads its modules from, so every
+ * deploy is a new URL and no cache — Cloudflare's or the phone's — can serve stale code.
+ */
+export function assetVersion(dir) {
+  const hash = crypto.createHash('sha1');
+  const walk = (d) => {
+    for (const name of fs.readdirSync(d).sort()) {
+      if (name.startsWith('_') || name.startsWith('.')) continue;
+      const p = path.join(d, name);
+      if (fs.statSync(p).isDirectory()) walk(p);
+      else {
+        hash.update(path.relative(dir, p));
+        hash.update(fs.readFileSync(p));
+      }
+    }
+  };
+  walk(dir);
+  return hash.digest('hex').slice(0, 10);
+}
+
 export async function buildServer({ db, env = process.env, logger = false } = {}) {
   if (!db) throw new Error('buildServer needs a db');
 
@@ -30,14 +53,42 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
   const imagesDir = path.resolve(ROOT, env.IMAGES_DIR || 'data/images');
   fs.mkdirSync(imagesDir, { recursive: true });
 
-  // App files revalidate on every load (etag → 304), so a deploy is visible at once. Behind
-  // Cloudflare a `public, max-age` would be held for hours by both the edge and the phone.
-  // Listing images never change under a given path, so those may be cached for a month.
+  // Caching, three tiers:
+  //  - index.html: served here, never cached, with its two asset URLs rewritten to /v/<hash>/.
+  //    Cloudflare passes HTML through, so this is what actually defeats stale caches.
+  //  - /v/<hash>/…: the same public/ files, immutable for a year. Module imports inside are
+  //    relative, so app.js at /v/<hash>/app.js pulls /v/<hash>/lib/… on its own.
+  //  - plain /app.js etc.: kept for dev and the preview harness, revalidated on every load
+  //    (Cloudflare still stamps its own browser TTL on these — hence the versioned tier).
+  //  - /images/…: a listing image never changes under its path; a month is safe.
+  const version = assetVersion(publicDir);
+  app.decorate('assetVersion', version);
+
+  const indexPath = path.join(publicDir, 'index.html');
+  const serveIndex = async (request, reply) => {
+    const html = fs
+      .readFileSync(indexPath, 'utf8')
+      .replaceAll('href="/styles.css"', `href="/v/${version}/styles.css"`)
+      .replaceAll('src="/app.js"', `src="/v/${version}/app.js"`);
+    return reply.header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(html);
+  };
+  app.get('/', serveIndex);
+  app.get('/index.html', serveIndex);
+
   await app.register(fastifyStatic, {
     root: publicDir,
     prefix: '/',
+    index: false,
     cacheControl: false,
     setHeaders: (reply) => reply.header('Cache-Control', 'no-cache'), // @fastify/static 10 hands over the Fastify reply
+  });
+  await app.register(fastifyStatic, {
+    root: publicDir,
+    prefix: `/v/${version}/`,
+    decorateReply: false,
+    index: false,
+    maxAge: '365d',
+    immutable: true,
   });
   await app.register(fastifyStatic, { root: imagesDir, prefix: '/images/', decorateReply: false, maxAge: '30d' });
 
