@@ -7,6 +7,7 @@ import {
   FEATURE_LABELS, STATUS_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar, dayLabel,
 } from '../lib/ui.js';
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
+import { valueBadgesHtml } from '../lib/value.js';
 
 const PRICE_MIN_M = 15;
 const PRICE_MAX_M = 80;
@@ -102,6 +103,7 @@ export function cardHtml(p, areas, { reason = false, viewer = null } = {}) {
           ${age ? html`<span class="card-age mono">${age}</span>` : ''}
         </div>
         <div class="card-title">${p.title}</div>
+        ${reason ? '' : valueBadgesHtml(p, areas.find((a) => a.id === p.area)?.label, { short: true })}
         ${reason
           ? ''
           : html`<div class="card-meta">
