@@ -97,7 +97,7 @@ export function publicRow(row) {
 
 export const PERSON_VERDICTS = ['yes', 'maybe', 'no']; // (VERDICTS above belongs to viewings)
 /** List filters, all relative to the person asking (`request.user.id`). */
-export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'unvoted'];
+export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'maybe', 'unvoted'];
 
 /** property_id → [{by, by_name, verdict, updated_at}] for the rows about to be returned. */
 function verdictsByProperty(db, ids) {
@@ -208,6 +208,7 @@ function verdictWhere(filter, userId) {
     waiting_other: `${mine} IS NOT NULL AND ${other} IS NULL`,
     waiting_me: `${mine} IS NULL AND ${other} IS NOT NULL`,
     disagree: `${mine} IS NOT NULL AND ${other} IS NOT NULL AND ${mine} != ${other}`,
+    maybe: `(${mine} = 'maybe' OR ${other} = 'maybe')`,
     unvoted: `${mine} IS NULL AND ${other} IS NULL`,
   }[filter];
   const count = (sql.match(/\?/g) || []).length;

@@ -18,6 +18,7 @@ export function verdictFilterOptions(otherName) {
     ['waiting_me', 'My turn'],
     ['waiting_other', `Waiting for ${other}`],
     ['disagree', 'Disagree'],
+    ['maybe', 'Maybe'],
   ];
 }
 

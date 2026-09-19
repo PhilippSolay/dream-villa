@@ -32,6 +32,11 @@ function sections(otherName) {
       empty: 'You agree on everything so far.',
     },
     {
+      key: 'maybe', title: 'Maybes', query: 'verdict=maybe',
+      hint: 'One of you is on the fence.',
+      empty: 'No maybes. Everything has a clear call.',
+    },
+    {
       key: 'fresh', title: 'Fresh picks', query: 'verdict=unvoted&flagged=1', limit: 12,
       hint: 'Featured listings neither of you has called yet.',
       empty: 'Every featured villa has a call.',

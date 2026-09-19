@@ -21,7 +21,7 @@ export const DEFAULT_FILTERS = {
   removed: 'hide',
   max_age_days: null,
   flagged: null,
-  verdict: null, // shared search: 'match' | 'waiting_me' | 'waiting_other' | 'disagree'
+  verdict: null, // shared search: 'match' | 'waiting_me' | 'waiting_other' | 'disagree' | 'maybe'
   style: [],
   anchor: null, // an anchor id; only meaningful together with anchor_km
   anchor_km: null,
