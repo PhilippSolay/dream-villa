@@ -98,13 +98,14 @@ export async function mountDetail(el, ctx) {
     </div>`;
   }
 
-  /** Shared search: both people's calls and the viewer's own Yes / Maybe / No. */
-  function verdictRow() {
+  /** Shared search: both people's calls and the viewer's own Yes / Maybe / No, as a
+      glass capsule on the photo's top right — one thumb-reach from the pager above it. */
+  function verdictCapsule() {
     const viewer = { user: store.get().user, users: store.get().users || [] };
     if (!viewer.user) return '';
-    return html`<div class="verdict-row">
-      <div class="verdict-row-label"><span class="label">Your call</span>${verdictPairHtml(p, viewer)}</div>
-      ${verdictControlHtml(p, viewer.user.id)}
+    return html`<div class="gallery-verdict">
+      ${verdictPairHtml(p, viewer)}
+      ${verdictControlHtml(p, viewer.user.id, { compact: true })}
     </div>`;
   }
 
@@ -358,13 +359,25 @@ export async function mountDetail(el, ctx) {
     pending.forEach((img) => galleryObserver.observe(img));
   }
 
+  /** Moves the photo strip one frame; past the last photo it wraps to the first, so a
+      tap on the picture always shows something new. */
+  function stepGallery(direction) {
+    const strip = $('#gallery', el);
+    if (!strip) return;
+    const width = Math.max(1, strip.clientWidth);
+    const count = strip.children.length;
+    const index = Math.round(strip.scrollLeft / width);
+    const next = (index + direction + count) % count;
+    strip.scrollTo({ left: next * width, behavior: 'smooth' });
+  }
+
   function gallery() {
     const urls = p.image_urls || [];
     if (!urls.length) {
-      return html`<div class="gallery-wrap"><div class="gallery-empty"><span class="placeholder">No photos</span></div></div>`;
+      return html`<div class="gallery-wrap"><div class="gallery-empty"><span class="placeholder">No photos</span></div>${verdictCapsule()}</div>`;
     }
     return html`<div class="gallery-wrap">
-      <div class="gallery" id="gallery" tabindex="0" aria-label="Photos of ${p.title}">
+      <div class="gallery" id="gallery" tabindex="0" aria-label="Photos of ${p.title}, tap for the next one">
         ${urls.map((u, i) =>
           i < GALLERY_EAGER
             ? html`<img src="${u}" alt="" decoding="async" />`
@@ -376,6 +389,7 @@ export async function mountDetail(el, ctx) {
             <button type="button" class="gallery-nav gallery-next" data-gallery="next" aria-label="Next photo">${icons.forward()}</button>`
         : ''}
       <div class="gallery-count mono" id="gallery-count" aria-live="off">1 / ${urls.length}</div>
+      ${verdictCapsule()}
     </div>`;
   }
 
@@ -390,7 +404,6 @@ export async function mountDetail(el, ctx) {
         ${gallery()}
         ${header()}
         ${statusRow()}
-        ${verdictRow()}
         <div class="tabs" role="tablist">
           ${TABS.map(
             ([key, label]) => html`<button type="button" class="tab-btn" role="tab" data-tab="${key}"
@@ -409,6 +422,11 @@ export async function mountDetail(el, ctx) {
     const strip = $('#gallery', el);
     if (strip) {
       watchGallery(strip);
+      // A tap on the picture is the fastest "next photo" there is. A swipe never fires a
+      // click, so scrolling by hand keeps working as before.
+      strip.addEventListener('click', (event) => {
+        if (event.target.tagName === 'IMG') stepGallery(1);
+      });
       strip.addEventListener('scroll', () => {
         // A re-render replaces the counter; the old strip may still fire one last scroll.
         const counter = $('#gallery-count', el);
@@ -609,8 +627,7 @@ export async function mountDetail(el, ctx) {
       return;
     }
     if (step) {
-      const strip = $('#gallery', el);
-      if (strip) strip.scrollBy({ left: (step === 'prev' ? -1 : 1) * strip.clientWidth, behavior: 'smooth' });
+      stepGallery(step === 'prev' ? -1 : 1);
       return;
     }
     if (nextTab) {

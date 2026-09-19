@@ -132,6 +132,11 @@ function listingPanel(p, areas) {
         </section>`
       : ''}
 
+    <section class="block">
+      <h3>Scraper facts</h3>
+      <dl class="kv">${facts.map(([k, v]) => html`<dt>${k}</dt><dd class="mono">${dash(v)}</dd>`)}</dl>
+    </section>
+
     ${inclusions.length || p.terms
       ? html`<section class="block">
           <h3>Inclusions and terms</h3>
@@ -162,19 +167,6 @@ function listingPanel(p, areas) {
     </section>
 
     <section class="block">
-      <h3>Source</h3>
-      <div class="links">
-        <a href="${p.url}" target="_blank" rel="noopener">${icons.external()} ${p.url}</a>
-        ${(p.alt_urls || []).map((u) => html`<a href="${u}" target="_blank" rel="noopener">${icons.external()} ${u}</a>`)}
-      </div>
-    </section>
-
-    <section class="block">
-      <h3>Scraper facts</h3>
-      <dl class="kv">${facts.map(([k, v]) => html`<dt>${k}</dt><dd class="mono">${dash(v)}</dd>`)}</dl>
-    </section>
-
-    <section class="block">
       <h3>Price in ${areaLabel}</h3>
       <div id="price-band" class="price-band" aria-live="polite"><p class="muted">Loading area prices…</p></div>
     </section>
@@ -187,6 +179,14 @@ function listingPanel(p, areas) {
       <h3>Possible duplicates</h3>
       <p class="small muted">The same villa, listed again somewhere else. Merging keeps this listing.</p>
       <div id="duplicates-list" aria-live="polite"></div>
+    </section>
+
+    <section class="block">
+      <h3>Source</h3>
+      <div class="links">
+        <a href="${p.url}" target="_blank" rel="noopener">${icons.external()} ${p.url}</a>
+        ${(p.alt_urls || []).map((u) => html`<a href="${u}" target="_blank" rel="noopener">${icons.external()} ${u}</a>`)}
+      </div>
     </section>
   </div>`;
 }

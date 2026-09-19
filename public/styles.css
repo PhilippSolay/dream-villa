@@ -1493,9 +1493,25 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
 
 .status-btn .who-set { width: 20px; height: 20px; font-size: 11px; margin-left: 7px; background: rgba(0, 0, 0, 0.14); border: 0; color: inherit; }
 
-.verdict-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; margin: 14px 2px 0; }
-.verdict-row-label { display: inline-flex; align-items: center; gap: 10px; }
-.verdict-row-label .label { font-size: 13px; color: var(--muted); }
+/* Detail: the pair and the viewer's call ride on the photo's top right, under the pager. */
+.gallery-verdict {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 999px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  border: 1px solid var(--glass-line);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--glass-shadow);
+}
+.gallery-verdict .verdict-seg { background: none; border: 0; padding: 0; }
+.gallery-verdict .vbtn { color: var(--ink); }
+.gallery img { cursor: pointer; }
 
 .shared-intro { margin: -6px 2px 8px; font-size: 14px; max-width: 60ch; }
 .shared-hint { margin: -6px 2px 8px; }
