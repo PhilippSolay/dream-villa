@@ -9,6 +9,7 @@ import { PANELS, RATING_FEATURES, VIEWING_SCALES, INCLUDED_KEYS } from './detail
 import { renderPriceBand } from './market.js';
 import { filtersToQuery } from '../lib/filters.js';
 import { verdictPairHtml, verdictControlHtml, bindVerdicts, initialOf } from '../lib/verdicts.js';
+import { STAGES, isStage, loadStageIds, nextStage } from '../lib/flow.js';
 
 // Prev/next pager: property rows fetched ahead of need, keyed by id. Module-scoped so
 // it survives the remount that happens when navigating from one listing to the next
@@ -45,7 +46,10 @@ export async function mountDetail(el, ctx) {
   const { api, store, navigate } = ctx;
   const id = Number(ctx.params.id);
   const areas = store.get().areas || [];
-  let tab = PANELS[ctx.query.tab] ? ctx.query.tab : 'listing';
+  // Flow mode (?flow=sort|rate|contact|view): a fixed queue, a sticky action bar, and an
+  // auto-advance once this listing has what the stage asks for. See lib/flow.js.
+  const flow = isStage(ctx.query.flow) ? ctx.query.flow : null;
+  let tab = PANELS[ctx.query.tab] ? ctx.query.tab : flow ? STAGES[flow].tab : 'listing';
   let p = null;
   let alive = true;
   let market = null; // /api/market, fetched once per mount for the area price band
@@ -109,6 +113,25 @@ export async function mountDetail(el, ctx) {
   const EVERYTHING_QUERY = 'scope=all&status=all&hide_gone=0&removed=show&sort=new&limit=500';
 
   async function ensureListIds() {
+    if (flow) {
+      const queue = store.get().flow;
+      if (queue?.stage === flow && Array.isArray(queue.ids) && queue.ids.includes(id)) {
+        listIds = queue.ids;
+        return;
+      }
+      try {
+        const fetched = await loadStageIds(api, flow, store.get().filters);
+        if (!alive) return;
+        // A deep link into a stage: adopt its queue, with this listing at the front when
+        // it is no longer waiting for the stage (already sorted, already rated, ...).
+        const ids = fetched.includes(id) ? fetched : [id, ...fetched];
+        store.set({ flow: { stage: flow, ids } });
+        listIds = ids;
+      } catch {
+        listIds = [id];
+      }
+      return;
+    }
     const ids = store.get().list_ids;
     if (Array.isArray(ids) && ids.includes(id)) {
       listIds = ids;
@@ -155,12 +178,95 @@ export async function mountDetail(el, ctx) {
     </div>`;
   }
 
+  /** Where a listing opens from here: in flow, the stage's own tab; otherwise this tab. */
+  function hrefFor(targetId) {
+    return flow ? `#/p/${targetId}?flow=${flow}` : `#/p/${targetId}?tab=${tab}`;
+  }
+
   function goToPager(dir) {
     const info = pagerInfo();
     if (!info) return;
     const targetId = dir === 'prev' ? info.prevId : info.nextId;
     if (targetId == null) return;
-    navigate(`#/p/${targetId}?tab=${tab}`);
+    navigate(hrefFor(targetId));
+  }
+
+  // --- flow mode ---------------------------------------------------------
+
+  /** Moves on to the next listing in the queue; at the end, hands over to the next stage. */
+  function advance() {
+    const info = pagerInfo();
+    if (info?.nextId != null) {
+      navigate(hrefFor(info.nextId));
+      return;
+    }
+    const label = STAGES[flow].label;
+    const following = nextStage(flow);
+    toast(following ? `${label} done — next up: ${STAGES[following].label}` : `${label} done`);
+    navigate('#/');
+  }
+
+  function flowActions() {
+    const s = STAGES[flow];
+    if (flow === 'sort') {
+      return html`<button type="button" class="flow-btn flow-btn-danger" data-flow="status" data-status="rejected"
+          aria-pressed="${String(p.status === 'rejected')}">Reject</button>
+        <button type="button" class="flow-btn flow-btn-primary" data-flow="status" data-status="shortlist"
+          aria-pressed="${String(p.status === 'shortlist')}">Shortlist</button>`;
+    }
+    if (flow === 'rate') {
+      const rated = new Set((p.ratings || []).map((r) => r.feature));
+      const n = RATING_FEATURES.filter(([k]) => rated.has(k)).length;
+      const done = s.done(p);
+      return html`<span class="flow-hint"><b class="mono">${n} / ${RATING_FEATURES.length}</b> rated${done ? '' : ' · Overall moves on'}</span>
+        <button type="button" class="flow-btn${raw(done ? ' flow-btn-primary' : '')}" data-flow="next">${done ? 'Next' : 'Skip'}</button>`;
+    }
+    if (flow === 'contact') {
+      const wa = (p.contacts || []).find((c) => String(c.whatsapp || '').replace(/\D/g, ''));
+      const number = wa ? String(wa.whatsapp).replace(/\D/g, '') : '';
+      const text = encodeURIComponent(fill(TEMPLATES.find((t) => t.key === 'A').body, p));
+      return html`${wa
+          ? html`<a class="flow-btn" href="https://wa.me/${number}?text=${raw(text)}" target="_blank" rel="noopener">${icons.whatsapp()} WhatsApp</a>`
+          : html`<button type="button" class="flow-btn" data-flow="tab" data-tab="contact" data-focus="form-contact">${icons.plus()} Add contact</button>`}
+        <button type="button" class="flow-btn flow-btn-primary" data-flow="status" data-status="contacted">Contacted</button>`;
+    }
+    // view
+    return html`${p.status === 'contacted'
+        ? html`<button type="button" class="flow-btn" data-flow="status" data-status="viewing_booked">Booked</button>`
+        : ''}
+      <button type="button" class="flow-btn flow-btn-primary" data-flow="tab" data-tab="viewing" data-focus="form-viewing">Log visit</button>`;
+  }
+
+  function flowBar() {
+    if (!flow) return '';
+    const s = STAGES[flow];
+    const info = pagerInfo();
+    return html`<div class="flow-bar" role="region" aria-label="${s.label} flow">
+      <a class="flow-close" href="#/" aria-label="Leave ${s.label}">${icons.close()}</a>
+      <div class="flow-meta">
+        <span class="flow-stage">${s.label}</span>
+        <span class="flow-count mono">${info ? `${info.idx + 1} / ${info.total}` : ''}</span>
+      </div>
+      <div class="flow-actions">${flowActions()}</div>
+      <button type="button" class="flow-skip" data-flow="next"
+        aria-label="${info?.nextId == null ? `Finish ${s.label}` : 'Skip to the next listing'}">${info?.nextId == null ? icons.check() : icons.forward()}</button>
+    </div>`;
+  }
+
+  async function setStatus(status) {
+    await api.post(`/api/properties/${id}/status`, { status });
+    await afterWrite(`Status: ${STATUS_LABELS[status]} (${store.get().user?.name})`);
+  }
+
+  /** Switches tab and brings a form into view — "Log visit", "Add contact". */
+  function jumpTo(nextTab, formId) {
+    tab = nextTab;
+    location.hash = `#/p/${id}?tab=${nextTab}${flow ? `&flow=${flow}` : ''}`;
+    render();
+    const form = formId ? $(`#${formId}`, el) : null;
+    if (!form) return;
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    form.querySelector('input:not([type=date]):not([type=file]), textarea')?.focus({ preventScroll: true });
   }
 
   /** Prefetches the next listing into PAGER_CACHE so tapping `>` feels instant. Runs once
@@ -185,10 +291,19 @@ export async function mountDetail(el, ctx) {
   /** ArrowLeft/ArrowRight move through the list, same as tapping the pager — but not while
       a form field has focus (typing "left" in a notes box must not navigate away). */
   function onKeydown(event) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     const active = document.activeElement;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)) return;
-    goToPager(event.key === 'ArrowLeft' ? 'prev' : 'next');
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      goToPager(event.key === 'ArrowLeft' ? 'prev' : 'next');
+      return;
+    }
+    if (!flow || !p) return;
+    // Flow shortcuts on a keyboard: S shortlist, X reject (sort stage), N skip.
+    const key = event.key.toLowerCase();
+    if (key === 'n') advance();
+    else if (flow === 'sort' && key === 's') setStatus('shortlist').catch((err) => toast(err.message, 'error'));
+    else if (flow === 'sort' && key === 'x') setStatus('rejected').catch((err) => toast(err.message, 'error'));
   }
 
   function gallery() {
@@ -211,7 +326,7 @@ export async function mountDetail(el, ctx) {
   function render() {
     setHtml(
       el,
-      html`<div class="detail-page">
+      html`<div class="detail-page${raw(flow ? ' in-flow' : '')}">
         <div class="detail-top">
           <a class="btn btn-sm btn-ghost detail-back" href="#/">${icons.back()} Back</a>
           ${pager()}
@@ -227,6 +342,7 @@ export async function mountDetail(el, ctx) {
           )}
         </div>
         <div id="tab-panel">${PANELS[tab](p, areas)}</div>
+        ${flowBar()}
       </div>`
     );
 
@@ -407,6 +523,8 @@ export async function mountDetail(el, ctx) {
     toast(message);
     await load({ skipCache: true });
     ctx.refreshCounts?.();
+    // The point of flow mode: the moment this listing has what the stage needs, move on.
+    if (alive && flow && p && STAGES[flow].done(p)) advance();
   }
 
   function fieldValue(form, name) {
@@ -417,10 +535,20 @@ export async function mountDetail(el, ctx) {
   async function onActionClick(event) {
     const button = event.target.closest('button, a[data-tab]');
     if (!button) return;
-    const { action, tab: nextTab, feature, status, flag, key, gallery: step, pager: pagerDir } = button.dataset;
+    const { action, tab: nextTab, feature, status, flag, key, gallery: step, pager: pagerDir, flow: flowAction } = button.dataset;
 
     if (pagerDir) {
       goToPager(pagerDir);
+      return;
+    }
+    if (flowAction) {
+      try {
+        if (flowAction === 'next') advance();
+        else if (flowAction === 'status') await setStatus(status);
+        else if (flowAction === 'tab') jumpTo(nextTab, button.dataset.focus);
+      } catch (err) {
+        toast(err.message, 'error');
+      }
       return;
     }
     if (step) {
@@ -429,9 +557,7 @@ export async function mountDetail(el, ctx) {
       return;
     }
     if (nextTab) {
-      tab = nextTab;
-      location.hash = `#/p/${id}?tab=${nextTab}`;
-      render();
+      jumpTo(nextTab);
       return;
     }
     if (button.dataset.scale || button.parentElement?.dataset.role) return; // handled by the form logic
@@ -442,8 +568,7 @@ export async function mountDetail(el, ctx) {
         const label = RATING_FEATURES.find(([key]) => key === feature)?.[1] || feature;
         await afterWrite(`${label} rated ${button.value} by ${store.get().user?.name}`);
       } else if (action === 'status') {
-        await api.post(`/api/properties/${id}/status`, { status });
-        await afterWrite(`Status: ${STATUS_LABELS[status]} (${store.get().user?.name})`);
+        await setStatus(status);
       } else if (action === 'flag') {
         const current = p.red_flags || [];
         const next = current.includes(flag) ? current.filter((f) => f !== flag) : [...current, flag];

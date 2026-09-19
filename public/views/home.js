@@ -2,6 +2,7 @@
 // sort, and the card grid. SPEC §5 "Home".
 
 import { filtersToQuery, activeFilterCount, defaultFilters } from '../lib/filters.js';
+import { STAGES, STAGE_ORDER, loadStageQueues } from '../lib/flow.js';
 import {
   $, $$, html, setHtml, toHtml, icons, priceLabel, beachLabel, statusPill, fitRing,
   FEATURE_LABELS, STATUS_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar, dayLabel,
@@ -556,6 +557,13 @@ export async function mountHome(el, ctx) {
             ${SORTS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
           </div>
         </div>
+        <div class="flow-strip" id="flow-strip" role="group" aria-label="Work through the listings">
+          <span class="flow-strip-label">Work through</span>
+          ${STAGE_ORDER.map(
+            (stage) => html`<button type="button" class="flow-chip" data-stage="${stage}" disabled title="${STAGES[stage].hint}">
+              <span>${STAGES[stage].label}</span><b class="mono" data-count>…</b></button>`
+          )}
+        </div>
         <div class="section-head"><h2 id="list-title">Listings</h2><span class="small muted" id="list-count"></span></div>
         <div class="grid" id="grid"><p class="loading">Loading…</p></div>
         <p class="small muted" id="updated"></p>
@@ -639,10 +647,28 @@ export async function mountHome(el, ctx) {
     }
   }
 
+  // The "Work through" launcher: one queue per stage under the current filters. Kept in
+  // the store so the detail page's flow bar starts from the same list Home showed.
+  let queuesKey = null;
+  let queues = {};
+  async function loadQueues(filters) {
+    const key = filtersToQuery({ ...filters, status: [], sort: 'fit' });
+    if (key === queuesKey) return;
+    queuesKey = key;
+    queues = await loadStageQueues(api, filters);
+    if (!alive || key !== queuesKey) return;
+    for (const chip of $$('.flow-chip', el)) {
+      const ids = queues[chip.dataset.stage] || [];
+      chip.querySelector('[data-count]').textContent = String(ids.length);
+      chip.disabled = ids.length === 0;
+    }
+  }
+
   const reload = debounce(async () => {
     const filters = store.get().filters;
     const query = filtersToQuery(filters);
     loadHistogram(filters);
+    loadQueues(filters);
     try {
       const fetched = await api.get(`/api/properties?${query}`);
       if (!alive) return;
@@ -690,6 +716,16 @@ export async function mountHome(el, ctx) {
       if (card && row) card.outerHTML = toHtml(cardHtml(row, areas, { viewer: viewer() }));
       ctx.refreshCounts?.();
     },
+  });
+
+  $('#flow-strip', el).addEventListener('click', (event) => {
+    const chip = event.target.closest('.flow-chip');
+    if (!chip || chip.disabled) return;
+    const stage = chip.dataset.stage;
+    const ids = queues[stage] || [];
+    if (!ids.length) return;
+    store.set({ flow: { stage, ids } });
+    ctx.navigate(`#/p/${ids[0]}?flow=${stage}`);
   });
 
   $('#sort', el).addEventListener('click', (event) => {
