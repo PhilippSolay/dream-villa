@@ -809,7 +809,7 @@ export async function mountHome(el, ctx) {
     const key = filtersToQuery({ ...filters, status: [], sort: 'fit' });
     if (key === queuesKey) return;
     queuesKey = key;
-    queues = await loadStageQueues(api, filters);
+    queues = await loadStageQueues(api, filters, store.get().user?.id);
     if (!alive || key !== queuesKey) return;
     for (const chip of $$('.flow-chip', el)) {
       const ids = queues[chip.dataset.stage] || [];

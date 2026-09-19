@@ -8,7 +8,7 @@ import { TEMPLATES, fill } from '../lib/templates.js';
 import { PANELS, RATING_FEATURES, VIEWING_SCALES, INCLUDED_KEYS } from './detail-panels.js';
 import { renderPriceBand } from './market.js';
 import { filtersToQuery } from '../lib/filters.js';
-import { verdictPairHtml, verdictControlHtml, bindVerdicts, initialOf } from '../lib/verdicts.js';
+import { verdictPairHtml, verdictControlHtml, bindVerdicts, initialOf, verdictOf } from '../lib/verdicts.js';
 import { STAGES, isStage, loadStageIds, nextStage } from '../lib/flow.js';
 import { valueBadgesHtml } from '../lib/value.js';
 
@@ -122,7 +122,7 @@ export async function mountDetail(el, ctx) {
         return;
       }
       try {
-        const fetched = await loadStageIds(api, flow, store.get().filters);
+        const fetched = await loadStageIds(api, flow, store.get().filters, store.get().user?.id);
         if (!alive) return;
         // A deep link into a stage: adopt its queue, with this listing at the front when
         // it is no longer waiting for the stage (already sorted, already rated, ...).
@@ -211,15 +211,18 @@ export async function mountDetail(el, ctx) {
   function flowActions() {
     const s = STAGES[flow];
     if (flow === 'sort') {
+      const mine = verdictOf(p, store.get().user?.id);
       return html`<button type="button" class="flow-btn flow-btn-danger" data-flow="status" data-status="rejected"
           aria-pressed="${String(p.status === 'rejected')}">Reject</button>
+        <button type="button" class="flow-btn" data-flow="status" data-status="maybe"
+          aria-pressed="${String(mine === 'maybe' && p.status === 'new')}">Maybe</button>
         <button type="button" class="flow-btn flow-btn-primary" data-flow="status" data-status="shortlist"
           aria-pressed="${String(p.status === 'shortlist')}">Shortlist</button>`;
     }
     if (flow === 'rate') {
       const rated = new Set((p.ratings || []).map((r) => r.feature));
       const n = RATING_FEATURES.filter(([k]) => rated.has(k)).length;
-      const done = s.done(p);
+      const done = s.done(p, store.get().user?.id);
       return html`<span class="flow-hint"><b class="mono">${n} / ${RATING_FEATURES.length}</b> rated${done ? '' : ' · Overall moves on'}</span>
         <button type="button" class="flow-btn${raw(done ? ' flow-btn-primary' : '')}" data-flow="next">${done ? 'Next' : 'Skip'}</button>`;
     }
@@ -261,12 +264,14 @@ export async function mountDetail(el, ctx) {
   }
 
   /** The Sort stage's one tap is also this person's call in the shared search:
-      Shortlist says yes, Reject says no. The verdict goes first so a failure there
-      leaves the listing in the queue rather than sorted without a call. */
+      Shortlist says yes, Reject says no, Maybe says maybe and leaves the status alone.
+      The verdict goes first so a failure there leaves the listing in the queue rather
+      than sorted without a call. */
   async function sortCall(status) {
-    const verdict = status === 'rejected' ? 'no' : 'yes';
+    const verdict = status === 'rejected' ? 'no' : status === 'maybe' ? 'maybe' : 'yes';
     await api.post(`/api/properties/${id}/verdict`, { verdict });
-    await setStatus(status);
+    if (status === 'maybe') await afterWrite(`Maybe (${store.get().user?.name})`);
+    else await setStatus(status);
   }
 
   /** Switches tab and brings a form into view — "Log visit", "Add contact". */
@@ -310,10 +315,11 @@ export async function mountDetail(el, ctx) {
       return;
     }
     if (!flow || !p) return;
-    // Flow shortcuts on a keyboard: S shortlist, X reject (sort stage), N skip.
+    // Flow shortcuts on a keyboard: S shortlist, M maybe, X reject (sort stage), N skip.
     const key = event.key.toLowerCase();
     if (key === 'n') advance();
     else if (flow === 'sort' && key === 's') sortCall('shortlist').catch((err) => toast(err.message, 'error'));
+    else if (flow === 'sort' && key === 'm') sortCall('maybe').catch((err) => toast(err.message, 'error'));
     else if (flow === 'sort' && key === 'x') sortCall('rejected').catch((err) => toast(err.message, 'error'));
   }
 
@@ -535,7 +541,7 @@ export async function mountDetail(el, ctx) {
     await load({ skipCache: true });
     ctx.refreshCounts?.();
     // The point of flow mode: the moment this listing has what the stage needs, move on.
-    if (alive && flow && p && STAGES[flow].done(p)) advance();
+    if (alive && flow && p && STAGES[flow].done(p, store.get().user?.id)) advance();
   }
 
   function fieldValue(form, name) {

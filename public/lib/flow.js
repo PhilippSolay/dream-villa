@@ -1,6 +1,6 @@
 // Flow mode: work through many listings fast, one stage at a time.
 //
-//   sort     new listings         → shortlist or reject, one tap each
+//   sort     new listings         → shortlist, maybe or reject, one tap each
 //   rate     shortlisted, unrated → the seven 1–5 rows, Overall last
 //   contact  shortlisted          → WhatsApp the agent, mark contacted
 //   view     contacted / booked   → book the viewing, log the visit
@@ -11,17 +11,19 @@
 // the same queue in both directions.
 
 import { filtersToQuery } from './filters.js';
+import { verdictOf } from './verdicts.js';
 
 const hasOverall = (p) => (p.ratings || []).some((r) => r.feature === 'overall');
 
 export const STAGES = {
   sort: {
     label: 'Sort',
-    hint: 'Shortlist or reject',
+    hint: 'Shortlist, maybe or reject',
     statuses: ['new'],
     tab: 'listing',
-    inQueue: (row) => row.status === 'new',
-    done: (p) => p.status !== 'new',
+    // A "maybe" leaves the status alone, so the person's own verdict counts as sorted too.
+    inQueue: (row, userId) => row.status === 'new' && !verdictOf(row, userId),
+    done: (p, userId) => p.status !== 'new' || Boolean(verdictOf(p, userId)),
   },
   rate: {
     label: 'Rate',
@@ -60,19 +62,20 @@ export function stageQuery(stage, filters) {
   return filtersToQuery({ ...filters, status: STAGES[stage].statuses, removed: 'hide', sort: 'fit' }, { limit: 500 });
 }
 
-/** Fetches a stage's queue: ordered ids of everything still waiting for that stage. */
-export async function loadStageIds(api, stage, filters) {
+/** Fetches a stage's queue: ordered ids of everything still waiting for that stage,
+    as seen by `userId` (their own verdicts count). */
+export async function loadStageIds(api, stage, filters, userId) {
   const rows = await api.get(`/api/properties?${stageQuery(stage, filters)}`);
-  return rows.filter(STAGES[stage].inQueue).map((r) => r.id);
+  return rows.filter((row) => STAGES[stage].inQueue(row, userId)).map((r) => r.id);
 }
 
 /** All four queues at once, for the launcher on Home. A stage that fails to load is empty. */
-export async function loadStageQueues(api, filters) {
+export async function loadStageQueues(api, filters, userId) {
   const out = {};
   await Promise.all(
     STAGE_ORDER.map(async (stage) => {
       try {
-        out[stage] = await loadStageIds(api, stage, filters);
+        out[stage] = await loadStageIds(api, stage, filters, userId);
       } catch {
         out[stage] = [];
       }
