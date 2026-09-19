@@ -260,6 +260,15 @@ export async function mountDetail(el, ctx) {
     await afterWrite(`Status: ${STATUS_LABELS[status]} (${store.get().user?.name})`);
   }
 
+  /** The Sort stage's one tap is also this person's call in the shared search:
+      Shortlist says yes, Reject says no. The verdict goes first so a failure there
+      leaves the listing in the queue rather than sorted without a call. */
+  async function sortCall(status) {
+    const verdict = status === 'rejected' ? 'no' : 'yes';
+    await api.post(`/api/properties/${id}/verdict`, { verdict });
+    await setStatus(status);
+  }
+
   /** Switches tab and brings a form into view — "Log visit", "Add contact". */
   function jumpTo(nextTab, formId) {
     tab = nextTab;
@@ -304,8 +313,8 @@ export async function mountDetail(el, ctx) {
     // Flow shortcuts on a keyboard: S shortlist, X reject (sort stage), N skip.
     const key = event.key.toLowerCase();
     if (key === 'n') advance();
-    else if (flow === 'sort' && key === 's') setStatus('shortlist').catch((err) => toast(err.message, 'error'));
-    else if (flow === 'sort' && key === 'x') setStatus('rejected').catch((err) => toast(err.message, 'error'));
+    else if (flow === 'sort' && key === 's') sortCall('shortlist').catch((err) => toast(err.message, 'error'));
+    else if (flow === 'sort' && key === 'x') sortCall('rejected').catch((err) => toast(err.message, 'error'));
   }
 
   function gallery() {
@@ -546,7 +555,7 @@ export async function mountDetail(el, ctx) {
     if (flowAction) {
       try {
         if (flowAction === 'next') advance();
-        else if (flowAction === 'status') await setStatus(status);
+        else if (flowAction === 'status') await (flow === 'sort' ? sortCall(status) : setStatus(status));
         else if (flowAction === 'tab') jumpTo(nextTab, button.dataset.focus);
       } catch (err) {
         toast(err.message, 'error');
