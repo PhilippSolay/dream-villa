@@ -116,10 +116,19 @@ function listingPanel(p, areas) {
     ['Area', areaLabel],
   ];
 
+  // A Facebook post the harvester could not expand ends in "…" (or, before the import
+  // learned to clean it, "See more"); the rest of the text and the other photos live
+  // on Facebook only.
+  const cutShort = p.source === 'fb' && /(?:…|\bSee more)\s*$/i.test(p.description || '');
+
   return html`<div class="panel">
     ${p.description
       ? html`<section class="block"><h3>Description</h3>
           <div class="description">${formatDescription(p.description)}</div>
+          ${cutShort
+            ? html`<p class="small muted">Facebook shows only the start of this post here.
+                <a href="${p.url}" target="_blank" rel="noopener">Open the post</a> for the rest of the text and the other photos.</p>`
+            : ''}
         </section>`
       : ''}
 

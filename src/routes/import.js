@@ -255,6 +255,31 @@ function buildTitle(text, posterName, groupName) {
 }
 
 // ---------------------------------------------------------------------------
+// Facebook collapses a long post behind "… See more" and adds "See translation"
+// under foreign-language text. A harvester that fails to expand the post ships
+// both verbatim; neither is the poster's words. The collapsed tail becomes a
+// plain ellipsis and `truncated` tells the UI to point at the original post.
+// ---------------------------------------------------------------------------
+
+const SEE_MORE_RE = /\s*(?:…|\.{3})?\s*\bSee more\b/gi;
+const SEE_TRANSLATION_LINE_RE = /^\s*See translation\s*$/i;
+
+/**
+ * @param {unknown} input the harvested post text
+ * @returns {{ text: string, truncated: boolean }}
+ */
+export function cleanPostText(input) {
+  const kept = String(input || '')
+    .split(/\r?\n/)
+    .filter((line) => !SEE_TRANSLATION_LINE_RE.test(line))
+    .join('\n')
+    .trim();
+  const truncated = /\bSee more\s*$/i.test(kept);
+  const text = kept.replace(SEE_MORE_RE, '…').trim();
+  return { text, truncated };
+}
+
+// ---------------------------------------------------------------------------
 // Contact — an Indonesian mobile found in the text, or the post's own
 // whatsapp/phone field; either way it is normalised to +62… and is the identity
 // key contacts are found-or-created by (same convention as POST
@@ -344,7 +369,7 @@ async function attachCoverImage(db, imagesDir, propertyId, image) {
 // ---------------------------------------------------------------------------
 
 async function upsertPost(db, config, groupId, post, imagesDir) {
-  const text = post.text;
+  const { text, truncated } = cleanPostText(post.text);
   const partial = {
     source: 'fb',
     ref: post.post_id,
@@ -382,6 +407,7 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
     poster_url: post.poster_url || null,
     posted_at: post.posted_at,
     text_len: text.length,
+    truncated,
   });
 
   const finished = finishRow(row, config);

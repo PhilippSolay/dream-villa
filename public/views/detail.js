@@ -27,6 +27,9 @@ function cachePut(pid, row) {
   }
 }
 
+// Photos that get a src at render time; the rest wait until the strip brings them near.
+const GALLERY_EAGER = 2;
+
 const TABS = [
   ['listing', 'Listing'],
   ['contact', 'Contact'],
@@ -55,6 +58,7 @@ export async function mountDetail(el, ctx) {
   let alive = true;
   let market = null; // /api/market, fetched once per mount for the area price band
   let miniMap = null; // Leaflet instance for the Location block; torn down on every re-render
+  let galleryObserver = null; // loads the strip's photos as they come near; torn down with it
   let listIds = null; // ordered ids for the prev/next pager (SPEC §5); null hides it
 
   setHtml(el, html`<p class="loading">Loading…</p>`);
@@ -323,6 +327,37 @@ export async function mountDetail(el, ctx) {
     else if (flow === 'sort' && key === 'x') sortCall('rejected').catch((err) => toast(err.message, 'error'));
   }
 
+  /** Photos past the first GALLERY_EAGER get their src only once they come within a
+      slide of view. Native loading="lazy" cannot do this: Safari re-evaluates lazy images
+      on document scroll only, so a photo inside the horizontal strip never loads on a
+      desktop where the page itself does not move (a blank frame at "3 / 12"). */
+  function watchGallery(strip) {
+    galleryObserver?.disconnect();
+    galleryObserver = null;
+    const pending = $$('img[data-src]', strip);
+    if (!pending.length) return;
+    const load = (img) => {
+      if (!img.dataset.src) return;
+      img.src = img.dataset.src;
+      delete img.dataset.src;
+    };
+    if (typeof IntersectionObserver !== 'function') {
+      pending.forEach(load);
+      return;
+    }
+    galleryObserver = new IntersectionObserver(
+      (entries, observer) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          load(entry.target);
+          observer.unobserve(entry.target);
+        }
+      },
+      { root: strip, rootMargin: '0px 100% 0px 100%' }
+    );
+    pending.forEach((img) => galleryObserver.observe(img));
+  }
+
   function gallery() {
     const urls = p.image_urls || [];
     if (!urls.length) {
@@ -330,7 +365,11 @@ export async function mountDetail(el, ctx) {
     }
     return html`<div class="gallery-wrap">
       <div class="gallery" id="gallery" tabindex="0" aria-label="Photos of ${p.title}">
-        ${urls.map((u) => html`<img src="${u}" alt="" loading="lazy" decoding="async" />`)}
+        ${urls.map((u, i) =>
+          i < GALLERY_EAGER
+            ? html`<img src="${u}" alt="" decoding="async" />`
+            : html`<img data-src="${u}" alt="" decoding="async" />`
+        )}
       </div>
       ${urls.length > 1
         ? html`<button type="button" class="gallery-nav gallery-prev" data-gallery="prev" aria-label="Previous photo">${icons.back()}</button>
@@ -369,6 +408,7 @@ export async function mountDetail(el, ctx) {
 
     const strip = $('#gallery', el);
     if (strip) {
+      watchGallery(strip);
       strip.addEventListener('scroll', () => {
         // A re-render replaces the counter; the old strip may still fire one last scroll.
         const counter = $('#gallery-count', el);
@@ -715,6 +755,8 @@ export async function mountDetail(el, ctx) {
     unbindVerdicts();
     miniMap?.remove();
     miniMap = null;
+    galleryObserver?.disconnect();
+    galleryObserver = null;
     el.removeEventListener('click', onActionClick);
     el.removeEventListener('click', onToggleClick);
     el.removeEventListener('click', onDuplicateClick);
