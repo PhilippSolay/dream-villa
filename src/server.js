@@ -12,6 +12,7 @@ import marketRoutes from './routes/market.js';
 import adminRoutes from './routes/admin.js';
 import agentRoutes from './routes/agent.js';
 import statsRoutes from './routes/stats.js';
+import importRoutes from './routes/import.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -46,6 +47,7 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
   await app.register(adminRoutes, { db, env });
   await app.register(agentRoutes, { db, env });
   await app.register(statsRoutes, { db, env });
+  await app.register(importRoutes, { db, env });
 
   return app;
 }
