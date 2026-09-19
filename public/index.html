@@ -25,6 +25,20 @@
     <!-- One nav, two shapes: a floating bottom capsule on a phone (stats + tools in a slim
          row at the top of the page), a fixed left rail on desktop with everything in it. -->
     <nav class="sidebar" id="sidebar" aria-label="Sections">
+      <a class="logo" href="#/" aria-label="Dream House">
+        <svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="logo-gold" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="var(--gold-2)" />
+              <stop offset="1" stop-color="var(--gold)" />
+            </linearGradient>
+          </defs>
+          <rect width="40" height="40" rx="13" fill="url(#logo-gold)" />
+          <circle cx="27.5" cy="12.5" r="3" fill="#1a1713" opacity="0.85" />
+          <path d="M7 24.5c4.5-1.5 7.5-6 13-12 5.5 6 8.5 10.5 13 12" fill="none" stroke="#1a1713" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M12 30h16" stroke="#1a1713" stroke-width="2.3" stroke-linecap="round" />
+        </svg>
+      </a>
       <div class="nav-top">
         <div class="nav-stats" id="counts" aria-live="polite"></div>
         <div class="nav-tools">
