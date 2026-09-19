@@ -344,7 +344,7 @@ function findOrCreateContact(db, { whatsapp, name, role, instagram, notes }) {
 // ---------------------------------------------------------------------------
 
 const MAX_IMAGE_BYTES = 600 * 1024;
-const MAX_GALLERY_IMAGES = 8;
+const MAX_GALLERY_IMAGES = 15;
 
 /** @returns {Buffer|null} the decoded buffer, or null when the entry is missing/invalid/oversized. */
 function decodeGalleryImage(image) {
@@ -531,7 +531,7 @@ export default async function importRoutes(app, opts) {
                   // photos, same per-entry validation as `image` above (each ≤ 600 KB decoded).
                   images_b64: {
                     type: 'array',
-                    maxItems: 8,
+                    maxItems: 15,
                     items: {
                       type: 'object',
                       additionalProperties: false,
