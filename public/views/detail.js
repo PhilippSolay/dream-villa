@@ -367,8 +367,9 @@ export async function mountDetail(el, ctx) {
     pending.forEach((img) => galleryObserver.observe(img));
   }
 
-  /** Moves the photo strip one frame; past the last photo it wraps to the first, so a
-      tap on the picture always shows something new. */
+  /** Moves the photo strip one frame, instantly — the smooth slide reads as lag when
+      flicking through twelve photos. Past the last photo it wraps to the first, so a tap
+      on the picture always shows something new. */
   function stepGallery(direction) {
     const strip = $('#gallery', el);
     if (!strip) return;
@@ -377,7 +378,7 @@ export async function mountDetail(el, ctx) {
     const index = Math.round(strip.scrollLeft / width);
     const next = (index + direction + count) % count;
     revealAround(strip, next);
-    strip.scrollTo({ left: next * width, behavior: 'smooth' });
+    strip.scrollTo({ left: next * width, behavior: 'instant' });
   }
 
   function gallery() {
