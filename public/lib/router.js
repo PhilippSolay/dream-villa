@@ -4,6 +4,7 @@
 const ROUTES = [
   { path: '/', name: 'home', match: /^\/$/ },
   { path: '/p/:id', name: 'detail', match: /^\/p\/(\d+)$/, keys: ['id'] },
+  { path: '/shared', name: 'shared', match: /^\/shared$/ },
   { path: '/market', name: 'market', match: /^\/market$/ },
   { path: '/map', name: 'map', match: /^\/map$/ },
   { path: '/agent', name: 'agent', match: /^\/agent$/ },

@@ -308,3 +308,11 @@ Bali Home Immo location strings → area: `Cemagi / Seseh - Beach Side` → cema
 - [ ] `npm run scrape -- --source=bhi --dry` prints cards from all target areas without errors; a full run finishes < 15 min and writes a `runs` row.
 - [ ] Market tab renders p25/median/p75 per area from real data.
 - [ ] `docker compose up` on the VPS serves https://villa.solay.cloud with a valid cert.
+
+## 12. Amendment 2026-09-19 — shared search (verdicts)
+
+The status pipeline is one shared value per listing. Alongside it, each person has their own one-tap call so the two of them can see where they agree.
+
+- **Schema** (migration `004_verdicts`): `verdicts (id, property_id, by, verdict CHECK IN ('yes','maybe','no'), created_at, updated_at, UNIQUE(property_id, by))`. Person-owned: the scraper never writes it.
+- **API**: `POST /api/properties/:id/verdict {verdict: 'yes'|'maybe'|'no'|null}` upserts the caller's row (null deletes it) and returns the row payload. Every list and detail row carries `verdicts: [{by, by_name, verdict, updated_at}]` and `status_by_name`. `GET /api/properties?verdict=` filters relative to the caller: `match` (both yes), `waiting_me` (the other called, I have not), `waiting_other` (I called, the other has not), `disagree` (both called, differently), `unvoted` (nobody). `GET /api/me` also returns `users: [{id, name}]`.
+- **UI**: fifth section **Shared** (`#/shared`): Matches, Your turn, Waiting for ‹name›, Disagree, Fresh picks (featured and unvoted). Cards everywhere carry both initials coloured by call, a Match pill, and the viewer's Yes / Maybe / No (tap the pressed one to clear). The detail page shows the same row under the status buttons, and the pressed status button carries the initial of whoever set it. The filter panel gains a "Shared" chip group mapping to `verdict=`.

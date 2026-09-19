@@ -133,6 +133,20 @@ export const MIGRATIONS = [
         UNIQUE(property_a, property_b)
       );`),
   },
+  // Shared search: each person's one-tap call on a listing (yes / maybe / no). One row per
+  // person per listing; the scraper never touches it (CLAUDE.md: people's rows are theirs).
+  {
+    name: '004_verdicts',
+    up: (db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS verdicts (
+        id INTEGER PRIMARY KEY,
+        property_id INTEGER NOT NULL, by INTEGER NOT NULL,
+        verdict TEXT NOT NULL CHECK (verdict IN ('yes', 'maybe', 'no')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(property_id, by)
+      );`),
+  },
 ];
 
 function runMigrations(db) {

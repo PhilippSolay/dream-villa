@@ -21,6 +21,7 @@ export const DEFAULT_FILTERS = {
   removed: 'hide',
   max_age_days: null,
   flagged: null,
+  verdict: null, // shared search: 'match' | 'waiting_me' | 'waiting_other' | 'disagree'
   q: '',
   // 'worth' is a client-only display order (flagged, fit desc, then new-today, newest
   // first) — filtersToQuery sends the API its nearest real sort, 'fit', for that value.
@@ -51,6 +52,7 @@ export function filtersToQuery(f, { limit = 200 } = {}) {
   if (f.source) p.set('source', f.source);
   if (f.max_age_days != null) p.set('max_age_days', String(f.max_age_days));
   if (f.flagged === 1) p.set('flagged', '1');
+  if (f.verdict) p.set('verdict', f.verdict);
   if (f.q) p.set('q', f.q);
   p.set('removed', f.removed || 'hide');
   p.set('sort', f.sort === 'worth' || !f.sort ? 'fit' : f.sort);
@@ -73,6 +75,7 @@ export function activeFilterCount(f) {
   if (f.source) n += 1;
   if (f.q) n += 1;
   if (f.max_age_days != null) n += 1;
+  if (f.verdict) n += 1;
   if ((f.removed || 'hide') !== 'hide') n += 1;
   return n;
 }
