@@ -4,3 +4,6 @@ data/
 *.log
 .DS_Store
 page.html
+
+# Claude Code worktrees (EnterWorktree) live here; never part of the repo
+.claude/worktrees/
