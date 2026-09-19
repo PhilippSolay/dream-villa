@@ -112,6 +112,7 @@ function listingPanel(p, areas) {
     ['Source / ref', `${p.source}${p.ref ? ` · ${p.ref}` : ''}`],
     ['Pin source', p.pin_source],
     ['Beach', p.beach_name ? `${p.beach_name} (${p.beach_source || 'unknown'})` : p.beach_source],
+    ...(p.anchors || []).map((a) => [`To ${a.name}`, a.km != null ? `${a.km} km` : 'no pin']),
     ['Area', areaLabel],
   ];
 

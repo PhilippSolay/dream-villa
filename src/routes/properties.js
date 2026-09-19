@@ -16,6 +16,7 @@ import {
   addRedFlags, badRequest, getProperty, heroUrl, imageUrls, imagesDirFor, int, jsonArray,
   notFound, placeholders, readMultipart, rescoreOne, safeJson, saveImage, str, strictSchemas, userNames, withByName,
 } from './_common.js';
+import { listAnchors, anchorDistances } from './anchors.js';
 
 const MAX_FILES = 10;
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -168,16 +169,33 @@ export function valueFields(row, mediansByArea, area) {
   return { price_per_m2: pricePerM2, area_price_per_m2: areaMedian, vs_area_pct: vs, yearly_saving_pct: saving };
 }
 
-/** Adds the derived, person-facing fields to every row: verdicts, who set the status, value. */
+/**
+ * WHERE clause for `anchor=&anchor_km=`: an equirectangular bound, so it needs no trig in
+ * SQLite — squared degrees against (km / 111.32)², with longitude scaled by cos(lat). Rows
+ * without a pin never match (the exact haversine figure is what the row itself carries).
+ */
+const KM_PER_DEGREE = 111.32;
+function anchorWhere(anchor, km) {
+  const c = Math.cos((anchor.lat * Math.PI) / 180);
+  const limit = (km / KM_PER_DEGREE) ** 2;
+  return {
+    sql: '(lat IS NOT NULL AND lng IS NOT NULL AND (lat - ?) * (lat - ?) + (lng - ?) * (lng - ?) * ? <= ?)',
+    params: [anchor.lat, anchor.lat, anchor.lng, anchor.lng, c * c, limit],
+  };
+}
+
+/** Adds the derived, person-facing fields to every row: verdicts, who set the status, value, anchors. */
 function withShared(db, rows) {
   const verdicts = verdictsByProperty(db, rows.map((r) => r.id));
   const names = userNames(db);
   const medians = areaMediansPerM2(db);
+  const anchors = listAnchors(db);
   return rows.map((r) => ({
     ...r,
     verdicts: verdicts.get(r.id) || [],
     status_by_name: r.status_by == null ? null : names.get(r.status_by) || null,
     ...valueFields(r, medians, r.area),
+    anchors: anchorDistances(r, anchors),
   }));
 }
 
@@ -260,6 +278,9 @@ const listQuerySchema = {
     removed: { type: 'string', enum: ['hide', 'show', 'only'] },
     max_age_days: { type: 'integer', minimum: 1, maximum: 365 },
     verdict: { type: 'string', enum: VERDICT_FILTERS },
+    style: { type: 'string' },
+    anchor: { type: 'integer', minimum: 1 },
+    anchor_km: { type: 'number', minimum: 0.1, maximum: 100 },
     sort: { type: 'string', enum: Object.keys(SORT_SQL) },
     limit: { type: 'integer', minimum: 1, maximum: 500 },
     offset: { type: 'integer', minimum: 0 },
@@ -342,6 +363,14 @@ function buildListWhere(query) {
     const bad = features.filter((f) => !FEATURES.includes(f));
     if (bad.length) return { error: `unknown feature: ${bad.join(', ')}` };
     for (const f of features) where.push(FEATURE_SQL[f]);
+  }
+
+  const styles = listParam(query.style);
+  if (styles) {
+    const bad = styles.filter((s) => !STYLES.includes(s));
+    if (bad.length) return { error: `unknown style: ${bad.join(', ')}` };
+    where.push(`style IN (${placeholders(styles)})`);
+    params.push(...styles);
   }
 
   if (query.furnished && query.furnished !== 'any') {
@@ -464,6 +493,14 @@ export default async function propertiesRoutes(app, opts) {
       const v = verdictWhere(query.verdict, request.user.id);
       built.where.push(v.sql);
       built.params.push(...v.params);
+    }
+    if (query.anchor !== undefined) {
+      if (query.anchor_km === undefined) return badRequest(reply, 'anchor needs anchor_km');
+      const anchor = db.prepare('SELECT * FROM anchors WHERE id = ?').get(query.anchor);
+      if (!anchor) return notFound(reply);
+      const a = anchorWhere(anchor, query.anchor_km);
+      built.where.push(a.sql);
+      built.params.push(...a.params);
     }
     const whereSql = built.where.length ? `WHERE ${built.where.join(' AND ')}` : '';
 

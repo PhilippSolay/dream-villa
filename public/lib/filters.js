@@ -22,6 +22,9 @@ export const DEFAULT_FILTERS = {
   max_age_days: null,
   flagged: null,
   verdict: null, // shared search: 'match' | 'waiting_me' | 'waiting_other' | 'disagree'
+  style: [],
+  anchor: null, // an anchor id; only meaningful together with anchor_km
+  anchor_km: null,
   q: '',
   // 'worth' is a client-only display order (flagged, fit desc, then new-today, newest
   // first) — filtersToQuery sends the API its nearest real sort, 'fit', for that value.
@@ -29,7 +32,7 @@ export const DEFAULT_FILTERS = {
 };
 
 export function defaultFilters() {
-  return { ...DEFAULT_FILTERS, status: [], area: [], bedrooms: [], features: [] };
+  return { ...DEFAULT_FILTERS, status: [], area: [], bedrooms: [], features: [], style: [] };
 }
 
 export function filtersToQuery(f, { limit = 200 } = {}) {
@@ -53,6 +56,11 @@ export function filtersToQuery(f, { limit = 200 } = {}) {
   if (f.max_age_days != null) p.set('max_age_days', String(f.max_age_days));
   if (f.flagged === 1) p.set('flagged', '1');
   if (f.verdict) p.set('verdict', f.verdict);
+  if (f.style?.length) p.set('style', f.style.join(','));
+  if (f.anchor != null && f.anchor_km != null) {
+    p.set('anchor', String(f.anchor));
+    p.set('anchor_km', String(f.anchor_km));
+  }
   if (f.q) p.set('q', f.q);
   p.set('removed', f.removed || 'hide');
   p.set('sort', f.sort === 'worth' || !f.sort ? 'fit' : f.sort);
@@ -64,7 +72,8 @@ export function filtersToQuery(f, { limit = 200 } = {}) {
 export function activeFilterCount(f) {
   let n = 0;
   if (f.scope !== 'in_filter') n += 1;
-  for (const key of ['status', 'area', 'bedrooms', 'features']) if (f[key]?.length) n += 1;
+  for (const key of ['status', 'area', 'bedrooms', 'features', 'style']) if (f[key]?.length) n += 1;
+  if (f.anchor != null && f.anchor_km != null) n += 1;
   if (f.min != null || f.max != null) n += 1;
   if (f.beach != null) n += 1;
   if (f.land_min != null || f.land_max != null) n += 1;

@@ -1429,6 +1429,35 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
 .card-body .value-row { margin-top: -2px; }
 .detail-head .value-row { margin-top: 2px; }
 
+/* --- anchors: your places -------------------------------------------------- */
+.card-anchors { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; }
+.card-anchors .muted { font-family: var(--body); }
+.anchor-km-row[hidden] { display: none; }
+.anchor-add { margin-top: 6px; }
+.anchor-add > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gold);
+}
+.anchor-add > summary::-webkit-details-marker { display: none; }
+.anchor-form { display: grid; gap: 8px; padding-top: 4px; }
+.map-anchor span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  transform: rotate(45deg);
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--gold-2), var(--gold));
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.map-legend-anchor { transform: rotate(45deg); border-radius: 2px; background: var(--gold); }
+
 .verdict-seg {
   display: inline-flex;
   gap: 2px;

@@ -4,8 +4,8 @@
 import { filtersToQuery, activeFilterCount, defaultFilters } from '../lib/filters.js';
 import { STAGES, STAGE_ORDER, loadStageQueues } from '../lib/flow.js';
 import {
-  $, $$, html, setHtml, toHtml, icons, priceLabel, beachLabel, statusPill, fitRing,
-  FEATURE_LABELS, STATUS_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar, dayLabel,
+  $, $$, html, setHtml, toHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing,
+  FEATURE_LABELS, STATUS_LABELS, STYLE_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar, dayLabel,
 } from '../lib/ui.js';
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
@@ -27,6 +27,10 @@ const SORTS = [['worth', 'Worth a look'], ['fit', 'Fit'], ['price', 'Price'], ['
 const BEDROOMS = [1, 2, 3, 4];
 const FEATURES = Object.keys(FEATURE_LABELS);
 const AGE_OPTIONS = [['', 'Any'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']];
+const STYLES = Object.keys(STYLE_LABELS);
+const ANCHOR_MIN_KM = 0.5;
+const ANCHOR_MAX_KM = 15;
+const ANCHOR_DEFAULT_KM = 3;
 const REMOVED_OPTIONS = [['hide', 'Hide'], ['show', 'Show'], ['only', 'Only']];
 
 /** first_seen → "today" / "3d" / "5w" / "4mo" (SPEC §5 card, age of post filter). */
@@ -55,6 +59,7 @@ function worthOrder(rows) {
 
 function featureChips(p, max = 4) {
   const out = [];
+  if (p.style && STYLE_LABELS[p.style]) out.push(STYLE_LABELS[p.style]);
   if (p.pool === 1) out.push('Pool');
   if (p.garden === 1) out.push('Garden');
   if (p.view && p.view !== 'none') out.push(`${p.view.charAt(0).toUpperCase()}${p.view.slice(1)} view`);
@@ -64,7 +69,14 @@ function featureChips(p, max = 4) {
   if (p.kitchen_full === 1) out.push('Full kitchen');
   if (p.workspace === 1) out.push('Workspace');
   if (p.aircon === 1) out.push('Aircon');
-  return out.slice(0, max);
+  return [...new Set(out)].slice(0, max); // style 'joglo' and the joglo flag both say Joglo
+}
+
+/** "2.1 km · Gym" for every anchor the listing has a distance to. */
+function anchorLine(p) {
+  const near = (p.anchors || []).filter((a) => a.km != null);
+  if (!near.length) return '';
+  return html`<div class="card-anchors mono">${near.map((a) => html`<span>${a.km} km <span class="muted">${a.name}</span></span>`)}</div>`;
 }
 
 function areaLine(p, areas) {
@@ -111,7 +123,7 @@ export function cardHtml(p, areas, { reason = false, viewer = null } = {}) {
               <span>${areaLine(p, areas)}</span>
               ${beach ? html`<span class="mono">${beach}</span>` : ''}
               ${bedrooms ? html`<span class="mono">${bedrooms}</span>` : ''}
-            </div>`}
+            </div>${anchorLine(p)}`}
         ${reason
           ? html`<div class="card-reason">${(p.reasons || []).join(' · ')}</div>`
           : html`<div class="chips">${featureChips(p).map((f) => html`<span class="chip">${f}</span>`)}</div>`}
@@ -165,7 +177,7 @@ function areaHint(selected, areas) {
   return selected.map((id) => areas.find((a) => a.id === id)?.label || id).join(', ');
 }
 
-function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
+function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = [], onAnchorAdd, onAnchorRemove }) {
   const panel = document.createElement('form');
   panel.className = 'filters';
   panel.setAttribute('novalidate', '');
@@ -276,6 +288,34 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
     </div>
 
     <div class="filter-group">
+      <span class="label">Style</span>
+      <div class="chips" data-role="style">
+        ${STYLES.map((s) => html`<button type="button" class="chip" data-style="${s}" aria-pressed="false">${STYLE_LABELS[s]}</button>`)}
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label class="label" for="f-anchor">Near a place</label>
+      <select id="f-anchor" data-role="anchor">
+        <option value="">Anywhere</option>
+        ${anchors.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+      </select>
+      <div class="anchor-km-row" data-role="anchor-km-row" hidden>
+        <div class="range-readout" style="margin-top: 8px"><span class="mono" data-role="anchor-readout">${ANCHOR_DEFAULT_KM} km</span></div>
+        <input type="range" data-role="anchor-km" min="${ANCHOR_MIN_KM}" max="${ANCHOR_MAX_KM}" step="0.5" aria-label="Within, km" />
+        <button type="button" class="link-btn" data-role="anchor-remove">Remove this place</button>
+      </div>
+      <details class="anchor-add">
+        <summary>Add a place</summary>
+        <div class="anchor-form">
+          <input type="text" data-role="anchor-name" placeholder="Name, e.g. Gym" maxlength="60" autocomplete="off" />
+          <input type="text" data-role="anchor-location" placeholder="Google Maps link, or lat, lng" autocomplete="off" />
+          <button type="button" class="btn btn-sm" data-role="anchor-add">Add place</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="filter-group">
       <span class="label">Shared</span>
       <div class="chips" data-role="verdict">
         ${verdictFilterOptions(otherName).map(
@@ -312,6 +352,41 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
 
   const histEl = $('[data-role="price-hist"]', panel);
   let histBars = [];
+
+  // --- anchors: the select, the km slider, and the add / remove controls ------
+  const anchorSelect = $('[data-role="anchor"]', panel);
+  const anchorKmRow = $('[data-role="anchor-km-row"]', panel);
+  const anchorKmEl = $('[data-role="anchor-km"]', panel);
+  const anchorReadout = $('[data-role="anchor-readout"]', panel);
+  let anchorList = anchors;
+
+  /** Repaint the place list (after an add or remove); keeps the selection when it still exists. */
+  function setAnchors(list) {
+    anchorList = list;
+    const current = anchorSelect.value;
+    setHtml(
+      anchorSelect,
+      html`<option value="">Anywhere</option>${list.map((a) => html`<option value="${a.id}">${a.name}</option>`)}`
+    );
+    anchorSelect.value = list.some((a) => String(a.id) === current) ? current : '';
+    anchorKmRow.hidden = !anchorSelect.value;
+  }
+
+  function submitAnchor() {
+    const nameEl = $('[data-role="anchor-name"]', panel);
+    const locEl = $('[data-role="anchor-location"]', panel);
+    const name = nameEl.value.trim();
+    const location = locEl.value.trim();
+    if (!name || !location) {
+      toast('A place needs a name and a location', 'error');
+      return;
+    }
+    onAnchorAdd?.(name, location, () => {
+      nameEl.value = '';
+      locEl.value = '';
+      $('.anchor-add', panel).open = false;
+    });
+  }
 
   /** Bars between the thumbs light up gold; the rest stay muted. */
   function paintHistogram() {
@@ -376,6 +451,15 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
     for (const b of $$('[data-verdict-filter]', panel)) {
       b.setAttribute('aria-pressed', String((f.verdict || null) === b.dataset.verdictFilter));
     }
+    for (const b of $$('[data-style]', panel)) {
+      b.setAttribute('aria-pressed', String((f.style || []).includes(b.dataset.style)));
+    }
+    const anchorOn = f.anchor != null && anchorList.some((a) => a.id === f.anchor);
+    anchorSelect.value = anchorOn ? String(f.anchor) : '';
+    const km = f.anchor_km ?? ANCHOR_DEFAULT_KM;
+    anchorKmEl.value = String(km);
+    anchorReadout.textContent = `${km} km`;
+    anchorKmRow.hidden = !anchorOn;
     for (const group of ['furnished', 'term']) {
       for (const b of $$(`[data-role="${group}"] button`, panel)) {
         b.setAttribute('aria-pressed', String((f[group] || 'any') === b.value));
@@ -428,6 +512,10 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
     if (t.dataset.filter === 'area') onChange({ area: listFrom('[data-filter="area"]') });
     else if (t.dataset.filter === 'features') onChange({ features: listFrom('[data-filter="features"]') });
     else if (t.dataset.role === 'source') onChange({ source: t.value || null });
+    else if (t.dataset.role === 'anchor') {
+      const id = t.value ? Number(t.value) : null;
+      onChange((f) => ({ anchor: id, anchor_km: id == null ? null : (f.anchor_km ?? ANCHOR_DEFAULT_KM) }));
+    }
     else if (t.dataset.role === 'assessed') onChange({ assessed: t.checked ? 'done' : null });
     else if (t.dataset.role === 'in-filter') onChange({ scope: t.checked ? 'in_filter' : 'all' });
     else if (t.dataset.role === 'hide-rejected') {
@@ -479,18 +567,39 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
       const full = lo === BUILD_MIN_M2 && hi === BUILD_MAX_M2;
       readouts.build.textContent = full ? `${BUILD_MIN_M2} – ${BUILD_MAX_M2} m² · any` : `${lo} – ${hi} m²`;
       onChange({ build_min: full ? null : lo, build_max: full ? null : hi });
+    } else if (role === 'anchor-km') {
+      const km = Number(anchorKmEl.value);
+      anchorReadout.textContent = `${km} km`;
+      onChange({ anchor_km: km });
     } else if (event.target.id === 'f-q') {
       onChange({ q: event.target.value.trim() });
     }
     if (event.target.type === 'range') paintRanges();
   });
 
+  // Enter in the add-a-place fields adds it (the panel is a form with no submit button).
+  panel.addEventListener('keydown', (event) => {
+    const role = event.target.dataset?.role;
+    if (event.key === 'Enter' && (role === 'anchor-name' || role === 'anchor-location')) {
+      event.preventDefault();
+      submitAnchor();
+    }
+  });
+
   panel.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    const { bedrooms, status, areaSet, areaMode, verdictFilter } = button.dataset;
+    const { bedrooms, status, areaSet, areaMode, verdictFilter, style, role } = button.dataset;
     if (verdictFilter) {
       onChange((f) => ({ verdict: f.verdict === verdictFilter ? null : verdictFilter }));
+    } else if (style) {
+      onChange((f) => ({
+        style: (f.style || []).includes(style) ? f.style.filter((s) => s !== style) : [...(f.style || []), style],
+      }));
+    } else if (role === 'anchor-add') {
+      submitAnchor();
+    } else if (role === 'anchor-remove') {
+      if (anchorSelect.value) onAnchorRemove?.(Number(anchorSelect.value));
     } else if (areaSet) {
       const ids = (areaSet === 'west' ? west : bukit).map((a) => a.value);
       onChange((f) => {
@@ -521,7 +630,7 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '' }) {
     }
   });
 
-  return { panel, sync, setHistogram };
+  return { panel, sync, setHistogram, setAnchors };
 }
 
 /** Listings per PRICE_BUCKET_M step across the slider's span; prices outside it land in the end buckets. */
@@ -577,10 +686,53 @@ export async function mountHome(el, ctx) {
   const rail = $('#rail', el);
   const viewer = () => ({ user: store.get().user, users: store.get().users || [] });
   const other = (store.get().users || []).find((u) => u.id !== store.get().user?.id);
-  const { panel, sync, setHistogram } = buildFilterPanel({
+
+  let anchors = [];
+  try {
+    anchors = await api.get('/api/anchors');
+  } catch {
+    anchors = []; // the place list is a convenience; the rest of the panel must still work
+  }
+  if (!alive) return () => {};
+
+  /** Re-read the places after a change; drop the filter if its place is gone. */
+  async function refreshAnchors() {
+    anchors = await api.get('/api/anchors');
+    if (!alive) return;
+    setAnchors(anchors);
+    const f = store.get().filters;
+    if (f.anchor != null && !anchors.some((a) => a.id === f.anchor)) {
+      store.set({ filters: { ...f, anchor: null, anchor_km: null } });
+    }
+    sync(store.get().filters);
+    paintToolbar();
+    reload();
+  }
+
+  const { panel, sync, setHistogram, setAnchors } = buildFilterPanel({
     areas,
     sources: [...knownSources],
     otherName: firstName(other),
+    anchors,
+    onAnchorAdd: async (name, location, done) => {
+      try {
+        await api.post('/api/anchors', { name, location });
+        done?.();
+        toast(`${name} added`);
+        await refreshAnchors();
+      } catch (err) {
+        toast(err.message || 'Could not add that place', 'error');
+      }
+    },
+    onAnchorRemove: async (id) => {
+      try {
+        await api.del(`/api/anchors/${id}`);
+        toast('Place removed');
+        await refreshAnchors();
+      } catch (err) {
+        toast(err.message || 'Could not remove that place', 'error');
+      }
+    },
     onChange: (patch) => {
       const filters = store.get().filters;
       if (patch === 'reset') {
