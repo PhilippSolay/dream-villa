@@ -381,6 +381,30 @@ export async function mountDetail(el, ctx) {
     strip.scrollTo({ left: next * width, behavior: 'instant' });
   }
 
+  /** A broken gallery photo (a dead remote link, or a local file missing on disk —
+      SPEC §6 image audit) is dropped outright rather than shown as a broken-image icon.
+      `error` events on <img> don't bubble, so this listener runs on the CAPTURE phase
+      instead of the usual delegated click/submit handlers below. */
+  function onGalleryImgError(event) {
+    const img = event.target;
+    if (!img || img.tagName !== 'IMG' || !img.closest('#gallery')) return;
+    const strip = $('#gallery', el);
+    if (!strip) return;
+    const src = img.getAttribute('src');
+    img.remove();
+    p.image_urls = (p.image_urls || []).filter((u) => u !== src);
+    const total = p.image_urls.length;
+    if (!total) {
+      render(); // nothing left — fall back to the "No photos" empty state
+      return;
+    }
+    const counter = $('#gallery-count', el);
+    if (counter) {
+      const index = Math.min(Math.round(strip.scrollLeft / Math.max(1, strip.clientWidth)) + 1, total);
+      counter.textContent = `${index} / ${total}`;
+    }
+  }
+
   function gallery() {
     const urls = p.image_urls || [];
     if (!urls.length) {
@@ -773,6 +797,7 @@ export async function mountDetail(el, ctx) {
   el.addEventListener('click', onToggleClick);
   el.addEventListener('click', onDuplicateClick);
   el.addEventListener('submit', onSubmit);
+  el.addEventListener('error', onGalleryImgError, true); // capture — img error doesn't bubble
   window.addEventListener('keydown', onKeydown);
   const unbindVerdicts = bindVerdicts(el, { api, onSaved: () => load({ skipCache: true }) });
 
@@ -789,6 +814,7 @@ export async function mountDetail(el, ctx) {
     el.removeEventListener('click', onToggleClick);
     el.removeEventListener('click', onDuplicateClick);
     el.removeEventListener('submit', onSubmit);
+    el.removeEventListener('error', onGalleryImgError, true);
     window.removeEventListener('keydown', onKeydown);
   };
   unmount.onQuery = (query) => {

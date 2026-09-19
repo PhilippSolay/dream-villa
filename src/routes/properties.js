@@ -553,11 +553,17 @@ export default async function propertiesRoutes(app, opts) {
       const ratings = withByName(db, db.prepare('SELECT * FROM ratings WHERE property_id = ? ORDER BY id DESC').all(id));
       const feedback = withByName(db, db.prepare('SELECT * FROM feedback WHERE property_id = ? ORDER BY id DESC').all(id));
 
+      const imageUrlList = imageUrls(parsed);
+      const galleryTotal = Array.isArray(parsed.images) ? parsed.images.length : 0;
+
       return withShared(db, [
         {
           ...parsed,
           hero_url: heroUrl(parsed),
-          image_urls: imageUrls(parsed),
+          image_urls: imageUrlList,
+          // Gallery entries that ended up with nothing to show: dead (images-audit.js
+          // gave up on the remote link), or neither a local file nor a src_url.
+          images_missing: Math.max(0, galleryTotal - imageUrlList.length),
           reasons: reasonsFor(parsed),
           price_history: parsed.price_history || [],
           contacts,

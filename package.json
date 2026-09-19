@@ -12,6 +12,7 @@
     "start": "node src/index.js",
     "seed": "node src/seed.js",
     "scrape": "node src/scrape/index.js",
+    "images:audit": "node src/scrape/images-audit.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {

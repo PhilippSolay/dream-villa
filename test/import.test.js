@@ -786,3 +786,147 @@ test('a post with no image field at all still imports fine (existing behaviour)'
   const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(body.ids[0]);
   assert.equal(row.hero_file, null);
 });
+
+// ---------------------------------------------------------------------------
+// Gallery images — images_b64 (multi-image), alongside the legacy single `image`.
+// ---------------------------------------------------------------------------
+
+async function tinyImagesBase64(count, format = 'jpeg') {
+  const out = [];
+  for (let i = 0; i < count; i += 1) out.push({ data_base64: await tinyImageBase64(format) });
+  return out;
+}
+
+test('gallery: 3 valid images import as a 3-image gallery with hero = 1.jpg', async (t) => {
+  const { db, call, env } = await setup(t);
+  const images_b64 = await tinyImagesBase64(3);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'cemagi-group',
+      posts: [
+        post({
+          post_id: 'gal1',
+          text: 'For rent 3 bedroom villa in Cemagi, IDR 45.000.000/month.',
+          images_b64,
+        }),
+      ],
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.new, 1);
+  assert.equal(body.skipped_images, 0);
+
+  const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(body.ids[0]);
+  assert.equal(row.hero_file, `${row.id}/1.jpg`);
+  const images = JSON.parse(row.images);
+  assert.equal(images.length, 3);
+  for (let i = 1; i <= 3; i += 1) {
+    assert.equal(images[i - 1].file, `${row.id}/${i}.jpg`);
+    assert.equal(images[i - 1].src_url, null);
+    assert.ok(fs.existsSync(path.join(env.IMAGES_DIR, images[i - 1].file)));
+  }
+});
+
+test('gallery: 2 valid + 1 invalid entry writes 2 files and counts 1 skipped', async (t) => {
+  const { db, call, env } = await setup(t);
+  const valid = await tinyImagesBase64(2);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'cemagi-group',
+      posts: [
+        post({
+          post_id: 'gal2',
+          text: 'For rent 2 bedroom villa in Cemagi, IDR 30.000.000/month.',
+          images_b64: [valid[0], { data_base64: 'not-a-real-image-payload' }, valid[1]],
+        }),
+      ],
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.new, 1);
+  assert.equal(body.skipped_images, 1);
+
+  const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(body.ids[0]);
+  const images = JSON.parse(row.images);
+  assert.equal(images.length, 2);
+  assert.equal(images[0].file, `${row.id}/1.jpg`);
+  assert.equal(images[1].file, `${row.id}/2.jpg`);
+  assert.ok(fs.existsSync(path.join(env.IMAGES_DIR, images[0].file)));
+  assert.ok(fs.existsSync(path.join(env.IMAGES_DIR, images[1].file)));
+});
+
+test('gallery: re-importing the same post with fewer images replaces the gallery, not accumulates it', async (t) => {
+  const { db, call } = await setup(t);
+  const groupId = 'cemagi-group';
+
+  const first = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: groupId,
+      posts: [
+        post({
+          post_id: 'gal3',
+          text: 'For rent 3 bedroom villa in Cemagi, IDR 40.000.000/month.',
+          images_b64: await tinyImagesBase64(3),
+        }),
+      ],
+    },
+  });
+  assert.equal(first.json().new, 1);
+  const propertyId = first.json().ids[0];
+  assert.equal(JSON.parse(db.prepare('SELECT images FROM properties WHERE id = ?').get(propertyId).images).length, 3);
+
+  const second = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: groupId,
+      posts: [
+        post({
+          post_id: 'gal3',
+          text: 'For rent 3 bedroom villa in Cemagi, IDR 41.000.000/month.',
+          images_b64: await tinyImagesBase64(2),
+        }),
+      ],
+    },
+  });
+  assert.equal(second.json().new, 0);
+  assert.equal(second.json().updated, 1);
+
+  const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(propertyId);
+  const images = JSON.parse(row.images);
+  assert.equal(images.length, 2, 'gallery should be replaced by the new count, not accumulated to 5');
+  assert.equal(images[0].file, `${propertyId}/1.jpg`);
+  assert.equal(images[1].file, `${propertyId}/2.jpg`);
+  assert.equal(row.hero_file, `${propertyId}/1.jpg`, 'hero_file was already set, so it stays put');
+});
+
+test('gallery: legacy `image` still works when images_b64 is absent', async (t) => {
+  const { db, call, env } = await setup(t);
+  const data_base64 = await tinyImageBase64('jpeg');
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'cemagi-group',
+      posts: [
+        post({
+          post_id: 'gal4',
+          text: 'For rent 2 bedroom villa in Cemagi, IDR 30.000.000/month.',
+          image: { data_base64 },
+        }),
+      ],
+    },
+  });
+  const body = res.json();
+  assert.equal(body.new, 1);
+  assert.equal(body.skipped_images, 0);
+  const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(body.ids[0]);
+  assert.equal(row.hero_file, `${row.id}/1.jpg`);
+  const images = JSON.parse(row.images);
+  assert.equal(images.length, 1);
+  assert.ok(fs.existsSync(path.join(env.IMAGES_DIR, images[0].file)));
+});
+

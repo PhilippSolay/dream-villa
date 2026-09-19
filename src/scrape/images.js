@@ -37,7 +37,8 @@ export async function resizeToJpeg(buffer) {
   return { buffer: data, w: info.width, h: info.height };
 }
 
-/** Listings (optionally restricted to `ids`) whose images array has an entry without a `file`. */
+/** Listings (optionally restricted to `ids`) whose images array has an entry without a `file`
+ *  that isn't flagged `dead` (images-audit.js repairImages gave up on that one for good). */
 function selectCandidates(db, ids) {
   let rows;
   if (ids && ids.length) {
@@ -53,7 +54,7 @@ function selectCandidates(db, ids) {
   for (const row of rows) {
     if (row.availability === 'gone') continue;
     const images = safeParseImages(row.images);
-    if (images.some((img) => !img.file)) out.push({ id: row.id, images, hero_file: row.hero_file });
+    if (images.some((img) => !img.file && !img.dead)) out.push({ id: row.id, images, hero_file: row.hero_file });
   }
   return out;
 }
@@ -88,7 +89,7 @@ export async function processImages(
     for (let i = 0; i < images.length; i++) {
       if (processed >= maxPerListing) break;
       const entry = images[i];
-      if (entry.file) continue;
+      if (entry.file || entry.dead) continue; // dead: images-audit.js gave up on this one — never retried here
       processed++;
 
       const n = i + 1;

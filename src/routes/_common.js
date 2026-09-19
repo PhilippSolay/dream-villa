@@ -33,15 +33,21 @@ export function getProperty(db, id) {
 export function heroUrl(row) {
   if (row.hero_file) return `/images/${row.hero_file}`;
   const images = Array.isArray(row.images) ? row.images : [];
-  const first = images.find((i) => i && (i.file || i.src_url));
+  // images-audit.js marks a permanently-gone remote image `dead: true` (src_url kept
+  // for reference, never shown) — never picked as a fallback hero.
+  const first = images.find((i) => i && !i.dead && (i.file || i.src_url));
   if (!first) return null;
   return first.file ? `/images/${first.file}` : first.src_url || null;
 }
 
-/** Local file when the image was downloaded, the source URL otherwise. */
+/** Local file when the image was downloaded, the remote src_url otherwise — but never
+ *  a `dead` entry (images-audit.js: a link images-audit.js gave up refetching). */
 export function imageUrls(row) {
   const images = Array.isArray(row.images) ? row.images : [];
-  return images.map((i) => (i && i.file ? `/images/${i.file}` : (i && i.src_url) || null)).filter(Boolean);
+  return images
+    .filter((i) => i && !i.dead)
+    .map((i) => (i.file ? `/images/${i.file}` : i.src_url || null))
+    .filter(Boolean);
 }
 
 export function jsonArray(value) {

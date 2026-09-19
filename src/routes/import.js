@@ -16,10 +16,10 @@ import { dedupeAll } from '../scrape/dedupe.js';
 import { strictSchemas, saveImage, imagesDirFor, jsonArray } from './_common.js';
 
 const MAX_POSTS = 200;
-// A 200-post batch with an embedded cover photo per post can run ~15 MB; Fastify's
-// global bodyLimit is much smaller, so this route gets its own (route-level only —
-// every other route keeps the default).
-const IMPORT_BODY_LIMIT = 40 * 1024 * 1024;
+// A 200-post batch with an embedded gallery (up to 8 images) per post can run large;
+// Fastify's global bodyLimit is much smaller, so this route gets its own (route-level
+// only — every other route keeps the default).
+const IMPORT_BODY_LIMIT = 60 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Skip classification (task step 1). Priority: wanted > offtopic > no_signal,
@@ -324,44 +324,78 @@ function findOrCreateContact(db, { whatsapp, name, role, instagram, notes }) {
 }
 
 // ---------------------------------------------------------------------------
-// Cover image — the harvester sometimes captures the post's image directly (a
-// base64 JPEG/PNG) because a signed CDN url would otherwise get redacted.
-// Decoded through the same resizeToJpeg used by the daily scraper's own image
-// step, written to <IMAGES_DIR>/<id>/1.jpg. Never throws: an invalid or
-// oversized image is simply not attached, and the caller counts it in
-// skipped_images while still importing the rest of the post.
+// Gallery images — the harvester sometimes captures a post's images directly
+// (base64 JPEG/PNG) because signed CDN urls would otherwise get redacted.
+// `images_b64` (up to MAX_GALLERY_IMAGES) is the current shape; the legacy
+// single `image` field is treated as images_b64: [image] by the caller.
+//
+// Each accepted image is decoded through the same resizeToJpeg used by the
+// daily scraper's own image step and written to
+// <IMAGES_DIR>/<id>/1.jpg … <id>/N.jpg, in order, overwriting any file already
+// at that index (re-import keeps it simple: no cleanup of a now-unused higher
+// index left over from a previous, larger gallery). The stored `images` JSON
+// for the row is replaced with exactly this gallery — any previous embedded
+// entries (file-backed, src_url null) are dropped, while entries with a real
+// src_url (from another source) are kept alongside it. hero_file is only set
+// when it was null.
+//
+// Never throws: an invalid or oversized entry is simply skipped and counted,
+// while every other entry (and the post itself) still imports.
 // ---------------------------------------------------------------------------
 
 const MAX_IMAGE_BYTES = 600 * 1024;
+const MAX_GALLERY_IMAGES = 8;
 
-/** @returns {Promise<boolean>} true when the image was decoded, resized and attached. */
-async function attachCoverImage(db, imagesDir, propertyId, image) {
-  if (!image || typeof image.data_base64 !== 'string' || !image.data_base64) return false;
-
+/** @returns {Buffer|null} the decoded buffer, or null when the entry is missing/invalid/oversized. */
+function decodeGalleryImage(image) {
+  if (!image || typeof image.data_base64 !== 'string' || !image.data_base64) return null;
   let buffer;
   try {
     buffer = Buffer.from(image.data_base64, 'base64');
   } catch {
-    return false;
+    return null;
   }
-  if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) return false;
+  if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) return null;
+  return buffer;
+}
 
-  let saved;
-  try {
-    saved = await saveImage(imagesDir, propertyId, '1.jpg', buffer);
-  } catch {
-    return false; // not a decodable image
+/** @returns {Promise<{ attached: number, skipped: number }>} */
+async function attachGalleryImages(db, imagesDir, propertyId, images) {
+  const candidates = (Array.isArray(images) ? images : []).slice(0, MAX_GALLERY_IMAGES);
+
+  let skipped = 0;
+  const buffers = [];
+  for (const candidate of candidates) {
+    const buffer = decodeGalleryImage(candidate);
+    if (buffer) buffers.push(buffer);
+    else skipped += 1;
   }
 
-  const existing = db.prepare('SELECT images, hero_file FROM properties WHERE id = ?').get(propertyId);
-  // Keep any already-downloaded gallery entries (they carry a `.file`); a plain
-  // src_url-only entry has nothing worth keeping over the file we just wrote.
-  const kept = jsonArray(existing?.images).filter((im) => im && im.file && im.file !== saved.file);
-  const images = [{ src_url: null, file: saved.file, w: saved.w, h: saved.h }, ...kept];
+  const saved = [];
+  for (const buffer of buffers) {
+    // Name by how many have actually been saved so far, not by position in
+    // `buffers` — a decode failure partway through must not leave a gap
+    // (1.jpg, 3.jpg): the written files are always a dense 1..N run.
+    try {
+      saved.push(await saveImage(imagesDir, propertyId, `${saved.length + 1}.jpg`, buffer));
+    } catch {
+      skipped += 1; // not a decodable image
+    }
+  }
 
-  db.prepare('UPDATE properties SET images = ?, hero_file = COALESCE(hero_file, ?) WHERE id = ?')
-    .run(JSON.stringify(images), saved.file, propertyId);
-  return true;
+  if (saved.length) {
+    const existing = db.prepare('SELECT images FROM properties WHERE id = ?').get(propertyId);
+    // Drop any previous embedded (file-backed) entries — this gallery replaces them —
+    // but keep entries that carry a real src_url from another source.
+    const kept = jsonArray(existing?.images).filter((im) => im && im.src_url != null);
+    const gallery = saved.map((s) => ({ src_url: null, file: s.file, w: s.w, h: s.h }));
+    const imagesJson = [...gallery, ...kept];
+
+    db.prepare('UPDATE properties SET images = ?, hero_file = COALESCE(hero_file, ?) WHERE id = ?')
+      .run(JSON.stringify(imagesJson), gallery[0].file, propertyId);
+  }
+
+  return { attached: saved.length, skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -427,13 +461,15 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
     db.prepare('INSERT OR IGNORE INTO property_contacts (property_id, contact_id) VALUES (?, ?)').run(result.id, contact.id);
   }
 
-  let imageSkipped = false;
-  if (post.image) {
-    const attached = await attachCoverImage(db, imagesDir, result.id, post.image);
-    if (!attached) imageSkipped = true;
+  const embeddedImages = Array.isArray(post.images_b64) && post.images_b64.length
+    ? post.images_b64
+    : post.image ? [post.image] : [];
+  let skippedImages = 0;
+  if (embeddedImages.length) {
+    ({ skipped: skippedImages } = await attachGalleryImages(db, imagesDir, result.id, embeddedImages));
   }
 
-  return { ...result, imageSkipped };
+  return { ...result, skippedImages };
 }
 
 // ---------------------------------------------------------------------------
@@ -480,8 +516,8 @@ export default async function importRoutes(app, opts) {
                   poster_name: { type: ['string', 'null'], maxLength: 200 },
                   poster_url: { type: ['string', 'null'], maxLength: 2000 },
                   images: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 2000 } },
-                  // The harvester's own captured cover photo — a fallback for when a
-                  // signed CDN url (the `images` field above) would get redacted.
+                  // The harvester's own captured cover photo — legacy single-image shape,
+                  // treated as images_b64: [image] when images_b64 itself is absent/empty.
                   image: {
                     type: ['object', 'null'],
                     additionalProperties: false,
@@ -489,6 +525,21 @@ export default async function importRoutes(app, opts) {
                       data_base64: { type: 'string', minLength: 1, maxLength: 1_500_000 },
                       w: { type: ['integer', 'null'] },
                       h: { type: ['integer', 'null'] },
+                    },
+                  },
+                  // The harvester's own captured gallery — up to MAX_GALLERY_IMAGES embedded
+                  // photos, same per-entry validation as `image` above (each ≤ 600 KB decoded).
+                  images_b64: {
+                    type: 'array',
+                    maxItems: 8,
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        data_base64: { type: 'string', minLength: 1, maxLength: 1_500_000 },
+                        w: { type: ['integer', 'null'] },
+                        h: { type: ['integer', 'null'] },
+                      },
                     },
                   },
                   phone: { type: ['string', 'null'], maxLength: 60 },
@@ -525,7 +576,7 @@ export default async function importRoutes(app, opts) {
         // point of view it is not a new listing either way.
         if (result.action === 'inserted') newCount += 1;
         else updatedCount += 1;
-        if (result.imageSkipped) skippedImages += 1;
+        skippedImages += result.skippedImages;
       }
 
       // SPEC §6 dedupe: fb cross-posts of the same villa share an image or a
