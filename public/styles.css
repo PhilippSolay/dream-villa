@@ -411,7 +411,7 @@ input:focus, select:focus, textarea:focus {
 .seg button[aria-pressed='true'] { background: var(--seg-thumb); color: var(--ink); box-shadow: var(--seg-thumb-shadow); }
 /* Inside the filter panel a segment never wraps: equal columns, one row. */
 .filter-group .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; width: 100%; }
-.filter-group .seg button { padding: 0 6px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.filter-group .seg button { padding: 0 4px; font-size: 12px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -645,6 +645,21 @@ button.chip[aria-pressed='true'] { background: var(--gold-soft); border-color: v
 
 /* Sliders: quiet track, gold fill for the chosen span, round white thumbs. The fill
    positions (--lo / --hi / --val) are written by home.js on every input. */
+/* Price distribution above the slider: one bar per bucket, gold between the thumbs. The
+   bars end on the track, and the side margins line them up with the thumbs' travel. */
+.range-hist { display: flex; align-items: flex-end; gap: 2px; height: 44px; margin: 8px 11px -18px; position: relative; }
+.range-hist:empty { display: none; }
+.range-hist span {
+  flex: 1 1 0;
+  min-width: 0;
+  height: max(3px, var(--h, 0%));
+  border-radius: 3px 3px 0 0;
+  background: var(--line-strong);
+  opacity: 0.6;
+  transition: background 0.2s var(--ease), opacity 0.2s var(--ease);
+}
+.range-hist span.is-in { background: linear-gradient(180deg, var(--gold-2), var(--gold)); opacity: 1; }
+
 .range-dual { position: relative; height: 40px; margin-top: 2px; --lo: 0%; --hi: 100%; }
 .range-dual::before, .range-dual::after {
   content: '';

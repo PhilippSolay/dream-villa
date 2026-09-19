@@ -10,6 +10,9 @@ import {
 const PRICE_MIN_M = 15;
 const PRICE_MAX_M = 80;
 const PRICE_STEP_M = 0.5;
+const PRICE_BUCKET_M = 2.5; // one histogram bar per 2.5 M
+const PRICE_BUCKET_COUNT = (PRICE_MAX_M - PRICE_MIN_M) / PRICE_BUCKET_M;
+const HISTOGRAM_LIMIT = 500; // the API's ceiling; enough for the whole market today
 const BEACH_MAX_KM = 10;
 const LAND_MIN_M2 = 0;
 const LAND_MAX_M2 = 2000;
@@ -182,6 +185,7 @@ function buildFilterPanel({ areas, onChange, sources }) {
     <div class="filter-group">
       <span class="label">Price per month</span>
       <div class="range-readout"><span class="mono" data-role="price-readout">15 – 80 M</span></div>
+      <div class="range-hist" data-role="price-hist" aria-hidden="true"></div>
       <div class="range-dual">
         <input type="range" data-role="min" min="${PRICE_MIN_M}" max="${PRICE_MAX_M}" step="${PRICE_STEP_M}"
           aria-label="Lowest price, million IDR per month" />
@@ -284,6 +288,30 @@ function buildFilterPanel({ areas, onChange, sources }) {
     <button type="button" class="btn btn-sm" data-role="reset">Reset filters</button>`
   );
 
+  const histEl = $('[data-role="price-hist"]', panel);
+  let histBars = [];
+
+  /** Bars between the thumbs light up gold; the rest stay muted. */
+  function paintHistogram() {
+    if (!histBars.length) return;
+    const lo = Number($('[data-role="min"]', panel).value);
+    const hi = Number($('[data-role="max"]', panel).value);
+    histBars.forEach((bar, i) => {
+      const centre = PRICE_MIN_M + (i + 0.5) * PRICE_BUCKET_M;
+      bar.classList.toggle('is-in', centre >= lo && centre <= hi);
+    });
+  }
+
+  /** One bar per price bucket, scaled to the tallest inner bucket — the end buckets also
+      hold everything beyond the slider's span, so they are capped rather than allowed to
+      flatten the rest. `counts` comes from mountHome. */
+  function setHistogram(counts) {
+    const peak = Math.max(1, ...counts.slice(1, -1)) || Math.max(1, ...counts);
+    setHtml(histEl, counts.map((c) => html`<span style="--h:${Math.min(100, (c / peak) * 100).toFixed(1)}%"></span>`));
+    histBars = $$('span', histEl);
+    paintHistogram();
+  }
+
   /** Gold fill between the thumbs (dual) or up to the thumb (single) — CSS reads these vars. */
   function paintRanges() {
     for (const dual of $$('.range-dual', panel)) {
@@ -294,6 +322,7 @@ function buildFilterPanel({ areas, onChange, sources }) {
     for (const single of $$('input[type="range"]:not(.range-dual input)', panel)) {
       single.style.setProperty('--val', rangePct(single));
     }
+    paintHistogram();
   }
 
   const readouts = {
@@ -465,7 +494,19 @@ function buildFilterPanel({ areas, onChange, sources }) {
     }
   });
 
-  return { panel, sync };
+  return { panel, sync, setHistogram };
+}
+
+/** Listings per PRICE_BUCKET_M step across the slider's span; prices outside it land in the end buckets. */
+export function priceBuckets(rows) {
+  const counts = new Array(PRICE_BUCKET_COUNT).fill(0);
+  for (const r of rows) {
+    if (r.price_month_idr == null) continue;
+    const m = Number(r.price_month_idr) / 1e6;
+    const i = Math.floor((m - PRICE_MIN_M) / PRICE_BUCKET_M);
+    counts[Math.max(0, Math.min(PRICE_BUCKET_COUNT - 1, i))] += 1;
+  }
+  return counts;
 }
 
 // ---------------------------------------------------------------------------
@@ -500,7 +541,7 @@ export async function mountHome(el, ctx) {
 
   const grid = $('#grid', el);
   const rail = $('#rail', el);
-  const { panel, sync } = buildFilterPanel({
+  const { panel, sync, setHistogram } = buildFilterPanel({
     areas,
     sources: [...knownSources],
     onChange: (patch) => {
@@ -555,9 +596,26 @@ export async function mountHome(el, ctx) {
     select.value = current;
   }
 
+  // The price histogram shows the same search with the price limits lifted, so it only
+  // needs refetching when something other than the price moved.
+  let histogramKey = null;
+  async function loadHistogram(filters) {
+    const query = filtersToQuery({ ...filters, min: null, max: null }, { limit: HISTOGRAM_LIMIT });
+    if (query === histogramKey) return;
+    histogramKey = query;
+    try {
+      const rows = await api.get(`/api/properties?${query}`);
+      if (!alive || query !== histogramKey) return;
+      setHistogram(priceBuckets(rows));
+    } catch {
+      /* the bars are a hint, not a result — a failed fetch just leaves the last ones up */
+    }
+  }
+
   const reload = debounce(async () => {
     const filters = store.get().filters;
     const query = filtersToQuery(filters);
+    loadHistogram(filters);
     try {
       const fetched = await api.get(`/api/properties?${query}`);
       if (!alive) return;
