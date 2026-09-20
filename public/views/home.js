@@ -16,6 +16,7 @@ const PRICE_STEP_M = 0.5;
 const PRICE_BUCKET_M = 2.5; // one histogram bar per 2.5 M
 const PRICE_BUCKET_COUNT = (PRICE_MAX_M - PRICE_MIN_M) / PRICE_BUCKET_M;
 const HISTOGRAM_LIMIT = 500; // the API's ceiling; enough for the whole market today
+const PAGE_SIZE = 100; // cards per fetch on Home; "Load more" appends the next page
 const BEACH_MAX_KM = 10;
 const LAND_MIN_M2 = 0;
 const LAND_MAX_M2 = 2000;
@@ -665,6 +666,9 @@ export async function mountHome(el, ctx) {
           <span class="small muted toolbar-count" id="list-count"></span>
         </div>
         <div class="grid" id="grid"><p class="loading">Loading…</p></div>
+        <div class="load-more" id="load-more" hidden>
+          <button type="button" class="btn" id="load-more-btn">Load more</button>
+        </div>
         <p class="small muted" id="updated"></p>
       </div>
     </div>`
@@ -806,31 +810,76 @@ export async function mountHome(el, ctx) {
     }
   }
 
+  // The list is paged: the first PAGE_SIZE rows on every filter change, then "Load more"
+  // appends the next page under the same query. `page` is the state of what is shown.
+  let page = { query: null, rows: [], total: 0 };
+  const loadMoreWrap = $('#load-more', el);
+  const loadMoreBtn = $('#load-more-btn', el);
+
+  function paintCount() {
+    const { rows, total } = page;
+    const noun = `listing${total === 1 ? '' : 's'}`;
+    $('#list-count', el).textContent = rows.length < total ? `${rows.length} of ${total} ${noun}` : `${total} ${noun}`;
+    loadMoreWrap.hidden = rows.length >= total;
+    const left = total - rows.length;
+    loadMoreBtn.textContent = `Load ${Math.min(PAGE_SIZE, left)} more`;
+  }
+
+  function publishList() {
+    // The detail page's prev/next arrows read this: the ordered ids of whatever the
+    // list last rendered (any sort, filters applied), and the query that produced it.
+    store.set({ list_ids: page.rows.map((p) => p.id), list_query: page.query });
+  }
+
   const reload = debounce(async () => {
     const filters = store.get().filters;
-    const query = filtersToQuery(filters);
+    const query = filtersToQuery(filters, { limit: PAGE_SIZE });
     loadHistogram(filters);
     loadQueues(filters);
     try {
-      const fetched = await api.get(`/api/properties?${query}`);
+      const { rows, total } = await api.getPage(`/api/properties?${query}`);
       if (!alive) return;
-      const rows = fetched;
-      rememberSources(fetched);
-      $('#list-count', el).textContent = `${rows.length} listing${rows.length === 1 ? '' : 's'}`;
+      page = { query, rows, total };
+      rememberSources(rows);
+      paintCount();
       setHtml(
         grid,
         rows.length
           ? rows.map((p) => cardHtml(p, areas, { viewer: viewer() }))
           : html`<p class="empty">Nothing matches these filters. Try widening the price range or turning off "In-filter only".</p>`
       );
-      // The detail page's prev/next arrows read this: the ordered ids of whatever the
-      // list last rendered (any sort, filters applied), and the query that produced it.
-      store.set({ list_ids: rows.map((p) => p.id), list_query: query });
+      publishList();
     } catch (err) {
       if (!alive) return;
+      loadMoreWrap.hidden = true;
       setHtml(grid, html`<p class="empty">Could not load listings: ${err.message}</p>`);
     }
   }, 220);
+
+  async function loadMore() {
+    const startedFor = page.query;
+    if (!startedFor || loadMoreBtn.disabled) return;
+    loadMoreBtn.disabled = true;
+    try {
+      const query = filtersToQuery(store.get().filters, { limit: PAGE_SIZE, offset: page.rows.length });
+      const { rows, total } = await api.getPage(`/api/properties?${query}`);
+      // A filter change while this was in flight has already redrawn the grid; drop the page.
+      if (!alive || page.query !== startedFor) return;
+      const seen = new Set(page.rows.map((p) => p.id));
+      const fresh = rows.filter((p) => !seen.has(p.id));
+      page = { query: startedFor, rows: [...page.rows, ...fresh], total };
+      rememberSources(fresh);
+      grid.insertAdjacentHTML('beforeend', toHtml(fresh.map((p) => cardHtml(p, areas, { viewer: viewer() }))));
+      paintCount();
+      publishList();
+    } catch (err) {
+      if (!alive) return;
+      toast(`Could not load more: ${err.message}`, 'error');
+    } finally {
+      if (alive) loadMoreBtn.disabled = false;
+    }
+  }
+  loadMoreBtn.addEventListener('click', loadMore);
 
   async function loadUpdated() {
     try {

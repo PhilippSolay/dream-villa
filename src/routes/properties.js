@@ -524,6 +524,10 @@ export default async function propertiesRoutes(app, opts) {
     const rows = db
       .prepare(`SELECT * FROM properties ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
       .all(...built.params, limit, offset);
+    // The body stays a plain array (map, flow and detail all consume it as one); the
+    // full match count rides in a header so Home can say "200 of 323" and page on.
+    const total = db.prepare(`SELECT COUNT(*) AS n FROM properties ${whereSql}`).get(...built.params).n;
+    reply.header('X-Total-Count', String(total));
 
     const ids = rows.map((r) => r.id);
     const contacts = contactsByProperty(db, ids);

@@ -37,7 +37,7 @@ export function defaultFilters() {
   return { ...DEFAULT_FILTERS, status: [], area: [], bedrooms: [], features: [], style: [] };
 }
 
-export function filtersToQuery(f, { limit = 200 } = {}) {
+export function filtersToQuery(f, { limit = 200, offset = 0 } = {}) {
   const p = new URLSearchParams();
   p.set('scope', f.scope || 'in_filter');
   if (f.status?.length) p.set('status', f.status.join(','));
@@ -68,6 +68,7 @@ export function filtersToQuery(f, { limit = 200 } = {}) {
   p.set('removed', f.removed || 'hide');
   p.set('sort', LIST_SORT);
   p.set('limit', String(limit));
+  if (offset > 0) p.set('offset', String(offset));
   return p.toString();
 }
 

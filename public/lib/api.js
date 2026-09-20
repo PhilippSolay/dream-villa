@@ -30,7 +30,7 @@ function messageFrom(body, res) {
  * @param {{onUnauthorized?: () => void}} [opts]
  */
 export function createApi({ onUnauthorized } = {}) {
-  async function request(path, { method = 'GET', body, formData, skipAuthRedirect = false } = {}) {
+  async function request(path, { method = 'GET', body, formData, skipAuthRedirect = false, withResponse = false } = {}) {
     const init = { method, credentials: 'same-origin', headers: {} };
     if (formData) {
       init.body = formData; // the browser sets the multipart boundary itself
@@ -49,12 +49,21 @@ export function createApi({ onUnauthorized } = {}) {
     const payload = await parse(res);
     if (res.status === 401 && !skipAuthRedirect) onUnauthorized?.();
     if (!res.ok) throw new ApiError(messageFrom(payload, res), res.status, payload);
-    return payload;
+    return withResponse ? { body: payload, headers: res.headers } : payload;
+  }
+
+  /** GET a paged list: `{ rows, total }`, total from the `X-Total-Count` header (falls back to rows.length). */
+  async function getPage(path, opts) {
+    const { body, headers } = await request(path, { ...opts, method: 'GET', withResponse: true });
+    const rows = Array.isArray(body) ? body : [];
+    const total = Number.parseInt(headers.get('x-total-count') ?? '', 10);
+    return { rows, total: Number.isFinite(total) ? total : rows.length };
   }
 
   return {
     request,
     get: (path, opts) => request(path, { ...opts, method: 'GET' }),
+    getPage,
     post: (path, body, opts) => request(path, { ...opts, method: 'POST', body }),
     patch: (path, body, opts) => request(path, { ...opts, method: 'PATCH', body }),
     del: (path, opts) => request(path, { ...opts, method: 'DELETE' }),

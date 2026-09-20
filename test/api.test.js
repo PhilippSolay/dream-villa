@@ -154,6 +154,24 @@ test('list: scope=all&status=all&hide_gone=0 returns everything', async (t) => {
   assert.equal(res.json().length, SEED.length);
 });
 
+test('list: X-Total-Count is the full match count, limit/offset page through it', async (t) => {
+  const { call } = await setup(t);
+  const base = '/api/properties?scope=all&status=all&hide_gone=0&sort=new';
+  const all = await call({ method: 'GET', url: base });
+  assert.equal(all.headers['x-total-count'], String(SEED.length));
+
+  const first = await call({ method: 'GET', url: `${base}&limit=4` });
+  assert.equal(first.json().length, 4);
+  assert.equal(first.headers['x-total-count'], String(SEED.length), 'total ignores the page size');
+
+  const rest = await call({ method: 'GET', url: `${base}&limit=4&offset=4` });
+  assert.equal(rest.json().length, SEED.length - 4);
+  assert.deepEqual([...keysOf(first.json()), ...keysOf(rest.json())].sort(), keysOf(all.json()).sort());
+
+  const filtered = await call({ method: 'GET', url: '/api/properties?area=cemagi' });
+  assert.equal(filtered.headers['x-total-count'], String(filtered.json().length), 'total follows the filters');
+});
+
 test('list: scope=market shows only out-of-filter rows', async (t) => {
   const { call } = await setup(t);
   const res = await call({ method: 'GET', url: '/api/properties?scope=market' });
