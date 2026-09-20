@@ -170,14 +170,14 @@ test('recheckAll — a plain new, unflagged row is never rechecked', async () =>
   }
 });
 
-test('recheckAll — a source with no adapter is an error, not a crash', async () => {
+test('recheckAll — a source with no adapter is skipped, not an error', async () => {
   const t = tmpDb();
   try {
     insert(t.db, { source: 'kibarer', key: 'kibarer:K1', ref: 'K1', flagged: 1 });
     const res = await recheckAll(t.db, stubCtx(getConfig(t.db)), {}, {});
     assert.equal(res.checked, 0);
-    assert.equal(res.errors.length, 1);
-    assert.match(res.errors[0], /no adapter for source 'kibarer'/);
+    assert.equal(res.errors.length, 0);
+    assert.equal(res.skipped_no_adapter, 1);
   } finally {
     cleanup(t);
   }

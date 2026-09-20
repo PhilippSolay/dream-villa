@@ -73,7 +73,8 @@ export async function recheckAll(db, ctx, adaptersById = {}, { now = nowIso(), l
   for (const row of rows) {
     const adapter = adaptersById[row.source];
     if (!adapter || typeof adapter.detail !== 'function') {
-      out.errors.push(`${row.ref || row.id}: no adapter for source '${row.source}'`);
+      // sources without an adapter (fb, manual, inbox hosts) cannot be rechecked — not an error
+      out.skipped_no_adapter = (out.skipped_no_adapter || 0) + 1;
       continue;
     }
 
