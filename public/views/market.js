@@ -992,7 +992,7 @@ function renderMetrics(metrics, areasMap, uiState, { chartWidth }) {
       renderCrossSourceGaps(metrics.cross_source_gaps, areasMap)),
     section('Where the good ones come from', 'Each source’s share of the in-filter and flagged pool.',
       renderSourceShare(metrics.source_share)),
-    section('Budget bands', 'Live 1–3 bedroom listings per area across the budget, plus the 50–60 M stretch.',
+    section('Budget bands', 'Live 1–3 bedroom listings per area in 10 M steps across the budget, plus the 10 M stretch above it.',
       renderBudgetBands(metrics.budget_bands, areasMap)),
     section('Availability', 'When the live listings say they are free.',
       renderAvailability(metrics.availability_lead, areasMap)),

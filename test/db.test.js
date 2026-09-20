@@ -40,8 +40,8 @@ test('config is seeded from DEFAULT_CONFIG and parsed back to real types', () =>
   assert.equal(typeof cfg.weights, 'object');
   assert.equal(cfg.weights.living_open, 15);
   assert.equal(cfg.flag_threshold, 65);
-  assert.equal(cfg.budget_min, 25_000_000);
-  assert.equal(cfg.budget_max, 50_000_000);
+  assert.equal(cfg.budget_min, 20_000_000);
+  assert.equal(cfg.budget_max, 80_000_000);
   assert.equal(cfg.beach_km_max, 4);
   assert.equal(typeof cfg.band, 'object');
   assert.ok(Array.isArray(cfg.areas));

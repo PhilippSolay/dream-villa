@@ -809,7 +809,7 @@ test('config: GET returns the whole brief', async (t) => {
   const cfg = (await call({ method: 'GET', url: '/api/config' })).json();
   assert.equal(cfg.flag_threshold, 65);
   assert.equal(cfg.weights.living_open, 15);
-  assert.equal(cfg.budget_min, 25_000_000);
+  assert.equal(cfg.budget_min, 20_000_000);
   assert.equal(cfg.beach_km_max, 4);
   assert.ok(Array.isArray(cfg.areas));
   assert.equal(cfg.last_digest_at, null);

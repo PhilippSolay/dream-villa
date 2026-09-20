@@ -553,9 +553,10 @@ function buildBudgetBands(base, config) {
   const min = Number(config.budget_min ?? DEFAULT_CONFIG.budget_min);
   const max = Number(config.budget_max ?? DEFAULT_CONFIG.budget_max);
   const m = (v) => Math.round(v / 1e6);
-  const edges = [
-    [min, 30e6], [30e6, 40e6], [40e6, max], [max, max + 10e6],
-  ];
+  // 10 M steps across the budget (20-30 … 70-80 at 20–80 M), plus one stretch band above it.
+  const edges = [];
+  for (let lo = min; lo < max; lo += 10e6) edges.push([lo, Math.min(lo + 10e6, max)]);
+  edges.push([max, max + 10e6]);
   const bands = edges.map(([lo, hi]) => `${m(lo)}-${m(hi)}`);
   const stretch_band = bands[bands.length - 1];
 

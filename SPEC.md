@@ -12,7 +12,7 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 
 **Hard filters** (fail → `scope = market`, still stored):
 - rooms: `bedrooms >= 1 AND (bedrooms + extra_rooms) >= 2 AND bedrooms <= 3`
-- budget: `25_000_000 <= price_month_idr <= 50_000_000` (yearly normalised ÷ 12)
+- budget: `20_000_000 <= price_month_idr <= 80_000_000` (yearly normalised ÷ 12; widened from 25–50 M on 2026-09-20)
 - area: in the target list (§7) — anything else is `market` at best
 - style: `style != 'balinese_old'`
 - neighbours: no known construction next door (`red_flags` does not contain `construction`)

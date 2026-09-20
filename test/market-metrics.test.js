@@ -479,16 +479,19 @@ test('source_share: listings, in-filter and flagged split per source', async (t)
 test('budget_bands: live 1–3 BR rows counted per area and band', async (t) => {
   const { body } = await metrics(t);
   const bb = body.budget_bands;
-  assert.deepEqual(bb.bands, ['25-30', '30-40', '40-50', '50-60']);
-  assert.equal(bb.stretch_band, '50-60');
+  // 10 M steps across the 20–80 M budget, plus the 80–90 M stretch
+  assert.deepEqual(bb.bands, ['20-30', '30-40', '40-50', '50-60', '60-70', '70-80', '80-90']);
+  assert.equal(bb.stretch_band, '80-90');
+  const zero = Object.fromEntries(bb.bands.map((b) => [b, 0]));
   const cemagi = bb.by_area.find((r) => r.area === 'cemagi');
-  // cemagi live 1-3 BR: 30 M, 40 M, 50 M (the 85 M row is outside the band)
-  assert.deepEqual(cemagi.counts, { '25-30': 0, '30-40': 1, '40-50': 1, '50-60': 1 });
+  // cemagi live 1-3 BR: 30 M, 40 M, 50 M (the 85 M row is outside the aggregation band, so not in base)
+  assert.deepEqual(cemagi.counts, { ...zero, '30-40': 1, '40-50': 1, '50-60': 1 });
   assert.equal(cemagi.n, 3);
   const ungasan = bb.by_area.find((r) => r.area === 'ungasan');
-  assert.deepEqual(ungasan.counts, { '25-30': 1, '30-40': 0, '40-50': 0, '50-60': 0 });
+  assert.deepEqual(ungasan.counts, { ...zero, '20-30': 1 });
   const pererenan = bb.by_area.find((r) => r.area === 'pererenan');
-  assert.equal(pererenan.counts['30-40'], 1); // the 38 M upserted row; the 20 M and 65 M rows fall outside
+  assert.equal(pererenan.counts['30-40'], 1); // the 38 M upserted row
+  assert.equal(pererenan.counts['20-30'], 1); // the 20 M 1-BR row; the 65 M row is 4 BR and stays out
 });
 
 test('availability_lead: now / ≤1 month / 1–3 months / later / unknown', async (t) => {

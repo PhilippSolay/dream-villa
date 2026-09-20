@@ -19,8 +19,8 @@ export const WEIGHT_KEYS = Object.keys(DEFAULT_WEIGHTS);
 export const DEFAULT_CONFIG = {
   weights: DEFAULT_WEIGHTS,
   flag_threshold: 65,
-  budget_min: 25_000_000,
-  budget_max: 50_000_000,
+  budget_min: 20_000_000,
+  budget_max: 80_000_000,
   beach_km_max: 4,
   // Aggregation band: what the scraper keeps at all.
   band: { bedrooms_min: 1, bedrooms_max: 4, price_min: 15_000_000, price_max: 80_000_000 },

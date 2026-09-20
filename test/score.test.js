@@ -72,11 +72,11 @@ test('hardFilters — rooms: >=1 bedroom, bedrooms+extra >= 2, bedrooms <= 3', (
   assert.deepEqual(hardFilters({ ...base(), bedrooms: null }).fails, ['rooms']);
 });
 
-test('hardFilters — budget 25–50 M inclusive', () => {
-  assert.equal(hardFilters({ ...base(), price_month_idr: 25_000_000 }).pass, true);
-  assert.equal(hardFilters({ ...base(), price_month_idr: 50_000_000 }).pass, true);
-  assert.deepEqual(hardFilters({ ...base(), price_month_idr: 24_999_999 }).fails, ['budget']);
-  assert.deepEqual(hardFilters({ ...base(), price_month_idr: 50_000_001 }).fails, ['budget']);
+test('hardFilters — budget 20–80 M inclusive', () => {
+  assert.equal(hardFilters({ ...base(), price_month_idr: 20_000_000 }).pass, true);
+  assert.equal(hardFilters({ ...base(), price_month_idr: 80_000_000 }).pass, true);
+  assert.deepEqual(hardFilters({ ...base(), price_month_idr: 19_999_999 }).fails, ['budget']);
+  assert.deepEqual(hardFilters({ ...base(), price_month_idr: 80_000_001 }).fails, ['budget']);
   assert.deepEqual(hardFilters({ ...base(), price_month_idr: null }).fails, ['budget']);
 });
 
@@ -247,7 +247,7 @@ test('scoreRow — the flag rule', () => {
 });
 
 test('scoreRow — over_budget toggles on and off, person flags survive', () => {
-  const over = scoreRow({ ...base(), price_month_idr: 60_000_000, red_flags: '["custom:noisy"]' }, DEFAULT_CONFIG);
+  const over = scoreRow({ ...base(), price_month_idr: 90_000_000, red_flags: '["custom:noisy"]' }, DEFAULT_CONFIG);
   assert.deepEqual(over.red_flags, ['custom:noisy', 'over_budget']);
   assert.equal(over.scope, 'market', 'over budget also fails the hard filter');
 
@@ -257,7 +257,7 @@ test('scoreRow — over_budget toggles on and off, person flags survive', () => 
   assert.equal(back.scope, 'in_filter');
 
   // never added twice
-  const again = scoreRow({ ...base(), price_month_idr: 60_000_000, red_flags: '["over_budget"]' }, DEFAULT_CONFIG);
+  const again = scoreRow({ ...base(), price_month_idr: 90_000_000, red_flags: '["over_budget"]' }, DEFAULT_CONFIG);
   assert.deepEqual(again.red_flags, ['over_budget']);
 
   // an unknown price never sets it
