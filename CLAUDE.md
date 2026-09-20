@@ -17,6 +17,7 @@ Private villa-search tracker for Philipp and Abigaïl. One Docker container on t
 - `npm run seed -- ./seed/bhi-sweep-2026-09-17.json` — import a sweep file
 - `npm run scrape -- --source=bhi --dry` — run one adapter, print what would be upserted
 - `npm run scrape` — full daily run (all adapters, images, scoring)
+- `npm run import:whatsapp -- "~/Downloads/WhatsApp Chat - <group>.zip" --dry` — parse a WhatsApp export (with media) and show what would import; drop `--dry` to send the last 30 days to the tracker as source `wa`
 - `npm test`
 - `docker compose up -d --build` — on the VPS
 

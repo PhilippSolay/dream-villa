@@ -13,6 +13,7 @@
     "seed": "node src/seed.js",
     "scrape": "node src/scrape/index.js",
     "images:audit": "node src/scrape/images-audit.js",
+    "import:whatsapp": "node src/import-whatsapp.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
