@@ -5,7 +5,7 @@ import { filtersToQuery, activeFilterCount, defaultFilters } from '../lib/filter
 import { STAGES, STAGE_ORDER, loadStageQueues } from '../lib/flow.js';
 import {
   $, $$, html, setHtml, toHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing,
-  FEATURE_LABELS, STATUS_LABELS, STYLE_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, todayMakassar, dayLabel,
+  FEATURE_LABELS, STATUS_LABELS, STYLE_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, dayLabel,
 } from '../lib/ui.js';
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
@@ -23,7 +23,8 @@ const LAND_STEP_M2 = 50;
 const BUILD_MIN_M2 = 0;
 const BUILD_MAX_M2 = 600;
 const BUILD_STEP_M2 = 10;
-const SORTS = [['worth', 'Worth a look'], ['fit', 'Fit'], ['price', 'Price'], ['beach', 'Beach'], ['new', 'Newest']];
+// The toolbar's one control: the viewer's own call. '' shows everything.
+const MY_CALLS = [['', 'All'], ['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No'], ['none', 'New']];
 const BEDROOMS = [1, 2, 3, 4];
 const FEATURES = Object.keys(FEATURE_LABELS);
 const AGE_OPTIONS = [['', 'Any'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']];
@@ -43,18 +44,6 @@ function ageLabel(firstSeenIso) {
   if (days < 7) return `${days}d`;
   if (days < 60) return `${Math.max(1, Math.round(days / 7))}w`;
   return `${Math.max(1, Math.round(days / 30))}mo`;
-}
-
-/** sort=worth: flagged listings (fit desc — already this order from the API's own
- *  sort=fit) followed by today's non-flagged arrivals (newest first). Client-side only:
- *  the API has no 'worth' sort, so the request itself goes out as sort=fit (filters.js). */
-function worthOrder(rows) {
-  const today = todayMakassar();
-  const flagged = rows.filter((r) => r.flagged);
-  const newToday = rows
-    .filter((r) => !r.flagged && makassarDate(r.first_seen) === today)
-    .sort((a, b) => new Date(b.first_seen).getTime() - new Date(a.first_seen).getTime());
-  return [...flagged, ...newToday];
 }
 
 function featureChips(p, max = 4) {
@@ -664,8 +653,8 @@ export async function mountHome(el, ctx) {
           <button type="button" class="btn btn-sm filters-toggle" id="filters-btn">
             ${icons.filter()}<span>Filters</span><span class="filter-count" id="filter-count" hidden></span>
           </button>
-          <div class="seg" id="sort" role="group" aria-label="Sort listings">
-            ${SORTS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
+          <div class="seg" id="my-call" role="group" aria-label="Your call">
+            ${MY_CALLS.map(([value, label]) => html`<button type="button" value="${value}" aria-pressed="false">${label}</button>`)}
           </div>
           <div class="flow-strip" id="flow-strip" role="group" aria-label="Work through the listings">
             ${STAGE_ORDER.map(
@@ -759,7 +748,7 @@ export async function mountHome(el, ctx) {
 
   function paintToolbar() {
     const f = store.get().filters;
-    for (const b of $$('#sort button', el)) b.setAttribute('aria-pressed', String((f.sort || 'worth') === b.value));
+    for (const b of $$('#my-call button', el)) b.setAttribute('aria-pressed', String((f.my_verdict || '') === b.value));
     const badge = $('#filter-count', el);
     const n = activeFilterCount(f);
     badge.textContent = String(n);
@@ -825,7 +814,7 @@ export async function mountHome(el, ctx) {
     try {
       const fetched = await api.get(`/api/properties?${query}`);
       if (!alive) return;
-      const rows = filters.sort === 'worth' ? worthOrder(fetched) : fetched;
+      const rows = fetched;
       rememberSources(fetched);
       $('#list-count', el).textContent = `${rows.length} listing${rows.length === 1 ? '' : 's'}`;
       setHtml(
@@ -881,10 +870,10 @@ export async function mountHome(el, ctx) {
     ctx.navigate(`#/p/${ids[0]}?flow=${stage}`);
   });
 
-  $('#sort', el).addEventListener('click', (event) => {
+  $('#my-call', el).addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    store.set({ filters: { ...store.get().filters, sort: button.value } });
+    store.set({ filters: { ...store.get().filters, my_verdict: button.value || null } });
     paintToolbar();
     reload();
   });

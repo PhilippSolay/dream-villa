@@ -23,7 +23,7 @@ function sections(otherName) {
     },
     {
       key: 'waiting_other', title: `Waiting for ${other}`, query: 'verdict=waiting_other',
-      hint: `You have called these; ${other} has not.`,
+      hint: `Your yes or maybe; ${other} has not called these yet.`,
       empty: `${other} is all caught up.`,
     },
     {

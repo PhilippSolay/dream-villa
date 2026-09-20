@@ -4,15 +4,12 @@ import { createStore } from './lib/store.js';
 import { defaultFilters } from './lib/filters.js';
 import { createApi } from './lib/api.js';
 import { createRouter, navigate } from './lib/router.js';
-import { $, html, setHtml, icons, toast, todayMakassar, makassarDate } from './lib/ui.js';
+import { $, html, setHtml, icons, toast } from './lib/ui.js';
 
 const store = createStore(
-  { filters: defaultFilters(), theme: 'system', user: null, counts: null, areas: [] },
+  { filters: defaultFilters(), theme: 'system', user: null, areas: [] },
   { persist: ['filters', 'theme'] }
 );
-
-/** How deep we look for "new today" before showing "200+" in the header chip. */
-const NEW_TODAY_LIMIT = 200;
 
 const api = createApi({ onUnauthorized: () => navigate('/login', { replace: true }) });
 
@@ -54,18 +51,7 @@ function renderTabs(active) {
 }
 
 function renderHeader() {
-  const { user, counts } = store.get();
-  const chip = $('#counts');
-  if (counts) {
-    setHtml(
-      chip,
-      html`<span class="stat"><b>${counts.flagged}</b><span>featured</span></span>
-        <span class="stat"><b>${counts.new_today}</b><span>new today</span></span>
-        <span class="stat count-wide"><b>${counts.shortlist}</b><span>shortlist</span></span>`
-    );
-  } else {
-    chip.textContent = '';
-  }
+  const { user } = store.get();
 
   const themeBtn = $('#theme-toggle');
   setHtml(themeBtn, isDark() ? icons.sun() : icons.moon());
@@ -75,30 +61,6 @@ function renderHeader() {
   userBtn.textContent = user ? (user.name || user.email).trim().charAt(0).toUpperCase() : '·';
   userBtn.setAttribute('aria-label', user ? `${user.name} — sign out` : 'Sign in');
   userBtn.hidden = !user;
-}
-
-async function refreshCounts() {
-  if (!store.get().user) return;
-  try {
-    const [market, recent] = await Promise.all([
-      api.get('/api/market'),
-      api.get(`/api/properties?scope=all&status=all&hide_gone=0&sort=new&limit=${NEW_TODAY_LIMIT}`),
-    ]);
-    const today = todayMakassar();
-    const newToday = recent.filter((r) => makassarDate(r.first_seen) === today).length;
-    store.set({
-      counts: {
-        flagged: market.counts.flagged,
-        shortlist: market.counts.shortlist,
-        in_filter: market.counts.in_filter,
-        market: market.counts.market,
-        // A full count would mean pulling every row; cap it and say so instead of lying.
-        new_today: newToday === NEW_TODAY_LIMIT ? `${NEW_TODAY_LIMIT}+` : newToday,
-      },
-    });
-  } catch {
-    /* the chip is decoration; a failure must never break a view */
-  }
 }
 
 // --- views -----------------------------------------------------------------
@@ -133,7 +95,6 @@ function context(routeCtx) {
     store,
     navigate,
     areas: store.get().areas,
-    refreshCounts,
     ...routeCtx,
   };
 }
@@ -170,7 +131,7 @@ $('#user-btn').addEventListener('click', async () => {
   } catch {
     /* the cookie is cleared server-side or already gone */
   }
-  store.set({ user: null, counts: null });
+  store.set({ user: null });
   toast('Signed out');
   navigate('/login', { replace: true });
 });
@@ -189,7 +150,6 @@ async function boot() {
     store.set({ user: me.user, users: me.users || [] });
     const { areas } = await api.get('/api/areas');
     store.set({ areas });
-    refreshCounts();
   } catch {
     store.set({ user: null });
     if (!location.hash.startsWith('#/login')) navigate('/login', { replace: true });

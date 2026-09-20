@@ -98,6 +98,8 @@ export function publicRow(row) {
 export const PERSON_VERDICTS = ['yes', 'maybe', 'no']; // (VERDICTS above belongs to viewings)
 /** List filters, all relative to the person asking (`request.user.id`). */
 export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'maybe', 'unvoted'];
+/** `my_verdict=`: the caller's own call, or 'none' for listings they have not called. */
+export const MY_VERDICT_FILTERS = [...PERSON_VERDICTS, 'none'];
 
 /** property_id → [{by, by_name, verdict, updated_at}] for the rows about to be returned. */
 function verdictsByProperty(db, ids) {
@@ -205,7 +207,8 @@ function verdictWhere(filter, userId) {
   const other = '(SELECT verdict FROM verdicts WHERE property_id = properties.id AND by != ? ORDER BY updated_at DESC LIMIT 1)';
   const sql = {
     match: `${mine} = 'yes' AND ${other} = 'yes'`,
-    waiting_other: `${mine} IS NOT NULL AND ${other} IS NULL`,
+    // A No from the caller closes the matter; the other person is not waited on for it.
+    waiting_other: `${mine} IS NOT NULL AND ${mine} != 'no' AND ${other} IS NULL`,
     waiting_me: `${mine} IS NULL AND ${other} IS NOT NULL`,
     disagree: `${mine} IS NOT NULL AND ${other} IS NOT NULL AND ${mine} != ${other}`,
     maybe: `(${mine} = 'maybe' OR ${other} = 'maybe')`,
@@ -213,6 +216,13 @@ function verdictWhere(filter, userId) {
   }[filter];
   const count = (sql.match(/\?/g) || []).length;
   return { sql: `(${sql})`, params: new Array(count).fill(userId) };
+}
+
+/** WHERE clause for `my_verdict=` — the caller's own call; 'none' means no call yet. */
+function myVerdictWhere(filter, userId) {
+  const mine = '(SELECT verdict FROM verdicts WHERE property_id = properties.id AND by = ?)';
+  if (filter === 'none') return { sql: `(${mine} IS NULL)`, params: [userId] };
+  return { sql: `(${mine} = ?)`, params: [userId, filter] };
 }
 
 function rowPayload(db, id) {
@@ -279,6 +289,7 @@ const listQuerySchema = {
     removed: { type: 'string', enum: ['hide', 'show', 'only'] },
     max_age_days: { type: 'integer', minimum: 1, maximum: 365 },
     verdict: { type: 'string', enum: VERDICT_FILTERS },
+    my_verdict: { type: 'string', enum: MY_VERDICT_FILTERS },
     style: { type: 'string' },
     anchor: { type: 'integer', minimum: 1 },
     anchor_km: { type: 'number', minimum: 0.1, maximum: 100 },
@@ -492,6 +503,11 @@ export default async function propertiesRoutes(app, opts) {
     const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
     if (query.verdict) {
       const v = verdictWhere(query.verdict, request.user.id);
+      built.where.push(v.sql);
+      built.params.push(...v.params);
+    }
+    if (query.my_verdict) {
+      const v = myVerdictWhere(query.my_verdict, request.user.id);
       built.where.push(v.sql);
       built.params.push(...v.params);
     }

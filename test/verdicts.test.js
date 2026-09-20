@@ -143,3 +143,35 @@ test('list: verdict filters are relative to whoever is asking', async (t) => {
   const bad = await philipp({ method: 'GET', url: '/api/properties?verdict=whatever' });
   assert.equal(bad.statusCode, 400);
 });
+
+test('list: waiting_other leaves out the listings the caller said No to', async (t) => {
+  const { ids, philipp, abigail, vote, list, keysOf } = await setup(t);
+  // Philipp alone has called A (yes), B (maybe) and C (no); D has no call at all.
+  await vote(philipp, ids.A, 'yes');
+  await vote(philipp, ids.B, 'maybe');
+  await vote(philipp, ids.C, 'no');
+
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=waiting_other')), ['bhi:A', 'bhi:B'], 'a No is not something to wait on');
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=waiting_me')), ['bhi:A', 'bhi:B', 'bhi:C'], "Abigail's own turn still lists every call of his");
+});
+
+test('list: my_verdict filters on the caller\'s own call, none = not called yet', async (t) => {
+  const { ids, philipp, abigail, vote, list, keysOf } = await setup(t);
+  await vote(philipp, ids.A, 'yes');
+  await vote(philipp, ids.B, 'maybe');
+  await vote(philipp, ids.C, 'no');
+  await vote(abigail, ids.D, 'yes');
+
+  assert.deepEqual(keysOf(await list(philipp, 'my_verdict=yes')), ['bhi:A']);
+  assert.deepEqual(keysOf(await list(philipp, 'my_verdict=maybe')), ['bhi:B']);
+  assert.deepEqual(keysOf(await list(philipp, 'my_verdict=no')), ['bhi:C']);
+  assert.deepEqual(keysOf(await list(philipp, 'my_verdict=none')), ['bhi:D'], "Abigail's yes on D is not Philipp's call");
+  assert.deepEqual(keysOf(await list(abigail, 'my_verdict=yes')), ['bhi:D']);
+  assert.deepEqual(keysOf(await list(abigail, 'my_verdict=none')), ['bhi:A', 'bhi:B', 'bhi:C']);
+
+  // Combines with the shared filters: Philipp's yes that Abigail has not seen yet.
+  assert.deepEqual(keysOf(await list(philipp, 'my_verdict=yes&verdict=waiting_other')), ['bhi:A']);
+
+  const bad = await philipp({ method: 'GET', url: '/api/properties?my_verdict=sure' });
+  assert.equal(bad.statusCode, 400);
+});
