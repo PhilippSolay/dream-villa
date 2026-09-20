@@ -1095,6 +1095,8 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
   :root { --map-h: 100dvh; }
   /* Content hugs the rail on the left; the top 68 px is a band for the stats chip. */
   main.view { padding: 68px 24px 48px calc(var(--rail-w) + 36px); max-width: calc(1400px + var(--rail-w) + 36px); margin: 0; }
+  /* Home starts with the filters rail and the toolbar, not a title: no headroom needed. */
+  main.view:has(> .home-layout) { padding-top: 10px; }
 
   /* nav, rail shape: logo on top, sections centred, tools pinned to the bottom. The glass
      lives on ::before so the rail itself has no filter — a filter would trap the fixed

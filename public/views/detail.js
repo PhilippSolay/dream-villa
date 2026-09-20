@@ -1,7 +1,7 @@
 // #/p/:id — five tabs (SPEC §5 "Detail"). The active tab lives in the hash query (?tab=).
 
 import {
-  $, $$, html, raw, setHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing, copyText,
+  $, $$, html, raw, setHtml, toHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing, copyText,
   STATUS_LABELS, redFlagLabel, makassarDate,
 } from '../lib/ui.js';
 import { TEMPLATES, fill } from '../lib/templates.js';
@@ -117,7 +117,45 @@ export async function mountDetail(el, ctx) {
   // A listing opened from the map, the market tables, the agent page or a shared link can
   // sit outside the current filters; then the pager walks the whole market instead, newest
   // first, so there is always a next/previous property to explore.
-  const EVERYTHING_QUERY = 'scope=all&status=all&hide_gone=0&removed=show&sort=new&limit=500';
+  const EVERYTHING_QUERY = 'scope=all&status=all&hide_gone=0&removed=show&sort=new';
+
+  /** Every id the query matches, in order, paging past the API's 500-row cap. */
+  async function allIds(baseQuery) {
+    const params = new URLSearchParams(baseQuery);
+    params.set('limit', '500');
+    params.delete('offset');
+    const ids = [];
+    for (let offset = 0; offset < 10_000; offset += 500) {
+      if (offset) params.set('offset', String(offset));
+      const { rows, total } = await api.getPage(`/api/properties?${params}`);
+      ids.push(...rows.map((r) => r.id));
+      if (!rows.length || ids.length >= total) break;
+    }
+    return ids;
+  }
+
+  // Home publishes the page it has rendered. When that is a slice of a longer result,
+  // the pager first counts that slice, then quietly fetches the rest and redraws itself,
+  // so "1 / 100" becomes "1 / 323" without holding up the listing.
+  let extending = null;
+  function extendListIds(ids) {
+    const { list_total: total, list_query: query } = store.get();
+    if (extending || typeof total !== 'number' || total <= ids.length || !query) return;
+    extending = allIds(query)
+      .then((full) => {
+        if (!alive || !full.includes(id)) return;
+        store.set({ list_ids: full, list_total: full.length });
+        listIds = full;
+        const slot = $('.pager', el);
+        if (slot) slot.outerHTML = toHtml(pager());
+      })
+      .catch(() => {
+        /* the pager keeps counting the page it knows about */
+      })
+      .finally(() => {
+        extending = null;
+      });
+  }
 
   async function ensureListIds() {
     if (flow) {
@@ -142,20 +180,20 @@ export async function mountDetail(el, ctx) {
     const ids = store.get().list_ids;
     if (Array.isArray(ids) && ids.includes(id)) {
       listIds = ids;
+      extendListIds(ids);
       return;
     }
     try {
-      const fetched = await api.get(`/api/properties?${filtersToQuery(store.get().filters, { limit: 500 })}`);
+      const query = filtersToQuery(store.get().filters);
+      const fresh = await allIds(query);
       if (!alive) return;
-      const fresh = fetched.map((r) => r.id);
       if (fresh.includes(id)) {
-        store.set({ list_ids: fresh });
+        store.set({ list_ids: fresh, list_query: query, list_total: fresh.length });
         listIds = fresh;
         return;
       }
-      const everything = await api.get(`/api/properties?${EVERYTHING_QUERY}`);
+      const all = await allIds(EVERYTHING_QUERY);
       if (!alive) return;
-      const all = everything.map((r) => r.id);
       listIds = all.includes(id) ? all : null;
     } catch {
       listIds = null; // a pager that fails to resolve is never worth a red box — just hide it

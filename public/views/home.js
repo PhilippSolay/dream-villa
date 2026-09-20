@@ -828,7 +828,7 @@ export async function mountHome(el, ctx) {
   function publishList() {
     // The detail page's prev/next arrows read this: the ordered ids of whatever the
     // list last rendered (any sort, filters applied), and the query that produced it.
-    store.set({ list_ids: page.rows.map((p) => p.id), list_query: page.query });
+    store.set({ list_ids: page.rows.map((p) => p.id), list_query: page.query, list_total: page.total });
   }
 
   const reload = debounce(async () => {
