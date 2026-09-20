@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { DEFAULT_CONFIG } from './defaults.js';
+import { DEFAULT_CONFIG, DEFAULT_WEIGHTS } from './defaults.js';
 
 /** ISO-8601 UTC timestamp — the one time format used across the app. */
 export function nowIso() {
@@ -213,6 +213,9 @@ export function getConfig(db) {
   for (const row of db.prepare('SELECT key, value FROM config').all()) {
     out[row.key] = parseConfigValue(row.value);
   }
+  // A weight added to the brief after the config was seeded (land, style on 2026-09-20)
+  // shows up at its default until someone edits it, so the Agent page can offer the slider.
+  if (out.weights && typeof out.weights === 'object') out.weights = { ...DEFAULT_WEIGHTS, ...out.weights };
   return out;
 }
 

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openDb, getConfig, setConfig, nowIso, MIGRATIONS } from '../src/db.js';
+import { DEFAULT_WEIGHTS } from '../src/defaults.js';
 
 const TABLES = [
   'users', 'properties', 'contacts', 'property_contacts', 'agent_info', 'viewings',
@@ -57,7 +58,10 @@ test('setConfig round-trips objects and scalars', () => {
   setConfig(db, 'weights', { pool: 20 });
   const cfg = getConfig(db);
   assert.equal(cfg.flag_threshold, 70);
-  assert.deepEqual(cfg.weights, { pool: 20 });
+  assert.equal(cfg.weights.pool, 20);
+  assert.equal(cfg.weights.land, 12, 'a weight missing from the stored object reads as its default');
+  assert.equal(cfg.weights.style, 10);
+  assert.equal(Object.keys(cfg.weights).length, Object.keys(DEFAULT_WEIGHTS).length);
   db.close();
 });
 

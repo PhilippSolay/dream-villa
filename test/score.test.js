@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { inBand, hardFilters, scopeFrom, fitScore, fitPoints, reasonsFor, scoreRow, beachFactor } from '../src/scrape/score.js';
+import { inBand, hardFilters, scopeFrom, fitScore, fitPoints, reasonsFor, scoreRow, beachFactor, landFactor } from '../src/scrape/score.js';
 import { DEFAULT_CONFIG, DEFAULT_WEIGHTS } from '../src/defaults.js';
 
 /** A row that passes every hard filter, with no features known. */
@@ -32,6 +32,8 @@ const perfect = () => ({
   furniture_quality: 3,
   workspace: true,
   joglo: true,
+  land_m2: 500,
+  style: 'joglo',
 });
 
 // ---------------------------------------------------------------------------
@@ -119,16 +121,16 @@ test('fitScore — everything true, ocean view, good furniture = 100', () => {
   assert.equal(fitScore(perfect(), DEFAULT_WEIGHTS), 100);
 });
 
-test('fitScore — everything unknown = 28 ((7+6+0+0+0+5+4+4+0+0 + beach 5) / 110)', () => {
-  assert.equal(fitScore({}, DEFAULT_WEIGHTS), 28);
-  assert.equal(fitScore({ ...base(), beach_km: null }, DEFAULT_WEIGHTS), 28);
+test('fitScore — everything unknown = 27 ((7+6+0+0+0+5+4+4+0+0 + beach 5 + land 6 + style 0) / 136)', () => {
+  assert.equal(fitScore({}, DEFAULT_WEIGHTS), 27);
+  assert.equal(fitScore({ ...base(), beach_km: null, style: null }, DEFAULT_WEIGHTS), 27);
 });
 
 test('fitScore — everything explicitly false = 0', () => {
   const none = {
     living_open: false, airy: false, pool: false, garden: false, view: 'none',
     kitchen_full: false, aircon: false, furnished: 0, furniture_quality: null,
-    workspace: false, joglo: false, beach_km: 9,
+    workspace: false, joglo: false, beach_km: 9, land_m2: 150, style: 'modern',
   };
   assert.equal(fitScore(none, DEFAULT_WEIGHTS), 0);
 });
@@ -137,6 +139,7 @@ test('fitScore — the §2 table, feature by feature', () => {
   const none = {
     living_open: false, airy: false, pool: false, garden: false, view: 'none',
     kitchen_full: false, aircon: false, furnished: 0, workspace: false, joglo: false, beach_km: 9,
+    land_m2: 150, style: 'modern',
   };
   // raw points, before normalisation to Σweights
   const only = (patch) => fitPoints({ ...none, ...patch }, DEFAULT_WEIGHTS);
@@ -146,10 +149,10 @@ test('fitScore — the §2 table, feature by feature', () => {
   assert.equal(only({ airy: null }), 6);
   assert.equal(only({ pool: true }), 12);
   assert.equal(only({ garden: true }), 10);
-  assert.equal(only({ view: 'ocean' }), 10);
-  assert.equal(only({ view: 'rice' }), 7);
-  assert.equal(only({ view: 'river' }), 7);
-  assert.equal(only({ view: 'jungle' }), 7);
+  assert.equal(only({ view: 'ocean' }), 14);
+  assert.equal(only({ view: 'rice' }), 10, '70 % of 14');
+  assert.equal(only({ view: 'river' }), 10);
+  assert.equal(only({ view: 'jungle' }), 10);
   assert.equal(only({ view: 'mountain' }), 0, 'not in the SPEC table — scores nothing');
   assert.equal(only({ view: null }), 0);
   assert.equal(only({ kitchen_full: true }), 10);
@@ -158,6 +161,22 @@ test('fitScore — the §2 table, feature by feature', () => {
   assert.equal(only({ aircon: null }), 4);
   assert.equal(only({ workspace: true }), 8);
   assert.equal(only({ joglo: true }), 7);
+  // land (2026-09-20: Philipp's maybes sit on 300 m²+ plots)
+  assert.equal(only({ land_m2: 500 }), 12);
+  assert.equal(only({ land_m2: 900 }), 12);
+  assert.equal(only({ land_m2: 350 }), 6, 'halfway up the 200–500 m² ramp');
+  assert.equal(only({ land_m2: 200 }), 0);
+  assert.equal(only({ land_m2: 93 }), 0);
+  assert.equal(only({ land_m2: null }), 6, 'unknown → half');
+  assert.equal(only({ land_m2: 0 }), 6, 'a scraped 0 means unknown, not a zero-m² plot');
+  // style: joglo / bamboo full, tropical 70 %, modern nothing — on top of the joglo flag
+  assert.equal(only({ style: 'joglo' }), 10);
+  assert.equal(only({ style: 'bamboo' }), 10);
+  assert.equal(only({ style: 'tropical' }), 7);
+  assert.equal(only({ style: 'modern' }), 0);
+  assert.equal(only({ style: 'industrial' }), 0);
+  assert.equal(only({ style: null }), 0, 'unknown style scores nothing — most listings say nothing');
+  assert.equal(only({ style: 'joglo', joglo: true }), 17, 'flag and style both count');
   // furniture
   assert.equal(only({ furnished: 1, furniture_quality: 3 }), 8);
   assert.equal(only({ furnished: 1, furniture_quality: 5 }), 8);
@@ -179,18 +198,19 @@ test('fitScore — accepts 1/0 as well as true/false (SQLite integers)', () => {
 test('fitScore — custom weights', () => {
   const w = { ...DEFAULT_WEIGHTS, pool: 20 };
   assert.equal(fitScore(perfect(), w), 100, 'clamped at 100');
-  assert.equal(fitPoints({ pool: true, living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0, beach_km: 9 }, w), 20);
-  assert.equal(fitScore({ pool: true, living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0, beach_km: 9 }, w), 17, '20 of 120');
+  const poolOnly = { pool: true, living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0, beach_km: 9, land_m2: 100 };
+  assert.equal(fitPoints(poolOnly, w), 20);
+  assert.equal(fitScore(poolOnly, w), 14, '20 of 146');
 });
 
 test('fitScore — a low-priority pocket costs 10 points', () => {
   const row = { ...perfect(), sub_area: 'Tumbak Bayuh' };
-  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, []), 110);
-  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 100);
-  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['Buduk']), 110);
-  assert.equal(fitScore(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 91);
+  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, []), 136);
+  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 126);
+  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['Buduk']), 136);
+  assert.equal(fitScore(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 93);
   // clamped at 0
-  assert.equal(fitScore({ ...base(), sub_area: 'Tumbak Bayuh', living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0 }, DEFAULT_WEIGHTS, ['Tumbak']), 0);
+  assert.equal(fitScore({ ...base(), sub_area: 'Tumbak Bayuh', living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0, beach_km: 9, land_m2: 100 }, DEFAULT_WEIGHTS, ['Tumbak']), 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -240,9 +260,9 @@ test('scoreRow — the flag rule', () => {
   // a rejected listing never flags
   assert.equal(scoreRow({ ...perfect(), status: 'rejected' }, DEFAULT_CONFIG).flagged, 0);
   // exactly on the threshold flags
-  const onThreshold = { ...perfect(), joglo: false, workspace: false, garden: false, view: 'none', aircon: null };
-  assert.equal(fitPoints(onThreshold, DEFAULT_WEIGHTS), 71);
-  assert.equal(fitScore(onThreshold, DEFAULT_WEIGHTS), 65, '71 of 110 rounds to 65');
+  const onThreshold = { ...perfect(), joglo: false, workspace: false, garden: false, view: 'none', aircon: false };
+  assert.equal(fitPoints(onThreshold, DEFAULT_WEIGHTS), 89);
+  assert.equal(fitScore(onThreshold, DEFAULT_WEIGHTS), 65, '89 of 136 rounds to 65');
   assert.equal(scoreRow(onThreshold, DEFAULT_CONFIG).flagged, 1);
 });
 
@@ -280,10 +300,22 @@ test('scoreRow — the source row is not mutated', () => {
 
 test('scoreRow — a custom config threshold and budget are honoured', () => {
   const cfg = { ...DEFAULT_CONFIG, flag_threshold: 95, budget_max: 70_000_000 };
-  assert.equal(scoreRow({ ...perfect(), joglo: false }, cfg).flagged, 0, 'fit 93 < 95');
+  assert.equal(scoreRow({ ...perfect(), joglo: false, workspace: false }, cfg).flagged, 0, 'fit 89 < 95');
   const wider = scoreRow({ ...perfect(), price_month_idr: 60_000_000 }, cfg);
   assert.deepEqual(wider.red_flags, [], 'inside the widened budget');
   assert.equal(wider.scope, 'in_filter');
+});
+
+test('landFactor — nothing at 200 m², full at 500 m², half when unknown', () => {
+  assert.equal(landFactor(100), 0);
+  assert.equal(landFactor(200), 0);
+  assert.equal(landFactor(350), 0.5);
+  assert.equal(landFactor(500), 1);
+  assert.equal(landFactor(2800), 1);
+  assert.equal(landFactor(null), 0.5);
+  assert.equal(landFactor(undefined), 0.5);
+  assert.equal(landFactor(0), 0.5, 'scrapers write 0 for "not stated"');
+  assert.equal(landFactor('abc'), 0.5);
 });
 
 test('beachFactor — soft beach filter: full at <= 1 km, zero at 8 km, half when unknown', () => {

@@ -12,6 +12,8 @@ const WEIGHT_LABELS = {
   pool: 'Pool',
   garden: 'Garden',
   view: 'View',
+  land: 'Land size',
+  style: 'Style (joglo, bamboo, tropical)',
   beach: 'Beach distance',
   kitchen_full: 'Full kitchen',
   aircon: 'Aircon',

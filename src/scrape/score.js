@@ -16,6 +16,14 @@ const PARTIAL_VIEWS = new Set(['rice', 'river', 'jungle']);
 const LOW_PRIORITY_PENALTY = 10;
 const BEACH_FULL_KM = 1;
 
+/** land: nothing below 200 m², full credit from 500 m² (Philipp's yes/maybe pattern, 2026-09-20). */
+const LAND_ZERO_M2 = 200;
+const LAND_FULL_M2 = 500;
+/** style: joglo / bamboo full, tropical 70 %, everything else 0. */
+const STYLE_FULL = new Set(['joglo', 'bamboo']);
+const STYLE_PARTIAL = new Set(['tropical']);
+const STYLE_PARTIAL_SHARE = 0.7;
+
 function asArray(redFlags) {
   if (Array.isArray(redFlags)) return [...redFlags];
   if (typeof redFlags === 'string' && redFlags.trim()) {
@@ -93,9 +101,20 @@ export function beachFactor(beachKm, beachKmMax = DEFAULT_CONFIG.beach_km_max) {
 }
 
 /**
+ * Land factor 0..1: none at ≤ 200 m², full at ≥ 500 m², linear in between; unknown → 0.5.
+ */
+export function landFactor(landM2) {
+  if (landM2 == null || !Number.isFinite(Number(landM2)) || Number(landM2) <= 0) return 0.5;
+  const m2 = Number(landM2);
+  if (m2 <= LAND_ZERO_M2) return 0;
+  if (m2 >= LAND_FULL_M2) return 1;
+  return (m2 - LAND_ZERO_M2) / (LAND_FULL_M2 - LAND_ZERO_M2);
+}
+
+/**
  * SPEC §2 fit score, 0–100, normalised to the sum of the weights so edited weights stay on
  * a 0–100 scale. With default weights: all features true + ocean view + furniture quality 3
- * + beach ≤ 1 km = 100; everything unknown = 28.
+ * + beach ≤ 1 km + land ≥ 500 m² + joglo/bamboo style = 100; everything unknown = 27.
  */
 export function fitScore(
   row,
@@ -137,6 +156,13 @@ export function fitPoints(
   // view: ocean → full, rice/river/jungle → 70 %, none/unknown → 0
   if (r.view === 'ocean') score += w.view;
   else if (PARTIAL_VIEWS.has(r.view)) score += Math.round(w.view * VIEW_PARTIAL);
+
+  // land: ≥ 500 m² → full, ≤ 200 m² → 0, linear between; unknown → half
+  score += Math.floor(w.land * landFactor(r.land_m2));
+
+  // style: joglo / bamboo → full, tropical → 70 %, modern / other / unknown → 0
+  if (STYLE_FULL.has(r.style)) score += w.style;
+  else if (STYLE_PARTIAL.has(r.style)) score += Math.round(w.style * STYLE_PARTIAL_SHARE);
 
   // furniture: furnished & quality ≥ 3 → full; furnished with unknown quality → half;
   // unfurnished → 0; unknown whether furnished → half (same treatment as unknown quality).
@@ -221,4 +247,4 @@ export function scoreRow(row, config = DEFAULT_CONFIG) {
   return { scope, fit_score, flagged, red_flags, reasons: reasonsFor(r) };
 }
 
-export default { inBand, hardFilters, scopeFrom, beachFactor, fitPoints, fitScore, reasonsFor, scoreRow };
+export default { inBand, hardFilters, scopeFrom, beachFactor, landFactor, fitPoints, fitScore, reasonsFor, scoreRow };

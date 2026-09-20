@@ -30,7 +30,9 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 | airy / light | 12 | `airy` | true → 12; unknown → 6 |
 | pool | 12 | `pool` | true → 12 |
 | garden | 10 | `garden` | true → 10 |
-| view | 10 | `view` | ocean → 10, rice/river/jungle → 7, none/unknown → 0 |
+| view | 14 | `view` | ocean → 14, rice/river/jungle → 10 (70 %), none/unknown → 0 |
+| land | 12 | `land_m2` | ≥ 500 m² → 12, linear down to 0 at ≤ 200 m²; unknown or 0 → 6 |
+| style | 10 | `style` | joglo/bamboo → 10, tropical → 7, modern/other/unknown → 0 (on top of the `joglo` flag) |
 | beach | 10 | `beach_km` | ≤ 1 km → 10, linear to 0 at 2 × `beach_km_max` (8 km); unknown → 5 |
 | full kitchen | 10 | `kitchen_full` | true → 10; unknown → 5 |
 | aircon | 8 | `aircon` | true → 8; unknown → 4 |
@@ -38,7 +40,9 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 | work space / shala | 8 | `workspace` | true → 8 |
 | joglo | 7 | `joglo` | true → 7 |
 
-Weights live in `config.weights` (JSON) and are editable in the Agent page; the scraper re-scores everything after a weight change. The score is normalised to the sum of the weights (`round(100 × points / Σweights)`), so edited weights keep the 0–100 scale; with the defaults above (Σ = 110) everything-true + ocean + beach ≤ 1 km = 100, everything unknown = 28.
+Weights live in `config.weights` (JSON) and are editable in the Agent page; the scraper re-scores everything after a weight change. The score is normalised to the sum of the weights (`round(100 × points / Σweights)`), so edited weights keep the 0–100 scale; with the defaults above (Σ = 136) everything-true + ocean + beach ≤ 1 km + land ≥ 500 m² + joglo style = 100, everything unknown = 27.
+
+`view`, `land` and `style` were raised/added on 2026-09-20 from Philipp's first 748 verdicts: his maybes sit on 300 m²+ plots (22 % maybe rate vs 4 % below), are joglo / bamboo / tropical (47 % for joglo vs 6 % modern) and look onto river, jungle or rice; price correlated positively, so it stays a filter, not a score.
 
 **Flag** (`flagged = 1`): `scope = in_filter AND fit_score >= config.flag_threshold (65) AND red_flags = [] AND status != 'rejected'`. A flagged villa with `assessed = 'not_yet'` renders as "strong fit, unverified".
 
