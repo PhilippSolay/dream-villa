@@ -241,11 +241,17 @@ test('an image URL is downloaded to <id>/1.jpg and set as hero', async (t) => {
   });
   assert.equal(res.statusCode, 200);
   const body = res.json();
-  assert.equal(body.images_downloaded, 1);
+  assert.equal(body.images_queued, 1, 'downloads run in the background after the response');
   assert.equal(body.images_failed, 0);
 
   const id = body.ids[0];
-  const row = db.prepare('SELECT images, hero_file FROM properties WHERE id = ?').get(id);
+  // the background download finishes shortly after the response
+  let row;
+  for (let i = 0; i < 40; i++) {
+    row = db.prepare('SELECT images, hero_file FROM properties WHERE id = ?').get(id);
+    if (row.hero_file) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
   const images = JSON.parse(row.images);
   assert.equal(images[0].file, `${id}/1.jpg`);
   assert.equal(row.hero_file, `${id}/1.jpg`);

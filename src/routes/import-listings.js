@@ -325,13 +325,22 @@ export default async function importListingsRoutes(app, opts) {
       // Download every images[].src_url entry still missing a file (cloudfront-style CDN
       // urls are expected to be reachable even though the listing page itself was not;
       // a failure just leaves that entry without a file, counted below, not thrown).
+      // Runs in the background: a batch of 50 listings can mean 500 downloads at one per second,
+      // far longer than the proxy's request timeout. The response reports the queued count.
       const ctx = createCtx({ db, config, log: app.log });
-      const { downloaded, failed: urlFailed } = await processImages(db, ctx, { ids, imagesDir });
-      const imagesFailed = urlFailed + embeddedFailed;
+      const queuedIds = ids.slice();
+      setImmediate(() => {
+        processImages(db, ctx, { ids: queuedIds, imagesDir })
+          .then((r) => app.log.info({ source, ...r }, 'import-listings: background image download done'))
+          .catch((err) => app.log.error({ err, source }, 'import-listings: background image download failed'));
+      });
+      const downloaded = 0;
+      const imagesFailed = embeddedFailed;
 
       const notes = [
         `contacts_linked=${contactsLinked}`,
         `images_downloaded=${downloaded}`,
+        `images_queued=${queuedIds.length}`,
         `images_failed=${imagesFailed}`,
       ];
 
@@ -345,6 +354,7 @@ export default async function importListingsRoutes(app, opts) {
         new: newCount,
         updated: updatedCount,
         images_downloaded: downloaded,
+        images_queued: queuedIds.length,
         images_failed: imagesFailed,
         ids,
       };
