@@ -1172,6 +1172,19 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
   .toolbar { top: 0; padding-top: 18px; margin-top: -18px; }
   .filters-toggle { display: none; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  /* Desktop cards read ~20% larger inside the same column count: taller photo, type
+     and spacing ×1.2. The phone keeps the compact card (thumb reach, one column). */
+  .card-media { aspect-ratio: 10 / 9; margin: 7px 7px 0; }
+  .card-media .placeholder { font-size: 19px; }
+  .card-badges { top: 10px; left: 10px; gap: 7px; }
+  .card-badges .pill { padding: 4px 12px; font-size: 14px; }
+  .card-ring { right: 10px; bottom: 10px; }
+  .card-ring svg { width: 48px; height: 48px; }
+  .card-body { padding: 14px 17px 17px; gap: 7px; }
+  .card-price { font-size: 17px; }
+  .card-title { font-size: 23px; line-height: 28px; }
+  .card-meta, .card-meta .mono, .card-reason { font-size: 16px; }
+  .card-meta { gap: 7px 12px; }
   .detail-page { max-width: 880px; margin: 0 auto; }
   .detail-title { font-size: 32px; line-height: 36px; }
   .gallery img { aspect-ratio: 16 / 9; }
