@@ -15,6 +15,7 @@ import adminRoutes from './routes/admin.js';
 import agentRoutes from './routes/agent.js';
 import statsRoutes from './routes/stats.js';
 import importRoutes from './routes/import.js';
+import importListingsRoutes from './routes/import-listings.js';
 import duplicatesRoutes from './routes/duplicates.js';
 import anchorsRoutes from './routes/anchors.js';
 
@@ -111,6 +112,7 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
   await app.register(agentRoutes, { db, env });
   await app.register(statsRoutes, { db, env });
   await app.register(importRoutes, { db, env });
+  await app.register(importListingsRoutes, { db, env });
   await app.register(duplicatesRoutes, { db, env });
   await app.register(anchorsRoutes, { db, env });
 
