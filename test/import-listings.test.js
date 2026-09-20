@@ -141,6 +141,27 @@ test('an explicit valid area key is used as-is', async (t) => {
   assert.equal(row.area, 'seseh');
 });
 
+test('listings outside the aggregation band are skipped, not stored (SPEC §2)', async (t) => {
+  const { db, call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/listings',
+    payload: importPayload({}, [
+      listing({ ref: 'ok', area: 'seseh' }),
+      listing({ ref: 'canggu', area: undefined, location: 'Berawa, Canggu', title: '2 Bedroom Villa in Berawa' }),
+      listing({ ref: 'pricey', price_month_idr: 150_000_000 }),
+      listing({ ref: 'big', bedrooms: 6 }),
+    ]),
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.seen, 4);
+  assert.equal(body.new, 1);
+  assert.deepEqual(body.skipped, { out_of_band: 3 });
+  assert.equal(body.ids.length, 1);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM properties').get().n, 1);
+  assert.equal(db.prepare('SELECT ref FROM properties').get().ref, 'ok');
+});
+
 test('missing area with a Bali-Home-Immo-style location string resolves via normalise', async (t) => {
   const { db, call } = await setup(t);
   const res = await call({

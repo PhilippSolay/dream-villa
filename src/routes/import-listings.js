@@ -21,6 +21,7 @@
 import { getConfig, nowIso } from '../db.js';
 import { normaliseListing } from '../scrape/normalise.js';
 import { finishRow } from '../scrape/ingest.js';
+import { inBand } from '../scrape/score.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
 import { processImages } from '../scrape/images.js';
 import { createCtx as createFetchCtx } from '../scrape/fetch.js';
@@ -214,6 +215,12 @@ function upsertListing(db, config, source, listing, now) {
 
   const withFacts = applyExplicitFacts(row, listing);
   const finished = finishRow(withFacts, config);
+
+  // SPEC §2 "Aggregation band": outside it the scraper keeps nothing at all, and this
+  // import is the scraper for sites without an adapter — same gate ingestListing applies
+  // to a card before it fetches the detail page (area other, 5+ bedrooms, > 80m/month).
+  if (!inBand(finished, config)) return { id: null, action: 'skipped', skipped: 'out_of_band', hadContact: false };
+
   const result = upsertProperty(db, finished, { now });
 
   const hadContact = linkContact(db, result.id, listing);
@@ -308,9 +315,14 @@ export default async function importListingsRoutes(app, opts) {
       let updatedCount = 0;
       let contactsLinked = 0;
       let embeddedFailed = 0;
+      let outOfBand = 0;
 
       for (const listing of listings) {
         const result = upsertListing(db, config, source, listing, now);
+        if (result.action === 'skipped') {
+          outOfBand += 1;
+          continue;
+        }
         ids.push(result.id);
         if (result.action === 'inserted') newCount += 1;
         else updatedCount += 1;
@@ -342,6 +354,7 @@ export default async function importListingsRoutes(app, opts) {
         `images_downloaded=${downloaded}`,
         `images_queued=${queuedIds.length}`,
         `images_failed=${imagesFailed}`,
+        `out_of_band=${outOfBand}`,
       ];
 
       const runId = startRun(db, 'scrape', [source]);
@@ -353,6 +366,7 @@ export default async function importListingsRoutes(app, opts) {
         seen: listings.length,
         new: newCount,
         updated: updatedCount,
+        skipped: { out_of_band: outOfBand },
         images_downloaded: downloaded,
         images_queued: queuedIds.length,
         images_failed: imagesFailed,
