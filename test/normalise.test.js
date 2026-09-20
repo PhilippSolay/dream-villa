@@ -371,6 +371,13 @@ test('detectRedFlags', () => {
   assert.deepEqual(detectRedFlags('right on the main road'), ['main_road']);
   assert.deepEqual(detectRedFlags('building site opposite, busy road'), ['construction', 'main_road']);
   assert.deepEqual(detectRedFlags('a quiet villa'), []);
+  // reassurances are not flags
+  assert.deepEqual(detectRedFlags('Quiet street with no surrounding construction noise'), []);
+  assert.deepEqual(detectRedFlags('far from the main road, without construction around'), []);
+  assert.deepEqual(detectRedFlags('a construction-free pocket of Pererenan'), []);
+  assert.deepEqual(detectRedFlags('free of construction, yet 5 min to Seseh'), []);
+  // a denial followed by an admission still flags
+  assert.deepEqual(detectRedFlags('No construction in the street, but the plot behind is under construction'), ['construction']);
   // custom keyword table
   assert.deepEqual(detectRedFlags('dogs barking all night', { noise: ['dogs'] }), ['noise']);
 });

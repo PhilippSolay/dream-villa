@@ -457,12 +457,25 @@ function keywordRe(keyword) {
   return new RegExp(left + escaped + right, 'i');
 }
 
+/**
+ * A keyword inside a reassurance is not a flag: "no construction nearby", "far from the
+ * main road", "construction-free street". Blank those windows out before matching, so a
+ * listing that first denies and then admits ("... but the plot next door is under
+ * construction") still gets flagged by the second mention.
+ */
+function negatedRe(keyword) {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  const lead = "(?:no|not|without|zero|never|nor|free\\s+(?:of|from)|away\\s+from|far\\s+from|none\\s+of|isn'?t\\s+any|aren'?t\\s+any|not\\s+near)";
+  return new RegExp('\\b' + lead + "\\b[\\w\\s,'-]{0,30}?" + escaped + '\\b|\\b' + escaped + '[\\s-]*(?:noise[\\s-]*)?free\\b', 'gi');
+}
+
 /** @returns {string[]} flag names from the config keyword table. */
 export function detectRedFlags(text, keywords = DEFAULT_CONFIG.red_flag_keywords) {
   const s = String(text || '');
   const flags = [];
   for (const [flag, words] of Object.entries(keywords || {})) {
-    if ((words || []).some((w) => keywordRe(w).test(s))) flags.push(flag);
+    const hit = (words || []).some((w) => keywordRe(w).test(s.replace(negatedRe(w), ' ')));
+    if (hit) flags.push(flag);
   }
   return flags;
 }
