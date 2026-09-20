@@ -231,6 +231,82 @@ test('re-posting the same post_id updates, not inserts, and stays one row', asyn
 });
 
 // ---------------------------------------------------------------------------
+// first_seen correction: a re-import backfilling an earlier real posted_at
+// (e.g. an archive fixed up after the FB date-parser bug) must correct
+// first_seen -- but a later posted_at must never move first_seen forward.
+// ---------------------------------------------------------------------------
+
+test('re-import with an EARLIER posted_at than the stored first_seen corrects first_seen', async (t) => {
+  const { db, call } = await setup(t);
+  const groupId = 'cemagi-pererenan-villas';
+
+  const first = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: groupId,
+      posts: [post({
+        post_id: 'fs1',
+        posted_at: '2026-09-15T08:00:00.000Z',
+        text: 'For rent 2 bedroom villa in Cemagi, IDR 32.000.000/month.',
+      })],
+    },
+  });
+  assert.equal(first.json().new, 1);
+  const before = db.prepare("SELECT * FROM properties WHERE key = 'fb:fs1'").get();
+  assert.equal(before.first_seen, '2026-09-15T08:00:00.000Z');
+
+  const second = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: groupId,
+      posts: [post({
+        post_id: 'fs1',
+        posted_at: '2026-09-01T10:00:00.000Z', // the real, earlier date, backfilled after a parser fix
+        text: 'For rent 2 bedroom villa in Cemagi, IDR 32.000.000/month.',
+      })],
+    },
+  });
+  assert.equal(second.json().updated, 1);
+  const after = db.prepare("SELECT * FROM properties WHERE key = 'fb:fs1'").get();
+  assert.equal(after.first_seen, '2026-09-01T10:00:00.000Z', 'first_seen moved back to the true post date');
+  // last_seen always tracks the import run's own time (store.js), not posted_at -- only
+  // first_seen is corrected here.
+});
+
+test('re-import with a LATER posted_at never moves first_seen forward', async (t) => {
+  const { db, call } = await setup(t);
+  const groupId = 'cemagi-pererenan-villas';
+
+  const first = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: groupId,
+      posts: [post({
+        post_id: 'fs2',
+        posted_at: '2026-09-01T08:00:00.000Z',
+        text: 'For rent 2 bedroom villa in Cemagi, IDR 32.000.000/month.',
+      })],
+    },
+  });
+  assert.equal(first.json().new, 1);
+
+  const second = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: groupId,
+      posts: [post({
+        post_id: 'fs2',
+        posted_at: '2026-09-15T08:00:00.000Z', // a cross-post reshared later -- must not move first_seen later
+        text: 'For rent 2 bedroom villa in Cemagi, IDR 33.000.000/month.',
+      })],
+    },
+  });
+  assert.equal(second.json().updated, 1);
+  const after = db.prepare("SELECT * FROM properties WHERE key = 'fb:fs2'").get();
+  assert.equal(after.first_seen, '2026-09-01T08:00:00.000Z', 'first_seen must never move later');
+});
+
+// ---------------------------------------------------------------------------
 // Indonesian text
 // ---------------------------------------------------------------------------
 

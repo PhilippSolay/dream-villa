@@ -447,6 +447,22 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
   const finished = finishRow(row, config);
   const result = upsertProperty(db, finished, { now: nowIso() });
 
+  // A Facebook post's own date is authoritative. Posts harvested before the
+  // date-parser fix landed with posted_at: null, so their first import stamped
+  // first_seen with the import time (corrupting the market-movement charts).
+  // On re-import, if this post's real posted_at predates the row's stored
+  // first_seen, correct it -- but never move first_seen LATER than what's stored.
+  if (result.action !== 'inserted' && post.posted_at) {
+    const incomingMs = Date.parse(post.posted_at);
+    if (Number.isFinite(incomingMs)) {
+      const existing = db.prepare('SELECT first_seen FROM properties WHERE id = ?').get(result.id);
+      const existingMs = existing?.first_seen ? Date.parse(existing.first_seen) : NaN;
+      if (Number.isFinite(existingMs) && incomingMs < existingMs) {
+        db.prepare('UPDATE properties SET first_seen = ? WHERE id = ?').run(post.posted_at, result.id);
+      }
+    }
+  }
+
   const candidate = post.whatsapp || post.phone || extractIdMobile(text);
   const whatsapp = candidate ? normaliseIdPhone(candidate) : null;
   if (whatsapp) {
