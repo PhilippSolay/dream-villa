@@ -172,6 +172,14 @@ test('list: X-Total-Count is the full match count, limit/offset page through it'
   assert.equal(filtered.headers['x-total-count'], String(filtered.json().length), 'total follows the filters');
 });
 
+test('list: sort=size puts the biggest build first, unmeasured last', async (t) => {
+  const { call } = await setup(t);
+  const res = await call({ method: 'GET', url: '/api/properties?scope=all&status=all&hide_gone=0&sort=size' });
+  const keys = res.json().map((r) => r.key); // in API order — keysOf() sorts
+  assert.deepEqual(keys.slice(0, 2), ['bhi:D', 'bhi:A'], '200 m² then 120 m²');
+  assert.equal(keys.length, SEED.length);
+});
+
 test('list: scope=market shows only out-of-filter rows', async (t) => {
   const { call } = await setup(t);
   const res = await call({ method: 'GET', url: '/api/properties?scope=market' });

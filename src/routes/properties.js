@@ -50,6 +50,7 @@ const SORT_SQL = {
   price: 'price_month_idr IS NULL, price_month_idr ASC, id DESC',
   beach: 'beach_km IS NULL, beach_km ASC, id DESC',
   new: 'first_seen DESC, id DESC',
+  size: 'build_m2 IS NULL, build_m2 DESC, land_m2 IS NULL, land_m2 DESC, id DESC',
 };
 
 const AREA_IDS = [...Object.keys(AREAS), 'other'];

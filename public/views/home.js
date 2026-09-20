@@ -1,7 +1,7 @@
 // #/ — flagged / new-today strip, filter drawer (bottom sheet on phone, rail on desktop),
 // sort, and the card grid. SPEC §5 "Home".
 
-import { filtersToQuery, activeFilterCount, defaultFilters } from '../lib/filters.js';
+import { filtersToQuery, activeFilterCount, defaultFilters, SORTS, sortOf } from '../lib/filters.js';
 import { STAGES, STAGE_ORDER, loadStageQueues } from '../lib/flow.js';
 import {
   $, $$, html, setHtml, toHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing,
@@ -663,6 +663,14 @@ export async function mountHome(el, ctx) {
                 <span>${STAGES[stage].label}</span><b class="mono" data-count>…</b></button>`
             )}
           </div>
+          <div class="sort-wrap" id="sort-wrap">
+            <button type="button" class="btn btn-sm sort-btn" id="sort-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Sort listings">
+              ${icons.sort()}<span id="sort-label"></span>${icons.chevron()}
+            </button>
+            <div class="menu" id="sort-menu" role="menu" hidden>
+              ${SORTS.map(([value, label]) => html`<button type="button" role="menuitemradio" aria-checked="false" value="${value}">${label}</button>`)}
+            </div>
+          </div>
           <span class="small muted toolbar-count" id="list-count"></span>
         </div>
         <div class="grid" id="grid"><p class="loading">Loading…</p></div>
@@ -757,7 +765,39 @@ export async function mountHome(el, ctx) {
     const n = activeFilterCount(f);
     badge.textContent = String(n);
     badge.hidden = n === 0;
+    const sort = sortOf(f);
+    $('#sort-label', el).textContent = SORTS.find(([v]) => v === sort)[1].split(',')[0];
+    for (const b of $$('#sort-menu button', el)) b.setAttribute('aria-checked', String(b.value === sort));
   }
+
+  // The sort menu: a small popover under its button; closes on a pick, outside tap, Escape.
+  const sortMenu = $('#sort-menu', el);
+  const sortBtn = $('#sort-btn', el);
+  function toggleSortMenu(open = sortMenu.hidden) {
+    sortMenu.hidden = !open;
+    sortBtn.setAttribute('aria-expanded', String(open));
+  }
+  sortBtn.addEventListener('click', () => toggleSortMenu());
+  sortMenu.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    toggleSortMenu(false);
+    if (button.value === sortOf(store.get().filters)) return;
+    store.set({ filters: { ...store.get().filters, sort: button.value } });
+    paintToolbar();
+    reload();
+  });
+  const onDocClick = (event) => {
+    if (!sortMenu.hidden && !event.target.closest('#sort-wrap')) toggleSortMenu(false);
+  };
+  const onDocKey = (event) => {
+    if (event.key === 'Escape' && !sortMenu.hidden) {
+      toggleSortMenu(false);
+      sortBtn.focus();
+    }
+  };
+  document.addEventListener('click', onDocClick);
+  document.addEventListener('keydown', onDocKey);
 
   function rememberSources(rows) {
     let added = false;
@@ -937,6 +977,8 @@ export async function mountHome(el, ctx) {
     alive = false;
     reload.cancel?.();
     unbindVerdicts();
+    document.removeEventListener('click', onDocClick);
+    document.removeEventListener('keydown', onDocKey);
     mq.removeEventListener('change', place);
     closeSheet();
   };

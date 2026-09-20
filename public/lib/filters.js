@@ -27,11 +27,23 @@ export const DEFAULT_FILTERS = {
   anchor: null, // an anchor id; only meaningful together with anchor_km
   anchor_km: null,
   q: '',
+  sort: 'fit',
 };
 
-// The list has one order, best fit first. A `sort` left in a persisted filter set from
-// the days of the sort tabs is ignored.
-const LIST_SORT = 'fit';
+/** The list orders, in menu order: value → label. Values are the API's own `sort=`. */
+export const SORTS = [
+  ['fit', 'Best fit'],
+  ['price', 'Price, low first'],
+  ['size', 'Size, big first'],
+  ['new', 'Posted, newest first'],
+  ['beach', 'Beach, nearest first'],
+];
+const SORT_VALUES = new Set(SORTS.map(([v]) => v));
+
+/** The API sort for a filter set; anything unknown (an old persisted 'worth') is best fit. */
+export function sortOf(f) {
+  return SORT_VALUES.has(f?.sort) ? f.sort : 'fit';
+}
 
 export function defaultFilters() {
   return { ...DEFAULT_FILTERS, status: [], area: [], bedrooms: [], features: [], style: [] };
@@ -66,7 +78,7 @@ export function filtersToQuery(f, { limit = 200, offset = 0 } = {}) {
   }
   if (f.q) p.set('q', f.q);
   p.set('removed', f.removed || 'hide');
-  p.set('sort', LIST_SORT);
+  p.set('sort', sortOf(f));
   p.set('limit', String(limit));
   if (offset > 0) p.set('offset', String(offset));
   return p.toString();
