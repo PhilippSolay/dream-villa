@@ -90,7 +90,12 @@ export function publicRow(row) {
   delete parsed.raw;
   // `removed_at`: computed, not stored — gone/unlisted rows carry the date they were
   // last actually seen, which is when the removal was detected (SPEC §3 last_seen).
-  const removedAt = parsed.availability === 'gone' || parsed.availability === 'unlisted' ? parsed.last_seen : null;
+  const removedAt =
+    parsed.availability === 'gone' || parsed.availability === 'unlisted'
+      ? parsed.last_seen
+      : parsed.status === 'gone'
+        ? parsed.status_at
+        : null;
   return { ...parsed, hero_url: heroUrl(parsed), reasons: reasonsFor(parsed), removed_at: removedAt };
 }
 
@@ -313,7 +318,7 @@ function buildListWhere(query) {
 
   const status = listParam(query.status);
   if (!status) {
-    where.push("status != 'rejected'");
+    where.push("status NOT IN ('rejected', 'gone')");
   } else if (!(status.length === 1 && status[0] === 'all')) {
     const bad = status.filter((s) => !STATUSES.includes(s));
     if (bad.length) return { error: `unknown status: ${bad.join(', ')}` };
@@ -433,8 +438,9 @@ function buildListWhere(query) {
     const hideGoneCompat = query.hide_gone === undefined ? 1 : query.hide_gone;
     removed = hideGoneCompat === 1 ? 'hide' : 'show';
   }
-  if (removed === 'hide') where.push("(availability IS NULL OR availability NOT IN ('gone', 'unlisted'))");
-  else if (removed === 'only') where.push("availability IN ('gone', 'unlisted')");
+  // A person-set status of `gone` (the agent said it is taken) counts as removed too.
+  if (removed === 'hide') where.push("(availability IS NULL OR availability NOT IN ('gone', 'unlisted')) AND status != 'gone'");
+  else if (removed === 'only') where.push("(availability IN ('gone', 'unlisted') OR status = 'gone')");
 
   return { where, params, removed };
 }
@@ -472,6 +478,23 @@ function countsByProperty(db, ids) {
   return out;
 }
 
+/**
+ * The journey (SPEC §15): a Yes from either person shortlists a new listing; taking a
+ * Yes back returns it to `new` when no Yes is left. Nothing else moves the status from
+ * here — a No is a personal call, Reject and Gone stay taps in the pipeline row.
+ */
+function syncShortlist(db, id, userId, before, after) {
+  const row = db.prepare('SELECT status FROM properties WHERE id = ?').get(id);
+  if (!row) return;
+  const yesCount = db.prepare("SELECT COUNT(*) AS n FROM verdicts WHERE property_id = ? AND verdict = 'yes'").get(id).n;
+  let next = null;
+  if (after === 'yes' && row.status === 'new') next = 'shortlist';
+  else if (before === 'yes' && after !== 'yes' && row.status === 'shortlist' && yesCount === 0) next = 'new';
+  if (!next) return;
+  db.prepare('UPDATE properties SET status = ?, status_by = ?, status_at = ? WHERE id = ?').run(next, userId, nowIso(), id);
+  rescoreOne(db, id);
+}
+
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
@@ -500,7 +523,7 @@ export default async function propertiesRoutes(app, opts) {
     // triggers this: `hide_gone=0` keeps its old, purely-a-filter behaviour so an
     // existing integration's sort order is not silently rearranged underneath it.
     const removedSecondary =
-      query.removed === 'show' ? "CASE WHEN availability IN ('gone', 'unlisted') THEN 1 ELSE 0 END, " : '';
+      query.removed === 'show' ? "CASE WHEN availability IN ('gone', 'unlisted') OR status = 'gone' THEN 1 ELSE 0 END, " : '';
     const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
     if (query.verdict) {
       const v = verdictWhere(query.verdict, request.user.id);
@@ -785,6 +808,7 @@ export default async function propertiesRoutes(app, opts) {
       const { id } = request.params;
       if (!getProperty(db, id)) return notFound(reply);
       const { verdict } = request.body;
+      const before = db.prepare('SELECT verdict FROM verdicts WHERE property_id = ? AND by = ?').get(id, request.user.id)?.verdict ?? null;
       if (verdict === null) {
         db.prepare('DELETE FROM verdicts WHERE property_id = ? AND by = ?').run(id, request.user.id);
       } else {
@@ -793,6 +817,7 @@ export default async function propertiesRoutes(app, opts) {
            ON CONFLICT(property_id, by) DO UPDATE SET verdict = excluded.verdict, updated_at = excluded.updated_at`
         ).run(id, request.user.id, verdict, nowIso(), nowIso());
       }
+      syncShortlist(db, id, request.user.id, before, verdict);
       return rowPayload(db, id);
     }
   );

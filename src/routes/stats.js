@@ -152,8 +152,12 @@ export default async function statsRoutes(app, { db, env = process.env }) {
 
     // pipeline
     const byStatus = new Map(db.prepare('SELECT status, COUNT(*) AS n FROM properties GROUP BY status').all().map((r) => [r.status, r.n]));
-    const goneCount = db.prepare("SELECT COUNT(*) AS n FROM properties WHERE availability = 'gone'").get().n;
-    const pipeline = [...STATUSES.map((status) => ({ status, n: byStatus.get(status) || 0 })), { status: 'gone', n: goneCount }];
+    // One `gone` bucket: the scraper's detection (availability) and the person-set status.
+    const goneCount = db.prepare("SELECT COUNT(*) AS n FROM properties WHERE availability = 'gone' OR status = 'gone'").get().n;
+    const pipeline = [
+      ...STATUSES.filter((status) => status !== 'gone').map((status) => ({ status, n: byStatus.get(status) || 0 })),
+      { status: 'gone', n: goneCount },
+    ];
 
     // daily
     const newByDate = toDateMap(db.prepare("SELECT date(first_seen, '+8 hours') AS d, COUNT(*) AS n FROM properties GROUP BY d").all());

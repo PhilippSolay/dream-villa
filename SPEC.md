@@ -333,3 +333,12 @@ Derived on every list and detail row, never stored:
 - **Anchors** are the two people's own places (gym, school, co-working). Schema (migration `005_anchors`): `anchors (id, name, lat, lng, by, created_at)`. API: `GET /api/anchors`; `POST /api/anchors {name, location}` where `location` is `"lat, lng"` or a Google Maps link carrying coordinates (`@lat,lng`, `?q=`, `?query=`), or `{name, lat, lng}`; `DELETE /api/anchors/:id`. Every list and detail row carries `anchors: [{id, name, km}]` (haversine, 0.1 km; `km` null when the listing has no pin). `GET /api/properties?anchor=<id>&anchor_km=<km>` keeps rows within that distance (equirectangular bound in SQL; rows without a pin never match); `anchor` without `anchor_km` is a 400, an unknown anchor a 404.
 - **Style filter**: `GET /api/properties?style=modern,joglo` (values from the style enum; unknown → 400).
 - **UI**: cards show `1.6 km Gym · 3.4 km School` under the meta line and the style as the first feature chip; the Listing tab lists "To ‹place›" among the facts. The filter panel gains a Style chip group and a "Near a place" group: a place select, a 0.5–15 km slider, Remove, and an "Add a place" form (name + link or coordinates). The Map draws anchors as gold diamonds and now builds its query through the shared filters module (the hand-rolled dump sent `sort=worth` and failed with 400).
+
+## 15. Amendment 2026-09-20 — the journey
+
+The status pipeline follows the two people's calls instead of standing beside them.
+
+1. **Yes / Maybe / No** is the first step on every listing (the Sort stage, the card capsule, the detail capsule).
+2. **A Yes from either person shortlists** a `new` listing (`status = 'shortlist'`, `status_by` = who said Yes). Taking the last Yes back returns it to `new`. A Maybe or a No never moves the status: a No is a personal call, and Reject stays a tap. A Yes on a listing already further along changes nothing. The detail page shows `new` / `shortlist` as a stage label, not as buttons.
+3. **Then the pipeline**, tapped on the detail page: Contacted → Booked (`viewing_booked`) → Viewed → Offer, with **Rejected** and **Gone** as the two end states.
+4. **Gone** has two sources: the scraper (`availability = 'gone'|'unlisted'`, unchanged) and the person (`status = 'gone'`, the agent said it is taken). Lists hide both by default; `removed=show|only` includes both; `removed_at` is `status_at` for the person-set case. A `gone` listing is never flagged; `/api/stats` counts both sources in one `gone` bucket.

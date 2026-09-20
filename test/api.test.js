@@ -180,6 +180,24 @@ test('list: sort=size puts the biggest build first, unmeasured last', async (t) 
   assert.equal(keys.length, SEED.length);
 });
 
+test('status: gone is a person-set end state, hidden like rejected, shown with removed=', async (t) => {
+  const { call, ids } = await setup(t);
+  const set = await call({ method: 'POST', url: `/api/properties/${ids.A}/status`, payload: { status: 'gone' } });
+  assert.equal(set.statusCode, 200);
+  assert.equal(set.json().status, 'gone');
+  assert.equal(set.json().flagged, 0, 'a gone listing is never a featured pick');
+  assert.ok(set.json().removed_at, 'carries the moment it was marked');
+
+  const dflt = keysOf((await call({ method: 'GET', url: '/api/properties?scope=all' })).json());
+  assert.ok(!dflt.includes('bhi:A'), 'hidden from the default list');
+
+  const only = keysOf((await call({ method: 'GET', url: '/api/properties?scope=all&status=all&removed=only' })).json());
+  assert.deepEqual(only, ['bhi:A', 'bhi:E'], 'removed=only lists it beside the scraper-detected gone');
+
+  const byStatus = keysOf((await call({ method: 'GET', url: '/api/properties?scope=all&status=gone&removed=show' })).json());
+  assert.deepEqual(byStatus, ['bhi:A']);
+});
+
 test('list: scope=market shows only out-of-filter rows', async (t) => {
   const { call } = await setup(t);
   const res = await call({ method: 'GET', url: '/api/properties?scope=market' });

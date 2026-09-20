@@ -213,7 +213,8 @@ export function scoreRow(row, config = DEFAULT_CONFIG) {
     scope === 'in_filter' &&
     fit_score >= cfg.flag_threshold &&
     red_flags.length === 0 &&
-    r.status !== 'rejected'
+    r.status !== 'rejected' &&
+    r.status !== 'gone'
       ? 1
       : 0;
 

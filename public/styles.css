@@ -478,6 +478,7 @@ button.chip[aria-pressed='true'] { background: var(--gold-soft); border-color: v
 .pill-shortlist, .pill-offer { border-color: var(--ok); color: var(--ok); }
 .pill-contacted, .pill-viewing_booked, .pill-viewed { border-color: var(--gold); color: var(--gold); }
 .pill-rejected { border-color: var(--danger); color: var(--danger); }
+.pill-gone { border-color: var(--line-strong); color: var(--muted); text-decoration: line-through; }
 .pill-flagged { border-color: transparent; background: linear-gradient(180deg, var(--gold-2), var(--gold)); color: var(--on-gold); }
 .pill-flag { border-color: var(--danger); color: var(--danger); }
 
@@ -905,7 +906,24 @@ input[type='range']:focus-visible::-webkit-slider-thumb { box-shadow: inset 0 0 
   color: var(--on-gold);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 8px 18px -8px var(--gold-glow);
 }
-.status-btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--glass-line)); margin-left: auto; }
+.status-row-end { display: inline-flex; gap: 8px; margin-left: auto; flex: 0 0 auto; }
+.status-stage {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 15px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--muted);
+  border: 1px dashed var(--line-strong);
+}
+.status-stage-shortlist { color: var(--on-gold); border: 1px solid transparent; background: linear-gradient(180deg, var(--gold-2), var(--gold)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 8px 18px -8px var(--gold-glow); }
+.status-stage .who-set { width: 20px; height: 20px; font-size: 11px; margin-left: 7px; background: rgba(0, 0, 0, 0.14); border: 0; color: inherit; }
+.status-btn-gone[aria-pressed='true'] { background: var(--muted); border-color: transparent; color: var(--bg); box-shadow: none; }
+.status-btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--glass-line)); }
 .status-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
 .status-btn-danger[aria-pressed='true'] { background: var(--danger); border-color: transparent; color: #fff; box-shadow: none; }
 

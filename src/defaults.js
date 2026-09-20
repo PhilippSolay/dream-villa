@@ -36,5 +36,7 @@ export const DEFAULT_CONFIG = {
 };
 
 export const RED_FLAGS = ['construction', 'main_road', 'balinese_old', 'over_budget', 'quiet_low', 'privacy_low'];
-export const STATUSES = ['new', 'shortlist', 'contacted', 'viewing_booked', 'viewed', 'offer', 'rejected'];
+// `gone` is the person-set end state (the agent says it is taken); the scraper's own
+// detection lives in `availability`. Lists hide both unless asked (removed=).
+export const STATUSES = ['new', 'shortlist', 'contacted', 'viewing_booked', 'viewed', 'offer', 'rejected', 'gone'];
 export const ACTIVE_STATUSES = ['shortlist', 'contacted', 'viewing_booked', 'viewed', 'offer'];

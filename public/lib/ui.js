@@ -119,10 +119,11 @@ export const STATUS_LABELS = {
   new: 'New',
   shortlist: 'Shortlist',
   contacted: 'Contacted',
-  viewing_booked: 'Viewing booked',
+  viewing_booked: 'Booked',
   viewed: 'Viewed',
   offer: 'Offer',
   rejected: 'Rejected',
+  gone: 'Gone',
 };
 
 export const FEATURE_LABELS = {

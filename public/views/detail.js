@@ -40,7 +40,10 @@ const TABS = [
 ];
 
 // The pipeline, in order, with Reject held back for its own danger button at the end.
-const PIPELINE = Object.keys(STATUS_LABELS).filter((s) => s !== 'rejected');
+// The journey: Yes / Maybe / No first; a Yes shortlists. From there the pipeline is
+// tapped here — Contacted, Booked, Viewed, Offer — with Reject and Gone as the two ends.
+// `new` and `shortlist` are shown, not tapped: the verdicts own them.
+const PIPELINE = ['contacted', 'viewing_booked', 'viewed', 'offer'];
 
 // ---------------------------------------------------------------------------
 // View
@@ -92,9 +95,17 @@ export async function mountDetail(el, ctx) {
     const button = (status, label, extra = '') => html`<button type="button"
       class="status-btn${raw(extra)}" data-action="status" data-status="${status}"
       aria-pressed="${String(p.status === status)}">${label}${who(status)}</button>`;
+    const stage =
+      p.status === 'new' || p.status === 'shortlist'
+        ? html`<span class="status-stage status-stage-${raw(p.status)}" title="${p.status === 'shortlist' ? 'Shortlisted by a Yes' : 'Waiting for a Yes'}">${p.status === 'shortlist' ? 'Shortlisted' : 'New'}${who(p.status)}</span>`
+        : '';
     return html`<div class="status-row" role="group" aria-label="Status">
+      ${stage}
       ${PIPELINE.map((s) => button(s, STATUS_LABELS[s]))}
-      ${button('rejected', 'Reject', ' status-btn-danger')}
+      <span class="status-row-end">
+        ${button('rejected', 'Reject', ' status-btn-danger')}
+        ${button('gone', 'Gone', ' status-btn-gone')}
+      </span>
     </div>`;
   }
 
@@ -314,6 +325,7 @@ export async function mountDetail(el, ctx) {
     const verdict = status === 'rejected' ? 'no' : status === 'maybe' ? 'maybe' : 'yes';
     await api.post(`/api/properties/${id}/verdict`, { verdict });
     if (status === 'maybe') await afterWrite(`Maybe (${store.get().user?.name})`);
+    else if (status === 'shortlist') await afterWrite(`Shortlisted (${store.get().user?.name})`); // the Yes did it server-side
     else await setStatus(status);
   }
 

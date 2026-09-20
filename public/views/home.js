@@ -84,7 +84,7 @@ export function cardHtml(p, areas, { reason = false, viewer = null } = {}) {
   const bedrooms = p.bedrooms == null ? null : `${p.bedrooms} BR${p.extra_rooms ? ` +${p.extra_rooms}` : ''}`;
   const beach = beachLabel(p.beach_km);
   const age = ageLabel(p.first_seen);
-  const removed = p.availability === 'gone' || p.availability === 'unlisted';
+  const removed = p.availability === 'gone' || p.availability === 'unlisted' || p.status === 'gone';
   return html`<article class="card">
     <a class="card-hit" href="#/p/${p.id}" aria-label="${p.title}">
       <div class="card-media">

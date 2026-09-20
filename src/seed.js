@@ -254,6 +254,7 @@ function whyNotFlagged(row, config) {
   const flags = Array.isArray(row.red_flags) ? row.red_flags : [];
   for (const f of flags) why.push(`red flag: ${f}`);
   if (row.status === 'rejected') why.push('status rejected');
+  if (row.status === 'gone') why.push('status gone');
   return why.length ? why.join(', ') : 'none';
 }
 

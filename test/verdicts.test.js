@@ -96,6 +96,38 @@ test('verdict: upsert per person, replace on repeat, null removes', async (t) =>
   assert.equal(res.statusCode, 404);
 });
 
+test('journey: a Yes shortlists a new listing, taking the last Yes back returns it to new', async (t) => {
+  const { ids, philipp, abigail, vote } = await setup(t);
+  const status = async (id) => (await philipp({ method: 'GET', url: `/api/properties/${id}` })).json();
+
+  let row = (await vote(philipp, ids.A, 'yes')).json();
+  assert.equal(row.status, 'shortlist', 'either person\'s Yes shortlists');
+  assert.equal(row.status_by_name, 'Philipp');
+
+  row = (await vote(abigail, ids.A, 'maybe')).json();
+  assert.equal(row.status, 'shortlist', 'a Maybe from the other person leaves it shortlisted');
+
+  row = (await vote(abigail, ids.A, 'yes')).json();
+  row = (await vote(philipp, ids.A, null)).json();
+  assert.equal(row.status, 'shortlist', 'her Yes still stands');
+
+  row = (await vote(abigail, ids.A, 'no')).json();
+  assert.equal(row.status, 'new', 'no Yes left: back to new');
+  assert.equal(row.status_by_name, 'Abigail');
+
+  // A No is a personal call: the status does not move.
+  row = (await vote(philipp, ids.B, 'no')).json();
+  assert.equal(row.status, 'new');
+  row = (await vote(abigail, ids.B, 'no')).json();
+  assert.equal(row.status, 'new', 'both No: still new, Reject stays a manual tap');
+
+  // Further along the pipeline a Yes changes nothing.
+  await philipp({ method: 'POST', url: `/api/properties/${ids.C}/status`, payload: { status: 'contacted' } });
+  row = (await vote(abigail, ids.C, 'yes')).json();
+  assert.equal(row.status, 'contacted');
+  assert.equal((await status(ids.C)).status, 'contacted');
+});
+
 test('list and detail: rows carry verdicts and status_by_name', async (t) => {
   const { ids, philipp, abigail, vote, list } = await setup(t);
   await vote(abigail, ids.B, 'yes');
