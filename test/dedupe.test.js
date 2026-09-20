@@ -415,3 +415,49 @@ test('dedupeAll — rule 2 needs a real area: `other` never auto-merges on photo
     cleanup(t);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 2026-09-20: promo photos are not evidence; an agency row outlives a post
+// ---------------------------------------------------------------------------
+
+const H = (n) => n.toString(16).padStart(16, '0');
+
+test('dedupeAll — a photo seen across two areas or two bedroom counts is an agent logo, not evidence', () => {
+  const t = tmpDb();
+  const { db } = t;
+  // logo on three listings in two areas; the two Seseh rows share only the logo plus one real photo
+  insert(db, { key: 'bvh:1', source: 'balivillahub', ref: '1', area: 'seseh', bedrooms: 2, price_month_idr: 30_000_000, first_seen: '2026-09-01T00:00:00Z',
+    images: JSON.stringify([{ src_url: 'https://cdn/logo1.jpg', hash: H(1) }, { src_url: 'https://cdn/a1.jpg', hash: H(0xf0f0) }]) });
+  insert(db, { key: 'bvh:2', source: 'balivillahub', ref: '2', area: 'seseh', bedrooms: 2, price_month_idr: 45_000_000, first_seen: '2026-09-02T00:00:00Z',
+    images: JSON.stringify([{ src_url: 'https://cdn/logo2.jpg', hash: H(1) }, { src_url: 'https://cdn/a2.jpg', hash: H(0xf0f1) }]) });
+  insert(db, { key: 'bvh:3', source: 'balivillahub', ref: '3', area: 'uluwatu', bedrooms: 3, price_month_idr: 60_000_000, first_seen: '2026-09-03T00:00:00Z',
+    images: JSON.stringify([{ src_url: 'https://cdn/logo3.jpg', hash: H(1) }]) });
+  assert.deepEqual(findDuplicates(db), [], 'one real photo plus the logo is not two shared photos');
+
+  // the same two Seseh rows with a second genuine photo in common do merge
+  db.prepare('UPDATE properties SET images = ? WHERE key = ?').run(
+    JSON.stringify([{ src_url: 'https://cdn/logo2.jpg', hash: H(1) }, { src_url: 'https://cdn/a2.jpg', hash: H(0xf0f1) }, { src_url: 'https://cdn/b2.jpg', hash: H(0xabcd) }]), 'bvh:2');
+  db.prepare('UPDATE properties SET images = ? WHERE key = ?').run(
+    JSON.stringify([{ src_url: 'https://cdn/logo1.jpg', hash: H(1) }, { src_url: 'https://cdn/a1.jpg', hash: H(0xf0f0) }, { src_url: 'https://cdn/b1.jpg', hash: H(0xabcc) }]), 'bvh:1');
+  const pairs = findDuplicates(db);
+  assert.equal(pairs.length, 1);
+  assert.match(pairs[0].reason, /^2 shared photos \(hash\)$/);
+  cleanup(t);
+});
+
+test('dedupeAll — the agency row is kept over a newer-or-older Facebook post', () => {
+  const t = tmpDb();
+  const { db } = t;
+  const post = insert(db, { key: 'fb:p1', source: 'fb', ref: 'p1', area: 'cemagi', bedrooms: null, price_month_idr: 550_000_000, first_seen: '2026-08-01T00:00:00Z',
+    images: JSON.stringify([{ src_url: 'https://fb/1.jpg', hash: H(0x1111) }, { src_url: 'https://fb/2.jpg', hash: H(0x2222) }]) });
+  const agency = insert(db, { key: 'bcl:v1', source: 'balicoconutliving', ref: 'v1', area: 'cemagi', bedrooms: 3, price_month_idr: 52_000_000, first_seen: '2026-09-10T00:00:00Z',
+    images: JSON.stringify([{ src_url: 'https://cdn/1.jpg', hash: H(0x1110) }, { src_url: 'https://cdn/2.jpg', hash: H(0x2223) }]) });
+  const { merged } = dedupeAll(db);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].kept_id, agency, 'the agency record survives although it is newer');
+  assert.equal(merged[0].merged_id, post);
+  const kept = db.prepare('SELECT price_month_idr, bedrooms FROM properties WHERE id = ?').get(agency);
+  assert.equal(kept.price_month_idr, 52_000_000, "the post's yearly-read-as-monthly price does not win");
+  assert.equal(db.prepare('SELECT availability FROM properties WHERE id = ?').get(post).availability, 'gone');
+  cleanup(t);
+});

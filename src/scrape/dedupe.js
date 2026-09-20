@@ -25,6 +25,8 @@ import { sharedImages } from './image-hash.js';
 const PRICE_TOLERANCE = 0.05;
 /** Photos two listings must share before rule 2 merges them without any price check. */
 const AUTO_SHARED_PHOTOS = 2;
+/** Sources that are people's posts, not an agency's record: they lose the keep decision. */
+const POST_SOURCES = new Set(['fb', 'wa']);
 const TITLE_SIMILARITY = 0.8;
 const DESC_PREFIX = 60;
 
@@ -148,7 +150,7 @@ function priceClose(a, b) {
  * evidence. Across sources the titles are written independently, so the SPEC rule stands
  * there unchanged. Same-source pairs need the description or an image to corroborate.
  */
-export function matchReason(a, b) {
+export function matchReason(a, b, { ignore = null } = {}) {
   const sameSource = Boolean(a.source) && a.source === b.source;
 
   const sim = diceTrigram(a.title, b.title);
@@ -159,8 +161,8 @@ export function matchReason(a, b) {
   if (da && dbb && da === dbb) return `same first ${DESC_PREFIX} chars of description`;
 
   const ia = new Set(imageUrls(a));
-  for (const url of imageUrls(b)) if (ia.has(url)) return `shared image ${url}`;
-  if (sharedImages(a.images, b.images).count >= 1) return 'shared image (hash)';
+  for (const url of imageUrls(b)) if (ia.has(url) && !ignore?.has(url)) return `shared image ${url}`;
+  if (sharedImages(a.images, b.images, { ignore }).count >= 1) return 'shared image (hash)';
 
   return null;
 }
@@ -184,13 +186,25 @@ export function bedroomsCompatible(a, b) {
  * Rule 2's reason — `2 shared photos (hash)`, `3 shared photos (url+hash)` — or null
  * when the two listings share fewer than AUTO_SHARED_PHOTOS photographs.
  */
-export function sharedPhotoReason(a, b) {
-  const { count, pairs } = sharedImages(a.images, b.images);
+export function sharedPhotoReason(a, b, { ignore = null } = {}) {
+  const { count, pairs } = sharedImages(a.images, b.images, { ignore });
   if (count < AUTO_SHARED_PHOTOS) return null;
   return `${count} shared photos (${howLabel(pairs)})`;
 }
 
-/** The older row wins: smaller first_seen, ties broken by the smaller id. */
+/**
+ * Which row survives. An agency's or portal's record beats a Facebook/WhatsApp post
+ * (structured price, bedrooms, gallery, a URL that stays valid — the post's price is
+ * often a yearly figure read as monthly); otherwise the older row wins: smaller
+ * first_seen, ties broken by the smaller id.
+ */
+export function keeperFirst(a, b) {
+  const pa = POST_SOURCES.has(a.source);
+  const pb = POST_SOURCES.has(b.source);
+  if (pa !== pb) return pa ? [b, a] : [a, b];
+  return olderFirst(a, b);
+}
+
 function olderFirst(a, b) {
   const fa = String(a.first_seen || '');
   const fb = String(b.first_seen || '');
@@ -202,10 +216,41 @@ function olderFirst(a, b) {
  * Candidate duplicate pairs, newest-into-oldest, without touching the database.
  * @returns {{kept_id:number, merged_id:number, reason:string}[]}
  */
+/**
+ * Photos that are not evidence: a hash (or url) that appears on listings in two or more
+ * areas, or with two or more different known bedroom counts, is an agent's logo, collage
+ * or stock shot, not a picture of one villa. A villa reposted ten times still keeps all
+ * its photos as evidence (same area, same bedrooms every time).
+ * @returns {Set<string>}
+ */
+export function promoImages(rows) {
+  const seen = new Map(); // key → { areas:Set, beds:Set }
+  for (const r of rows) {
+    const list = safeJson(r.images);
+    if (!Array.isArray(list)) continue;
+    const keys = new Set();
+    for (const im of list) {
+      if (!im || typeof im !== 'object') continue;
+      if (im.hash) keys.add(im.hash);
+      if (im.src_url) keys.add(im.src_url);
+    }
+    for (const k of keys) {
+      let e = seen.get(k);
+      if (!e) seen.set(k, (e = { areas: new Set(), beds: new Set() }));
+      if (r.area) e.areas.add(r.area);
+      if (r.bedrooms != null) e.beds.add(r.bedrooms);
+    }
+  }
+  const out = new Set();
+  for (const [k, e] of seen) if (e.areas.size >= 2 || e.beds.size >= 2) out.add(k);
+  return out;
+}
+
 export function findDuplicates(db) {
   const rows = db
     .prepare("SELECT * FROM properties WHERE availability IS NULL OR availability <> 'gone' ORDER BY id")
     .all();
+  const ignore = promoImages(rows);
 
   // Both rules need the same area, so only rows sharing an area can ever pair up.
   // Bedrooms are checked per pair, not bucketed: rule 2 pairs a bedroom-less Facebook
@@ -229,15 +274,15 @@ export function findDuplicates(db) {
 
         // Rule 2 — photographs, no price condition.
         let reason = null;
-        if (a.area && a.area !== 'other' && bedroomsCompatible(a, b)) reason = sharedPhotoReason(a, b);
+        if (a.area && a.area !== 'other' && bedroomsCompatible(a, b)) reason = sharedPhotoReason(a, b, { ignore });
 
         // Rule 1 — SPEC §6, unchanged apart from the photo test.
         if (!reason && a.bedrooms != null && a.bedrooms === b.bedrooms && priceClose(a, b)) {
-          reason = matchReason(a, b);
+          reason = matchReason(a, b, { ignore });
         }
         if (!reason) continue;
 
-        const [keep, drop] = olderFirst(a, b);
+        const [keep, drop] = keeperFirst(a, b);
         out.push({ kept_id: keep.id, merged_id: drop.id, reason });
       }
     }
@@ -344,5 +389,5 @@ export function dedupeAll(db, { now = nowIso() } = {}) {
 
 export default {
   dedupeAll, findDuplicates, mergeInto, diceTrigram, matchReason, refParts,
-  sameComplexDifferentUnit, bedroomsCompatible, sharedPhotoReason,
+  sameComplexDifferentUnit, bedroomsCompatible, sharedPhotoReason, promoImages, keeperFirst,
 };

@@ -63,11 +63,14 @@ function entries(images) {
  * MATCH_DISTANCE. Each photo of `a` matches at most one photo of `b`.
  * @param {Array|string|null} imagesA `properties.images` (JSON string or parsed)
  * @param {Array|string|null} imagesB
+ * @param {{ignore?: Set<string>}} [opts] hashes/urls to leave out — an agent's logo or
+ *   collage that sits on every one of its listings says nothing about the villa
  * @returns {{count:number, pairs:{a:number, b:number, how:'url'|'hash'}[]}} indexes into each array
  */
-export function sharedImages(imagesA, imagesB) {
-  const ea = entries(imagesA);
-  const eb = entries(imagesB);
+export function sharedImages(imagesA, imagesB, { ignore = null } = {}) {
+  const skip = (im) => Boolean(ignore && ((im.hash && ignore.has(im.hash)) || (im.src_url && ignore.has(im.src_url))));
+  const ea = entries(imagesA).map((im) => (skip(im) ? { src_url: null, hash: null } : im));
+  const eb = entries(imagesB).map((im) => (skip(im) ? { src_url: null, hash: null } : im));
   const usedB = new Set();
   const pairs = [];
   for (let i = 0; i < ea.length; i++) {
