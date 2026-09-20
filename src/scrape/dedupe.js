@@ -1,16 +1,30 @@
 // SPEC §6 "Dedupe" — the same villa listed twice (two refs, two sources, two URLs).
 //
-// Same `key` is handled by upsertProperty; this module finds the harder case:
-// bedrooms equal AND area equal AND price within 5 % AND (title similarity >= 0.8
-// OR the first 60 chars of the description equal OR a shared image `src_url`).
+// Same `key` is handled by upsertProperty; this module finds the harder case. Two rules
+// merge automatically, and a pair only has to satisfy one of them:
+//
+//   1. SPEC §6: bedrooms equal (both known) AND area equal AND price within 5 % AND
+//      (title similarity >= 0.8 OR the first 60 chars of the description equal OR at
+//      least one shared photo). The photo test is now `sharedImages` — same `src_url`
+//      *or* a perceptual hash within MATCH_DISTANCE — not raw `src_url` equality.
+//
+//   2. Amended 2026-09-20: same area (known, not `other`) AND bedrooms compatible
+//      (equal, or unknown on one side — Facebook posts rarely state them; two different
+//      known counts never merge) AND at least 2 shared photos. No price condition: the
+//      same villa is quoted at different prices by different agencies and in different
+//      months. Two photographs of one house on two listings is the villa's identity;
+//      one is not, because a complex reuses a pool shot across its units.
 //
 // CLAUDE.md: never delete a listing. The newer row is marked `availability='gone'`
 // with `raw.merged_into` pointing at the survivor, and everything a person wrote on
 // it (contacts, ratings, feedback, viewings, agent info) moves to the kept row.
 
 import { nowIso } from '../db.js';
+import { sharedImages } from './image-hash.js';
 
 const PRICE_TOLERANCE = 0.05;
+/** Photos two listings must share before rule 2 merges them without any price check. */
+const AUTO_SHARED_PHOTOS = 2;
 const TITLE_SIMILARITY = 0.8;
 const DESC_PREFIX = 60;
 
@@ -146,8 +160,34 @@ export function matchReason(a, b) {
 
   const ia = new Set(imageUrls(a));
   for (const url of imageUrls(b)) if (ia.has(url)) return `shared image ${url}`;
+  if (sharedImages(a.images, b.images).count >= 1) return 'shared image (hash)';
 
   return null;
+}
+
+/** `pairs` from sharedImages → `url`, `hash` or `url+hash`. */
+function howLabel(pairs) {
+  const url = pairs.some((p) => p.how === 'url');
+  const hash = pairs.some((p) => p.how === 'hash');
+  return url && hash ? 'url+hash' : url ? 'url' : 'hash';
+}
+
+/**
+ * Bedrooms may not contradict: equal, or unknown on a side. Two different known counts
+ * are two different villas (SPEC §6), whatever else they share.
+ */
+export function bedroomsCompatible(a, b) {
+  return a.bedrooms == null || b.bedrooms == null || a.bedrooms === b.bedrooms;
+}
+
+/**
+ * Rule 2's reason — `2 shared photos (hash)`, `3 shared photos (url+hash)` — or null
+ * when the two listings share fewer than AUTO_SHARED_PHOTOS photographs.
+ */
+export function sharedPhotoReason(a, b) {
+  const { count, pairs } = sharedImages(a.images, b.images);
+  if (count < AUTO_SHARED_PHOTOS) return null;
+  return `${count} shared photos (${howLabel(pairs)})`;
 }
 
 /** The older row wins: smaller first_seen, ties broken by the smaller id. */
@@ -167,11 +207,13 @@ export function findDuplicates(db) {
     .prepare("SELECT * FROM properties WHERE availability IS NULL OR availability <> 'gone' ORDER BY id")
     .all();
 
-  // bedrooms + area must both match, so only rows sharing that pair can ever pair up.
+  // Both rules need the same area, so only rows sharing an area can ever pair up.
+  // Bedrooms are checked per pair, not bucketed: rule 2 pairs a bedroom-less Facebook
+  // post with a known count. An area holds a few hundred live rows, so the O(n²) inside
+  // one bucket stays cheap.
   const buckets = new Map();
   for (const r of rows) {
-    if (r.bedrooms == null) continue; // never merge across unknown bedrooms
-    const k = `${r.area}|${r.bedrooms}`;
+    const k = r.area == null ? '\u0000null' : String(r.area);
     if (!buckets.has(k)) buckets.set(k, []);
     buckets.get(k).push(r);
   }
@@ -183,10 +225,18 @@ export function findDuplicates(db) {
         const a = bucket[i];
         const b = bucket[j];
         if (a.key === b.key) continue;
-        if (!priceClose(a, b)) continue;
         if (sameComplexDifferentUnit(a, b)) continue;
-        const reason = matchReason(a, b);
+
+        // Rule 2 — photographs, no price condition.
+        let reason = null;
+        if (a.area && a.area !== 'other' && bedroomsCompatible(a, b)) reason = sharedPhotoReason(a, b);
+
+        // Rule 1 — SPEC §6, unchanged apart from the photo test.
+        if (!reason && a.bedrooms != null && a.bedrooms === b.bedrooms && priceClose(a, b)) {
+          reason = matchReason(a, b);
+        }
         if (!reason) continue;
+
         const [keep, drop] = olderFirst(a, b);
         out.push({ kept_id: keep.id, merged_id: drop.id, reason });
       }
@@ -292,4 +342,7 @@ export function dedupeAll(db, { now = nowIso() } = {}) {
   return { merged };
 }
 
-export default { dedupeAll, findDuplicates, mergeInto, diceTrigram, matchReason, refParts, sameComplexDifferentUnit };
+export default {
+  dedupeAll, findDuplicates, mergeInto, diceTrigram, matchReason, refParts,
+  sameComplexDifferentUnit, bedroomsCompatible, sharedPhotoReason,
+};

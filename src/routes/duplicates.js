@@ -6,9 +6,9 @@
 // automatic pass, where the older row always wins. A dismissal is reversible.
 
 import { nowIso } from '../db.js';
-import { mergeInto } from '../scrape/dedupe.js';
+import { dedupeAll, mergeInto } from '../scrape/dedupe.js';
 import { allCandidates, candidatesFor, loadContext } from '../scrape/duplicates.js';
-import { parseRow } from '../scrape/store.js';
+import { finishRun, parseRow, startRun } from '../scrape/store.js';
 import { badRequest, getProperty, heroUrl, notFound, placeholders, strictSchemas } from './_common.js';
 import { publicRow } from './properties.js';
 
@@ -154,6 +154,48 @@ export default async function duplicatesRoutes(app, opts) {
       db.prepare('DELETE FROM duplicate_dismissals WHERE property_a = ? AND property_b = ?').run(a, b);
 
       return { ok: true, merged: result, property: publicRow(getProperty(db, keepId)) };
+    }
+  );
+
+  // --- run the automatic pass on demand ------------------------------------
+  // The same `dedupeAll` the 06:00 run does, triggered by a person who does not want to
+  // wait for tomorrow — typically right after an import. It merges only what SPEC §6's
+  // two rules are certain about; everything else stays a scored candidate above.
+  app.post(
+    '/api/duplicates/auto',
+    // `maxProperties: 0`, not `additionalProperties: false`: the body takes no fields at
+    // all, and an empty `propertyNames.enum` is not a schema ajv will build (_common.js).
+    { ...auth, schema: { body: { type: ['object', 'null'], maxProperties: 0 } } },
+    async (request) => {
+      const runId = startRun(db, 'dedupe', []);
+      let merged;
+      try {
+        ({ merged } = dedupeAll(db));
+      } catch (err) {
+        finishRun(db, runId, {
+          notes: [`dedupe: run by ${request.user.name}`],
+          errors: [`dedupe: ${String((err && err.message) || err)}`],
+        });
+        throw err;
+      }
+
+      // A merged pair is settled; a stale dismissal would only confuse a later pass.
+      const drop = db.prepare('DELETE FROM duplicate_dismissals WHERE property_a = ? AND property_b = ?');
+      for (const m of merged) {
+        const [a, b] = ordered(m.kept_id, m.merged_id);
+        drop.run(a, b);
+      }
+
+      const notes = [`dedupe: run by ${request.user.name}`];
+      notes.push(
+        merged.length
+          ? `dedupe: ${merged.length} merged — ` +
+              merged.map((m) => `#${m.merged_id} into #${m.kept_id} (${m.reason})`).join('; ')
+          : 'dedupe: nothing to merge'
+      );
+      finishRun(db, runId, { gone: merged.length, notes });
+
+      return { ok: true, merged, run_id: runId };
     }
   );
 

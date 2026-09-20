@@ -1,10 +1,14 @@
 // SPEC §6 "Images" — download every gallery image (max maxPerListing/listing), resize with
 // sharp, write to <imagesDir>/<id>/<n>.jpg, persist images JSON + hero_file. Pure I/O + one
-// small DB write per listing; scoring/pins/dedupe live elsewhere.
+// small DB write per listing; scoring/pins/dedupe live elsewhere. Each stored entry also
+// carries `hash`, the dHash used for image-identity dedupe (image-hash.js); back-fill for
+// older rows lives in images-hash.js.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
+
+import { dhash } from './image-hash.js';
 
 const MAX_SIDE = 1600;
 const JPEG_QUALITY = 82;
@@ -21,6 +25,17 @@ function safeParseImages(raw) {
     }
   }
   return [];
+}
+
+/** dHash of a stored jpeg (buffer or path), or null. A hashing failure is never fatal: the
+ *  file is on disk and worth keeping — `npm run images:hash` back-fills the hash later. */
+async function hashOrNull(input, label, log) {
+  try {
+    return await dhash(input);
+  } catch (err) {
+    log?.warn?.(`[images] hash failed ${label}: ${err.message}`);
+    return null;
+  }
 }
 
 /** Absolute path image n (1-based, position in the images array) is written to for property id. */
@@ -99,7 +114,8 @@ export async function processImages(
       if (fs.existsSync(filePath)) {
         try {
           const meta = await sharp(filePath).metadata();
-          images[i] = { src_url: entry.src_url, file: `${id}/${n}.jpg`, w: meta.width, h: meta.height };
+          const hash = await hashOrNull(filePath, filePath, log);
+          images[i] = { src_url: entry.src_url, file: `${id}/${n}.jpg`, w: meta.width, h: meta.height, ...(hash ? { hash } : {}) };
           changed = true;
           skipped++;
         } catch (err) {
@@ -116,7 +132,8 @@ export async function processImages(
         const { buffer: out, w, h } = await resizeToJpeg(buffer);
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, out);
-        images[i] = { src_url: entry.src_url, file: `${id}/${n}.jpg`, w, h };
+        const hash = await hashOrNull(out, entry.src_url, log);
+        images[i] = { src_url: entry.src_url, file: `${id}/${n}.jpg`, w, h, ...(hash ? { hash } : {}) };
         changed = true;
         downloaded++;
       } catch (err) {

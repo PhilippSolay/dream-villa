@@ -13,6 +13,7 @@
     "seed": "node src/seed.js",
     "scrape": "node src/scrape/index.js",
     "images:audit": "node src/scrape/images-audit.js",
+    "images:hash": "node src/scrape/images-hash.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {

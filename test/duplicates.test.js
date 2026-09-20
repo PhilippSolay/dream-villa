@@ -330,6 +330,7 @@ test('API: every duplicate route needs a logged-in user', async (t) => {
     { method: 'GET', url: `/api/properties/${a}/duplicates` },
     { method: 'GET', url: '/api/duplicates' },
     { method: 'POST', url: '/api/duplicates/merge', payload: { keep_id: a, merge_id: b } },
+    { method: 'POST', url: '/api/duplicates/auto', payload: {} },
     { method: 'POST', url: '/api/duplicates/dismiss', payload: { a, b } },
     { method: 'POST', url: '/api/duplicates/undismiss', payload: { a, b } },
   ];
@@ -337,4 +338,124 @@ test('API: every duplicate route needs a logged-in user', async (t) => {
     const res = await app.inject(opts);
     assert.equal(res.statusCode, 401, `${opts.method} ${opts.url}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Photos by perceptual hash (amended 2026-09-20)
+// ---------------------------------------------------------------------------
+
+/** Hashes one bit apart are the same photograph. */
+const HASH = {
+  poolA: '00000000000000ff',
+  poolB: '00000000000000fe',
+  gardenA: '0f0f0f0f0f0f0f0f',
+  gardenB: '0f0f0f0f0f0f0f0e',
+};
+
+test('scoring: a re-uploaded photo matches by hash, not by url', (t) => {
+  const { db } = tmpDb(t);
+  const a = insert(db, {
+    title: 'Villa Melati', images: JSON.stringify([{ src_url: 'https://bhi.cdn/1.jpg', hash: HASH.poolA }]),
+  });
+  const b = insert(db, {
+    source: 'fb', key: 'fb:melati', ref: 'melati', url: 'https://facebook.test/melati',
+    title: 'Disewakan rumah 2 kamar Cemagi',
+    images: JSON.stringify([{ src_url: 'https://scontent.test/x.jpg', hash: HASH.poolB }]),
+  });
+
+  const pair = pairOf(allCandidates(db), a, b);
+  assert.ok(pair, 'a re-uploaded photo should still pair the two listings');
+  assert.ok(pair.reasons.includes('photo shared'), pair.reasons.join(' · '));
+});
+
+test('scoring: two shared photos alone reach 0.6 and name the count', (t) => {
+  const { db } = tmpDb(t);
+  const a = insert(db, {
+    title: 'Villa Melati', area: 'cemagi', price_month_idr: 40_000_000,
+    images: JSON.stringify([
+      { src_url: 'https://bhi.cdn/1.jpg', hash: HASH.poolA },
+      { src_url: 'https://bhi.cdn/2.jpg', hash: HASH.gardenA },
+    ]),
+  });
+  const b = insert(db, {
+    source: 'fb', key: 'fb:two', ref: 'two', url: 'https://facebook.test/two',
+    title: 'Disewakan rumah', area: 'pererenan', price_month_idr: 60_000_000,
+    images: JSON.stringify([
+      { src_url: 'https://scontent.test/a.jpg', hash: HASH.poolB },
+      { src_url: 'https://scontent.test/b.jpg', hash: HASH.gardenB },
+    ]),
+  });
+
+  const ctx = loadContext(db);
+  const rows = new Map(ctx.rows.map((r) => [r.id, r]));
+  const scored = scorePair(rows.get(a), rows.get(b), ctx);
+  // Nothing else matches: different areas, 50 % apart on price, different titles.
+  assert.deepEqual(scored.reasons, ['2 photos shared']);
+  assert.equal(scored.score, 0.6, 'image 0.35 + image2 0.25');
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/duplicates/auto
+// ---------------------------------------------------------------------------
+
+/** Two rows rule 2 merges by itself: same area, 2 shared photos, prices far apart. */
+function photoTwin(db) {
+  const a = insert(db, {
+    title: 'Villa Anggrek', price_month_idr: 40_000_000,
+    images: JSON.stringify([
+      { src_url: 'https://bhi.cdn/1.jpg', hash: HASH.poolA },
+      { src_url: 'https://bhi.cdn/2.jpg', hash: HASH.gardenA },
+    ]),
+  });
+  const b = insert(db, {
+    source: 'fb', key: 'fb:anggrek2', ref: 'anggrek2', url: 'https://facebook.test/anggrek2',
+    title: 'Disewakan villa Cemagi', bedrooms: null, price_month_idr: 48_000_000,
+    images: JSON.stringify([
+      { src_url: 'https://scontent.test/a.jpg', hash: HASH.poolB },
+      { src_url: 'https://scontent.test/b.jpg', hash: HASH.gardenB },
+    ]),
+  });
+  return { a, b };
+}
+
+test('API: /api/duplicates/auto runs the automatic pass and logs a run', async (t) => {
+  const { db, call } = await setup(t);
+  const { a, b } = photoTwin(db);
+
+  const res = await call({ method: 'POST', url: '/api/duplicates/auto' });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.merged.length, 1);
+  assert.deepEqual({ k: body.merged[0].kept_id, m: body.merged[0].merged_id }, { k: a, m: b });
+  assert.match(body.merged[0].reason, /^2 shared photos \(hash\)$/);
+
+  assert.equal(db.prepare('SELECT availability FROM properties WHERE id = ?').get(b).availability, 'gone');
+  assert.equal(JSON.parse(db.prepare('SELECT raw FROM properties WHERE id = ?').get(b).raw).merged_into, a);
+
+  const run = db.prepare("SELECT * FROM runs WHERE kind = 'dedupe' ORDER BY id DESC").get();
+  assert.ok(run, 'expected a dedupe run row');
+  assert.ok(run.finished_at);
+  assert.equal(run.gone, 1);
+  const notes = JSON.parse(run.notes);
+  assert.ok(notes.some((n) => n.includes('Philipp')), notes.join(' · '));
+  assert.ok(notes.some((n) => n.includes(`#${b} into #${a}`)), notes.join(' · '));
+
+  // Nothing is left to merge, and the run row still says so.
+  const again = await call({ method: 'POST', url: '/api/duplicates/auto' });
+  assert.equal(again.statusCode, 200);
+  assert.deepEqual(again.json().merged, []);
+  assert.ok(
+    JSON.parse(db.prepare('SELECT notes FROM runs WHERE id = ?').get(again.json().run_id).notes)
+      .some((n) => n.includes('nothing to merge'))
+  );
+
+  assert.deepEqual((await call({ method: 'GET', url: '/api/duplicates' })).json().pairs, []);
+});
+
+test('API: /api/duplicates/auto takes no body fields', async (t) => {
+  const { db, call } = await setup(t);
+  photoTwin(db);
+  const res = await call({ method: 'POST', url: '/api/duplicates/auto', payload: { source: 'bhi' } });
+  assert.equal(res.statusCode, 400);
 });

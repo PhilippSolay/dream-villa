@@ -249,3 +249,169 @@ test('dedupeAll — a templated title alone never merges two refs of the same so
     cleanup(t);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Rule 2 (amended 2026-09-20): same area + compatible bedrooms + 2 shared photos
+// ---------------------------------------------------------------------------
+
+/** Hashes one bit apart are the same photograph; the pairs below are far apart. */
+const HASH = {
+  poolA: '00000000000000ff',
+  poolB: '00000000000000fe', // 1 bit from poolA
+  gardenA: '0f0f0f0f0f0f0f0f',
+  gardenB: '0f0f0f0f0f0f0f0e', // 1 bit from gardenA
+  other: '0000000000000000',
+  nothing: 'ffffffffffffffff',
+};
+
+/** Two listings nobody could match on text: different titles, different descriptions. */
+const textA = { title: 'Villa Melati', description: 'Agency copy, written by the agency.' };
+const textB = { title: 'Disewakan rumah 2 kamar Cemagi', description: 'Postingan Facebook, teks lain.' };
+
+test('dedupeAll — two shared photo hashes merge across a 20 % price gap and an unknown bedroom count', () => {
+  const t = tmpDb();
+  try {
+    const keptId = insert(t.db, {
+      ...older, ...textA, key: 'bhi:RF1', ref: 'RF1', price_month_idr: 40_000_000,
+      images: JSON.stringify([
+        { src_url: 'https://bhi.cdn/1.jpg', hash: HASH.poolA },
+        { src_url: 'https://bhi.cdn/2.jpg', hash: HASH.gardenA },
+      ]),
+    });
+    const dropId = insert(t.db, {
+      ...newer, ...textB, key: 'fb:p1', ref: 'p1', source: 'fb', url: 'https://facebook.test/p1',
+      bedrooms: null, // a Facebook post that never says how many bedrooms
+      price_month_idr: 48_000_000, // 20 % apart — no price condition in rule 2
+      images: JSON.stringify([
+        { src_url: 'https://scontent.test/a.jpg', hash: HASH.poolB },
+        { src_url: 'https://scontent.test/b.jpg', hash: HASH.gardenB },
+      ]),
+    });
+
+    const pairs = findDuplicates(t.db);
+    assert.equal(pairs.length, 1);
+    assert.deepEqual({ k: pairs[0].kept_id, m: pairs[0].merged_id }, { k: keptId, m: dropId });
+    assert.equal(pairs[0].reason, '2 shared photos (hash)');
+
+    const { merged } = dedupeAll(t.db, { now: '2026-09-20T00:00:00.000Z' });
+    assert.equal(merged.length, 1);
+    assert.equal(t.db.prepare('SELECT availability FROM properties WHERE id = ?').get(dropId).availability, 'gone');
+    assert.equal(JSON.parse(t.db.prepare('SELECT raw FROM properties WHERE id = ?').get(dropId).raw).merged_into, keptId);
+  } finally {
+    cleanup(t);
+  }
+});
+
+test('dedupeAll — one shared photo is not enough on its own, but it is under the old rule', () => {
+  const t = tmpDb();
+  try {
+    // A complex re-using its pool shot: one photo in common, prices 20 % apart.
+    insert(t.db, {
+      ...older, ...textA, key: 'bhi:RF1', ref: 'RF1', price_month_idr: 40_000_000,
+      images: JSON.stringify([{ src_url: 'https://bhi.cdn/1.jpg', hash: HASH.poolA }]),
+    });
+    insert(t.db, {
+      ...newer, ...textB, key: 'fb:p1', ref: 'p1', source: 'fb', url: 'https://facebook.test/p1',
+      price_month_idr: 48_000_000,
+      images: JSON.stringify([{ src_url: 'https://scontent.test/a.jpg', hash: HASH.poolB }]),
+    });
+    assert.deepEqual(findDuplicates(t.db), []);
+
+    // The same single photo with the SPEC's price and bedroom conditions does merge —
+    // the old rule's image test now reads hashes, not just `src_url`.
+    const closeId = insert(t.db, {
+      ...newer, ...textB, key: 'olx:O1', ref: 'O1', source: 'olx', url: 'https://olx/one',
+      price_month_idr: 41_000_000, // 2.5 % from the first row
+      images: JSON.stringify([{ src_url: 'https://olx.cdn/z.jpg', hash: HASH.poolB }]),
+    });
+    const pairs = findDuplicates(t.db).filter((p) => p.merged_id === closeId);
+    assert.equal(pairs.length, 1);
+    assert.equal(pairs[0].reason, 'shared image (hash)');
+  } finally {
+    cleanup(t);
+  }
+});
+
+test('dedupeAll — two shared photos never merge two different known bedroom counts', () => {
+  const t = tmpDb();
+  try {
+    const images = (x, y) => JSON.stringify([{ src_url: `https://c/${x}.jpg`, hash: x }, { src_url: `https://c/${y}.jpg`, hash: y }]);
+    insert(t.db, { ...older, ...textA, key: 'bhi:RF1', ref: 'RF1', bedrooms: 2, images: images(HASH.poolA, HASH.gardenA) });
+    insert(t.db, {
+      ...newer, ...textB, key: 'fb:p1', ref: 'p1', source: 'fb', url: 'https://facebook.test/p1',
+      bedrooms: 3, images: images(HASH.poolB, HASH.gardenB),
+    });
+    assert.deepEqual(findDuplicates(t.db), [], 'SPEC §6: never merge across different bedrooms');
+  } finally {
+    cleanup(t);
+  }
+});
+
+test('dedupeAll — a url match and a hash match together count as two shared photos', () => {
+  const t = tmpDb();
+  try {
+    const keptId = insert(t.db, {
+      ...older, ...textA, key: 'bhi:RF1', ref: 'RF1', price_month_idr: 40_000_000,
+      images: JSON.stringify([
+        { src_url: 'https://cdn/shared.jpg' },
+        { src_url: 'https://bhi.cdn/2.jpg', hash: HASH.gardenA },
+      ]),
+    });
+    const dropId = insert(t.db, {
+      ...newer, ...textB, key: 'olx:O1', ref: 'O1', source: 'olx', url: 'https://olx/one',
+      price_month_idr: 52_000_000, // 30 % apart, still merges under rule 2
+      images: JSON.stringify([
+        { src_url: 'https://cdn/shared.jpg' },
+        { src_url: 'https://olx.cdn/9.jpg', hash: HASH.gardenB },
+      ]),
+    });
+
+    const pairs = findDuplicates(t.db);
+    assert.equal(pairs.length, 1);
+    assert.deepEqual({ k: pairs[0].kept_id, m: pairs[0].merged_id }, { k: keptId, m: dropId });
+    assert.equal(pairs[0].reason, '2 shared photos (url+hash)');
+  } finally {
+    cleanup(t);
+  }
+});
+
+test('dedupeAll — the complex guard survives rule 2: RF9183A and RF9183B share photos and stay apart', () => {
+  const t = tmpDb();
+  try {
+    const images = JSON.stringify([
+      { src_url: 'https://bhi.cdn/pool.jpg', hash: HASH.poolA },
+      { src_url: 'https://bhi.cdn/garden.jpg', hash: HASH.gardenA },
+    ]);
+    insert(t.db, { ...older, ...textA, key: 'bhi:RF9183A', ref: 'RF9183A', url: 'https://bhi/a', images });
+    insert(t.db, {
+      ...newer, ...textB, key: 'bhi:RF9183B', ref: 'RF9183B', url: 'https://bhi/b', bedrooms: null,
+      images: JSON.stringify([
+        { src_url: 'https://bhi.cdn/pool.jpg', hash: HASH.poolB },
+        { src_url: 'https://bhi.cdn/garden2.jpg', hash: HASH.gardenB },
+      ]),
+    });
+    assert.deepEqual(findDuplicates(t.db), []);
+  } finally {
+    cleanup(t);
+  }
+});
+
+test('dedupeAll — rule 2 needs a real area: `other` never auto-merges on photos alone', () => {
+  const t = tmpDb();
+  try {
+    const images = (x, y) => JSON.stringify([{ src_url: `https://c/${x}.jpg`, hash: x }, { src_url: `https://c/${y}.jpg`, hash: y }]);
+    for (const area of ['other']) {
+      insert(t.db, {
+        ...older, ...textA, key: `bhi:${area}`, ref: `R${area}`, area, price_month_idr: 40_000_000,
+        images: images(HASH.poolA, HASH.gardenA),
+      });
+      insert(t.db, {
+        ...newer, ...textB, key: `fb:${area}`, ref: `F${area}`, source: 'fb', url: `https://facebook.test/${area}`,
+        area, bedrooms: null, price_month_idr: 48_000_000, images: images(HASH.poolB, HASH.gardenB),
+      });
+    }
+    assert.deepEqual(findDuplicates(t.db), []);
+  } finally {
+    cleanup(t);
+  }
+});

@@ -108,6 +108,8 @@ test('processImages: downloads, resizes, persists images/hero_file; second call 
   assert.equal(images[0].h, 1067);
   assert.equal(images[1].file, undefined, '404 entry left without file');
   assert.equal(row.hero_file, `${id}/1.jpg`);
+  assert.match(images[0].hash, /^[0-9a-f]{16}$/, 'dHash of the stored jpeg written alongside w/h');
+  assert.equal(images[1].hash, undefined, '404 entry gets no hash');
 
   // Second call: entry 1 already has a file, entry 2 still 404s but was already attempted —
   // it has no `file` so the listing is still a candidate, but only the still-missing entry
@@ -130,6 +132,30 @@ test('processImages: skips availability=gone rows', async () => {
   const result = await processImages(db, ctx, { imagesDir });
   assert.equal(result.listings, 0);
   assert.equal(result.downloaded, 0);
+
+  cleanup(ctx0);
+});
+
+test('processImages: reused on-disk file also carries a hash', async () => {
+  const ctx0 = tmpDb();
+  const { db, imagesDir } = ctx0;
+
+  const { id } = upsertProperty(db, baseRow({ images: [{ src_url: 'https://x/1.jpg' }] }));
+
+  // Simulate a prior interrupted run: the jpeg is already on disk, the DB entry has no file.
+  const filePath = imageFilePath(imagesDir, id, 1);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const { buffer } = await resizeToJpeg(await makePng(800, 600));
+  fs.writeFileSync(filePath, buffer);
+
+  const ctx = stubCtx({});
+  const result = await processImages(db, ctx, { imagesDir });
+  assert.equal(result.skipped, 1);
+  assert.equal(ctx.calls.length, 0, 'nothing re-fetched');
+
+  const images = JSON.parse(db.prepare('SELECT images FROM properties WHERE id = ?').get(id).images);
+  assert.equal(images[0].file, `${id}/1.jpg`);
+  assert.match(images[0].hash, /^[0-9a-f]{16}$/, 'existing-file branch hashes the file on disk');
 
   cleanup(ctx0);
 });

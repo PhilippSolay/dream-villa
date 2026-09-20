@@ -33,6 +33,15 @@ npm run scrape -- --source=bhi --dry
 `--dry` (print what would be upserted, write nothing), `--limit=N` (cap per adapter),
 `--no-detail`, `--no-images`, `--inbox-only` (just drain the inbox, skip the crawl).
 
+## Images
+
+Every gallery image is downloaded once, resized to max 1600 px JPEG q82 and stored at
+`data/images/<id>/<n>.jpg`; the DB entry keeps `{ src_url, file, w, h, hash }`, where `hash`
+is the 64-bit perceptual dHash (`src/scrape/image-hash.js`) dedupe uses to recognise the
+same photograph re-uploaded by a different agency. `npm run images:audit [-- --fix]` checks
+(and repairs) what is actually on disk; `npm run images:hash [-- --limit=N] [-- --ids=1,2]`
+back-fills `hash` on files stored before hashing existed and prints a JSON summary.
+
 ## Sources
 
 Working adapters, in run order (`src/scrape/adapters/index.js`):

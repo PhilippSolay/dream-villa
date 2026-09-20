@@ -282,6 +282,7 @@ export async function mountAgent(el, ctx) {
       <div class="section-head" style="margin:0 0 8px">
         <h3>Duplicates to review</h3>
         <span class="small muted">Same villa, listed twice</span>
+        <button type="button" class="btn btn-sm btn-ghost" id="dup-auto" title="Merge every pair in the same area with two or more identical photos (the daily run does this too)">Auto-merge shared photos</button>
       </div>
       <div id="duplicates-list" aria-live="polite">${duplicatesList(duplicates)}</div>
     </section>
@@ -365,6 +366,23 @@ export async function mountAgent(el, ctx) {
       b.classList.remove('btn-confirm');
     }
   }
+
+  /** The certain half of SPEC §6 on demand: same area + 2 identical photos, older row kept. */
+  $('#dup-auto', el)?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const res = await api.post('/api/duplicates/auto', {});
+      const n = (res.merged || []).length;
+      toast(n ? `Auto-merged ${n} pair${n === 1 ? '' : 's'}` : 'Nothing to merge');
+      if (n) ctx.refreshCounts?.();
+      await reloadDuplicates();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   el.addEventListener('click', async (event) => {
     const button = event.target.closest('button[data-pair-action]');

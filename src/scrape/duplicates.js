@@ -9,9 +9,16 @@
 //
 // Every signal carries its own points and its own short reason string, so the score is
 // always explainable ("same WhatsApp +62…", "photo shared", "price 40 M vs 41 M").
+//
+// Amended 2026-09-20: photos are compared by perceptual hash as well as by `src_url`
+// (`sharedImages`), because every agency and every Facebook poster re-uploads the same
+// pictures. One shared photo scores `image`; two or more add `image2` on top, so two
+// shared photographs alone reach 0.6 and surface on the Agent page — just under the bar
+// where dedupe.js would have merged them by itself.
 
 import { haversineKm } from '../areas.js';
 import { diceTrigram, sameComplexDifferentUnit } from './dedupe.js';
+import { sharedImages } from './image-hash.js';
 
 /** Points per signal. They add up; the total is capped at 1. */
 export const SIGNALS = {
@@ -20,6 +27,7 @@ export const SIGNALS = {
   price10: 0.1,
   contact: 0.35,
   image: 0.35,
+  image2: 0.25, // on top of `image` when the two listings share two or more photos
   title80: 0.2,
   title60: 0.1,
   description: 0.2,
@@ -103,18 +111,20 @@ export function loadContext(db) {
     if (phone && !map.has(phone)) map.set(phone, `phone ${row.phone}`);
   }
 
-  const images = new Map(); // property id → Set(src_url)
+  const images = new Map(); // property id → [{src_url, hash}] — the shape sharedImages reads
   for (const row of db
     .prepare(
-      `SELECT p.id AS pid, json_extract(j.value, '$.src_url') AS src
+      `SELECT p.id AS pid,
+              json_extract(j.value, '$.src_url') AS src,
+              json_extract(j.value, '$.hash') AS hash
          FROM properties p,
               json_each(CASE WHEN json_valid(p.images) THEN p.images ELSE '[]' END) j
-        WHERE src IS NOT NULL AND src <> ''`
+        WHERE (src IS NOT NULL AND src <> '') OR (hash IS NOT NULL AND hash <> '')`
     )
     .all()) {
-    let set = images.get(row.pid);
-    if (!set) images.set(row.pid, (set = new Set()));
-    set.add(row.src);
+    let list = images.get(row.pid);
+    if (!list) images.set(row.pid, (list = []));
+    list.push({ src_url: row.src || null, hash: row.hash || null });
   }
 
   const dismissed = new Set();
@@ -175,11 +185,12 @@ export function scorePair(a, b, ctx = {}) {
   const ia = ctx.images?.get(a.id);
   const ib = ctx.images?.get(b.id);
   if (ia && ib) {
-    for (const src of ia) {
-      if (ib.has(src)) {
-        add(SIGNALS.image, 'photo shared');
-        break;
-      }
+    const shared = sharedImages(ia, ib).count;
+    if (shared) {
+      add(
+        SIGNALS.image + (shared >= 2 ? SIGNALS.image2 : 0),
+        shared === 1 ? 'photo shared' : `${shared} photos shared`
+      );
     }
   }
 
