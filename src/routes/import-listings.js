@@ -23,7 +23,7 @@ import { normaliseListing } from '../scrape/normalise.js';
 import { finishRow } from '../scrape/ingest.js';
 import { inBand } from '../scrape/score.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
-import { processImages } from '../scrape/images.js';
+import { settleImport } from '../scrape/settle.js';
 import { createCtx as createFetchCtx } from '../scrape/fetch.js';
 import { AREAS } from '../areas.js';
 import { strictSchemas, saveImage, imagesDirFor, jsonArray } from './_common.js';
@@ -334,17 +334,49 @@ export default async function importListingsRoutes(app, opts) {
         }
       }
 
-      // Download every images[].src_url entry still missing a file (cloudfront-style CDN
-      // urls are expected to be reachable even though the listing page itself was not;
-      // a failure just leaves that entry without a file, counted below, not thrown).
-      // Runs in the background: a batch of 50 listings can mean 500 downloads at one per second,
-      // far longer than the proxy's request timeout. The response reports the queued count.
+      // Settle the batch in the background (src/scrape/settle.js): dedupe on the cheap
+      // evidence first, probe one hero image per surviving row, merge whatever turns out
+      // to be a villa we already have, and only then download the remaining galleries —
+      // a duplicate must not cost 20 downloads it is about to lose ("make sure you dont
+      // get dups before downloading images"). Runs in the background: a batch of 50
+      // listings can mean 500 downloads at one per second, far longer than the proxy's
+      // request timeout. The response reports the queued count; a `settle` run row
+      // records what the job did.
       const ctx = createCtx({ db, config, log: app.log });
       const queuedIds = ids.slice();
-      setImmediate(() => {
-        processImages(db, ctx, { ids: queuedIds, imagesDir })
-          .then((r) => app.log.info({ source, ...r }, 'import-listings: background image download done'))
-          .catch((err) => app.log.error({ err, source }, 'import-listings: background image download failed'));
+      setImmediate(async () => {
+        let settleRunId = null;
+        try {
+          settleRunId = startRun(db, 'settle', [source]);
+          const summary = await settleImport(db, ctx, { ids: queuedIds, imagesDir, log: app.log });
+          const settleNotes = [
+            `merged_early=${summary.merged_early}`,
+            `merged_by_hero=${summary.merged_by_hero}`,
+            `merged_late=${summary.merged_late}`,
+            `galleries_downloaded=${summary.galleries_downloaded}`,
+            `files_removed=${summary.files_removed}`,
+          ];
+          for (const m of summary.merges) {
+            settleNotes.push(`kept #${m.kept_id} <- merged #${m.merged_id} (${m.reason})`);
+          }
+          finishRun(db, settleRunId, {
+            seen: queuedIds.length,
+            gone: summary.merged_early + summary.merged_by_hero + summary.merged_late,
+            notes: settleNotes,
+            errors: summary.errors,
+          });
+        } catch (err) {
+          // settleImport swallows its own step failures; this catches the rest (a closed
+          // db, a finishRun that can no longer write) so the job never rejects.
+          try {
+            app.log.error({ err, source }, 'import-listings: background settle failed');
+            if (settleRunId != null) {
+              finishRun(db, settleRunId, { seen: queuedIds.length, errors: [String((err && err.message) || err)] });
+            }
+          } catch {
+            /* nothing left to report to */
+          }
+        }
       });
       const downloaded = 0;
       const imagesFailed = embeddedFailed;
@@ -355,6 +387,7 @@ export default async function importListingsRoutes(app, opts) {
         `images_queued=${queuedIds.length}`,
         `images_failed=${imagesFailed}`,
         `out_of_band=${outOfBand}`,
+        'settle=queued',
       ];
 
       const runId = startRun(db, 'scrape', [source]);
@@ -370,6 +403,7 @@ export default async function importListingsRoutes(app, opts) {
         images_downloaded: downloaded,
         images_queued: queuedIds.length,
         images_failed: imagesFailed,
+        settle_queued: true,
         ids,
       };
     }
