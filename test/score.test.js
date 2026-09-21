@@ -98,12 +98,22 @@ test('hardFilters — beach distance is soft: never fails; unknown is recorded',
   assert.deepEqual(unknown.unknowns, ['beach_unknown']);
 });
 
-test('hardFilters — style and construction', () => {
+test('hardFilters — style is hard, no red flag is', () => {
   assert.deepEqual(hardFilters({ ...base(), style: 'balinese_old' }).fails, ['style']);
   assert.equal(hardFilters({ ...base(), style: 'joglo' }).pass, true);
-  assert.deepEqual(hardFilters({ ...base(), red_flags: '["construction"]' }).fails, ['construction']);
-  assert.deepEqual(hardFilters({ ...base(), red_flags: ['construction'] }).fails, ['construction']);
+  // construction stopped excluding on 2026-09-22 — the keyword hits too much (SPEC §2).
+  assert.equal(hardFilters({ ...base(), red_flags: '["construction"]' }).pass, true);
+  assert.equal(hardFilters({ ...base(), red_flags: ['construction'] }).pass, true);
   assert.equal(hardFilters({ ...base(), red_flags: '["main_road"]' }).pass, true, 'main_road is not a hard filter');
+});
+
+test('scoreRow — a construction flag stays in filter but is never featured', () => {
+  const row = { ...base(), pool: 1, garden: 1, view: 'ocean', living_open: 1, airy: 1, red_flags: ['construction'] };
+  const got = scoreRow(row);
+  assert.equal(got.scope, 'in_filter');
+  assert.ok(got.fit_score >= 65, 'the row scores well enough to be flagged but for the red flag');
+  assert.equal(got.flagged, 0);
+  assert.deepEqual(got.red_flags, ['construction']);
 });
 
 test('hardFilters — several failures are all reported', () => {
