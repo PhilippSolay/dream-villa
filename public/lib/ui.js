@@ -171,7 +171,18 @@ export function redFlagLabel(flag) {
   return String(flag).replace(/^custom:/, '').replace(/[_-]/g, ' ');
 }
 
-export function statusPill(status) {
+/** How long a listing wears its New badge. After a day it is simply a listing. */
+const NEW_FOR_MS = 86_400_000;
+
+/**
+ * The stage pill. Pass `firstSeen` and the New badge expires with it: a listing is only
+ * new for its first day, after which the card's age line ("3d") says all there is to say.
+ */
+export function statusPill(status, firstSeen = null) {
+  if (status === 'new' && firstSeen) {
+    const ms = Date.now() - new Date(firstSeen).getTime();
+    if (Number.isFinite(ms) && ms >= NEW_FOR_MS) return '';
+  }
   return html`<span class="pill pill-${raw(esc(status))}">${STATUS_LABELS[status] || status}</span>`;
 }
 

@@ -109,7 +109,7 @@ export function cardHtml(p, areas, { reason = false, removal = false, viewer = n
           ? html`<img src="${p.hero_url}" alt="" loading="lazy" decoding="async" />`
           : html`<span class="placeholder">No photo yet</span>`}
         <span class="card-badges">
-          ${statusPill(p.status)}
+          ${statusPill(p.status, p.first_seen)}
           ${removed
             ? html`<span class="pill pill-removed" title="Removed${p.removed_at ? ` · ${dayLabel(p.removed_at)}` : ''}">Removed</span>`
             : ''}

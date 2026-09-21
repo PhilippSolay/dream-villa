@@ -75,7 +75,7 @@ export async function mountDetail(el, ctx) {
         <span class="muted">${areaLabel}${p.sub_area ? ` · ${p.sub_area}` : ''}</span>
         ${p.beach_km != null ? html`<span class="mono muted">${beachLabel(p.beach_km)}</span>` : ''}
         ${p.bedrooms != null ? html`<span class="mono muted">${p.bedrooms} BR${p.extra_rooms ? ` +${p.extra_rooms}` : ''}</span>` : ''}
-        ${statusPill(p.status)}
+        ${statusPill(p.status, p.first_seen)}
         ${p.flagged ? html`<span class="pill pill-flagged">Featured</span>` : ''}
         ${(p.red_flags || []).map((f) => html`<span class="pill pill-flag">${redFlagLabel(f)}</span>`)}
         ${fitRing(p.fit_score, 44)}
