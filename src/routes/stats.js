@@ -161,8 +161,15 @@ export default async function statsRoutes(app, { db, env = process.env }) {
 
     // daily
     const newByDate = toDateMap(db.prepare("SELECT date(first_seen, '+8 hours') AS d, COUNT(*) AS n FROM properties GROUP BY d").all());
+    // Dated by `removed_at` (when we found out it was gone), falling back to `last_seen`
+    // for rows removed before migration 006 — which is what `last_seen` meant then.
     const goneByDate = toDateMap(
-      db.prepare("SELECT date(last_seen, '+8 hours') AS d, COUNT(*) AS n FROM properties WHERE availability = 'gone' GROUP BY d").all()
+      db
+        .prepare(
+          `SELECT date(COALESCE(removed_at, last_seen), '+8 hours') AS d, COUNT(*) AS n
+             FROM properties WHERE availability = 'gone' GROUP BY d`
+        )
+        .all()
     );
     const runsByDate = toDateMap(
       db.prepare("SELECT date(finished_at, '+8 hours') AS d, COUNT(*) AS n FROM runs WHERE finished_at IS NOT NULL GROUP BY d").all()

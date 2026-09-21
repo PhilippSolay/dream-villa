@@ -7,7 +7,7 @@ import multipart from '@fastify/multipart';
 
 import { getConfig, nowIso } from '../db.js';
 import { AREAS, nearestBeach } from '../areas.js';
-import { STATUSES } from '../defaults.js';
+import { STATUSES, REMOVAL_REASONS } from '../defaults.js';
 import { parseRow, upsertProperty } from '../scrape/store.js';
 import { reasonsFor } from '../scrape/score.js';
 import { finishRow } from '../scrape/ingest.js';
@@ -44,6 +44,20 @@ const FEATURE_SQL = {
 };
 const FEATURES = Object.keys(FEATURE_SQL);
 
+// Removal, in SQL (SPEC §16). `removed_at`/`removed_reason` are stored from migration
+// 006 on; COALESCE keeps rows removed before it readable, by the same fallback
+// `removalOf()` uses on the way out.
+const LIVE_SQL = "availability IS NULL OR availability NOT IN ('gone', 'unlisted')";
+const REMOVED_SQL = "availability IN ('gone', 'unlisted') OR status = 'gone'";
+const MERGED_SQL = "json_extract(raw, '$.merged_into') IS NULL";
+const REMOVED_AT_SQL = `COALESCE(removed_at, CASE
+  WHEN availability IN ('gone', 'unlisted') THEN last_seen
+  WHEN status = 'gone' THEN status_at END)`;
+const REMOVED_REASON_SQL = `COALESCE(removed_reason, CASE
+  WHEN availability = 'unlisted' THEN 'unlisted'
+  WHEN availability = 'gone' THEN 'delisted'
+  WHEN status = 'gone' THEN 'taken' END)`;
+
 /** NULLs sort last everywhere: an unpriced or un-measured row is not "cheapest"/"closest". */
 const SORT_SQL = {
   fit: 'fit_score IS NULL, fit_score DESC, price_month_idr IS NULL, price_month_idr ASC, id DESC',
@@ -51,6 +65,8 @@ const SORT_SQL = {
   beach: 'beach_km IS NULL, beach_km ASC, id DESC',
   new: 'first_seen DESC, id DESC',
   size: 'build_m2 IS NULL, build_m2 DESC, land_m2 IS NULL, land_m2 DESC, id DESC',
+  // The archive's own order: what went most recently, first.
+  removed: `${REMOVED_AT_SQL} IS NULL, ${REMOVED_AT_SQL} DESC, id DESC`,
 };
 
 const AREA_IDS = [...Object.keys(AREAS), 'other'];
@@ -84,19 +100,51 @@ const nullableString = { type: ['string', 'null'] };
 // Shared shaping
 // ---------------------------------------------------------------------------
 
-/** parseRow minus `raw` (debug-only and large), plus the two computed fields the UI needs. */
+/** True when the listing is off the market, from either source (SPEC §15.4). */
+function isRemovedRow(row) {
+  return row.availability === 'gone' || row.availability === 'unlisted' || row.status === 'gone';
+}
+
+/**
+ * When the listing went and why (SPEC §16). Both are stored from migration 006 on;
+ * rows removed before it fall back to the old inference — `last_seen` was the detection
+ * moment for a scraper removal, `status_at` for a person-set one.
+ */
+function removalOf(row) {
+  if (!isRemovedRow(row)) return { at: null, reason: null };
+  if (row.removed_at) return { at: row.removed_at, reason: row.removed_reason || null };
+  if (row.availability === 'gone' || row.availability === 'unlisted') {
+    return { at: row.last_seen, reason: row.availability === 'unlisted' ? 'unlisted' : 'delisted' };
+  }
+  return { at: row.status_at, reason: 'taken' };
+}
+
+/** Whole days between two ISO stamps, or null when either is missing. */
+function daysBetween(fromIso, toIso) {
+  if (!fromIso || !toIso) return null;
+  const ms = Date.parse(toIso) - Date.parse(fromIso);
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, Math.round(ms / 86_400_000));
+}
+
+/** parseRow minus `raw` (debug-only and large), plus the computed fields the UI needs. */
 export function publicRow(row) {
   const parsed = parseRow(row);
   delete parsed.raw;
-  // `removed_at`: computed, not stored — gone/unlisted rows carry the date they were
-  // last actually seen, which is when the removal was detected (SPEC §3 last_seen).
-  const removedAt =
-    parsed.availability === 'gone' || parsed.availability === 'unlisted'
-      ? parsed.last_seen
-      : parsed.status === 'gone'
-        ? parsed.status_at
-        : null;
-  return { ...parsed, hero_url: heroUrl(parsed), reasons: reasonsFor(parsed), removed_at: removedAt };
+  const removal = removalOf(parsed);
+  return {
+    ...parsed,
+    hero_url: heroUrl(parsed),
+    reasons: reasonsFor(parsed),
+    removed_at: removal.at,
+    removed_reason: removal.reason,
+    // How long the villa was on the market before it went — the archive's whole point.
+    // `last_seen` is the last sighting, so a scraper removal measures to the sighting;
+    // a person-set one has no sighting to lean on and measures to the tap.
+    days_live: removal.at
+      ? daysBetween(parsed.first_seen, removal.reason === 'taken' ? removal.at : parsed.last_seen)
+      : null,
+  };
 }
 
 // --- shared search: per-person verdicts -------------------------------------
@@ -293,6 +341,8 @@ const listQuerySchema = {
     q: { type: 'string', maxLength: 120 },
     hide_gone: { type: 'integer', enum: [0, 1] },
     removed: { type: 'string', enum: ['hide', 'show', 'only'] },
+    removed_reason: { type: 'string' },
+    removed_days: { type: 'integer', minimum: 1, maximum: 3650 },
     max_age_days: { type: 'integer', minimum: 1, maximum: 365 },
     verdict: { type: 'string', enum: VERDICT_FILTERS },
     my_verdict: { type: 'string', enum: MY_VERDICT_FILTERS },
@@ -439,8 +489,28 @@ function buildListWhere(query) {
     removed = hideGoneCompat === 1 ? 'hide' : 'show';
   }
   // A person-set status of `gone` (the agent said it is taken) counts as removed too.
-  if (removed === 'hide') where.push("(availability IS NULL OR availability NOT IN ('gone', 'unlisted')) AND status != 'gone'");
-  else if (removed === 'only') where.push("(availability IN ('gone', 'unlisted') OR status = 'gone')");
+  if (removed === 'hide') where.push(`(${LIVE_SQL}) AND status != 'gone'`);
+  else if (removed === 'only') where.push(`(${REMOVED_SQL})`);
+  // A row folded away by dedupe is `gone` too, but it is bookkeeping — the same villa
+  // is still in the list under the keeper's row. It never belongs in an archive of what
+  // left the market, so it drops out of both `show` and `only` (SPEC §16).
+  if (removed !== 'hide') where.push(MERGED_SQL);
+
+  // Removal filters, only meaningful once removed rows are in play.
+  const reasons = listParam(query.removed_reason);
+  if (reasons) {
+    const bad = reasons.filter((r) => !REMOVAL_REASONS.includes(r));
+    if (bad.length) return { error: `unknown removed_reason: ${bad.join(', ')}` };
+    where.push(`${REMOVED_REASON_SQL} IN (${placeholders(reasons)})`);
+    params.push(...reasons);
+  }
+
+  // "Gone within the last N days" — the archive's own window, the mirror of max_age_days.
+  if (query.removed_days !== undefined) {
+    const cutoff = new Date(Date.now() - query.removed_days * 86_400_000).toISOString();
+    where.push(`${REMOVED_AT_SQL} >= ?`);
+    params.push(cutoff);
+  }
 
   return { where, params, removed };
 }
@@ -476,6 +546,25 @@ function countsByProperty(db, ids) {
     for (const r of rows) if (out.has(r.property_id)) out.get(r.property_id)[table] = r.n;
   }
   return out;
+}
+
+/**
+ * Tapping Gone is a removal like any other (SPEC §16), so it gets the same stamp the
+ * scraper writes. A row the scraper already removed keeps that record: the scraper found
+ * out first, and its date is the closer one. Moving the status back off Gone clears the
+ * stamp only when the person set it — an `availability` of gone/unlisted is the source's
+ * word, and a status tap does not overrule it.
+ */
+function stampPersonRemoval(db, id, before, next, now) {
+  if (next === 'gone') {
+    if (before.removed_at == null) {
+      db.prepare("UPDATE properties SET removed_at = ?, removed_reason = 'taken' WHERE id = ?").run(now, id);
+    }
+    return;
+  }
+  if (before.status === 'gone' && before.removed_reason === 'taken') {
+    db.prepare("UPDATE properties SET removed_at = NULL, removed_reason = NULL WHERE id = ?").run(id);
+  }
 }
 
 /**
@@ -522,8 +611,7 @@ export default async function propertiesRoutes(app, opts) {
     // within each group (SPEC filter drawer "Removed"). Only the explicit new param
     // triggers this: `hide_gone=0` keeps its old, purely-a-filter behaviour so an
     // existing integration's sort order is not silently rearranged underneath it.
-    const removedSecondary =
-      query.removed === 'show' ? "CASE WHEN availability IN ('gone', 'unlisted') OR status = 'gone' THEN 1 ELSE 0 END, " : '';
+    const removedSecondary = query.removed === 'show' ? `CASE WHEN ${REMOVED_SQL} THEN 1 ELSE 0 END, ` : '';
     const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
     if (query.verdict) {
       const v = verdictWhere(query.verdict, request.user.id);
@@ -781,9 +869,12 @@ export default async function propertiesRoutes(app, opts) {
     },
     async (request, reply) => {
       const { id } = request.params;
-      if (!getProperty(db, id)) return notFound(reply);
+      const before = getProperty(db, id);
+      if (!before) return notFound(reply);
+      const now = nowIso();
       db.prepare('UPDATE properties SET status = ?, status_by = ?, status_at = ? WHERE id = ?')
-        .run(request.body.status, request.user.id, nowIso(), id);
+        .run(request.body.status, request.user.id, now, id);
+      stampPersonRemoval(db, id, before, request.body.status, now);
       rescoreOne(db, id);
       return rowPayload(db, id);
     }

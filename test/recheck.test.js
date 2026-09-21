@@ -133,7 +133,11 @@ test('recheckAll — a 404 marks the row gone', async () => {
     assert.deepEqual(res.gone, [id]);
     const row = t.db.prepare('SELECT * FROM properties WHERE id = ?').get(id);
     assert.equal(row.availability, 'gone');
-    assert.equal(row.last_seen, '2026-09-17T00:00:00.000Z');
+    assert.equal(row.removed_at, '2026-09-17T00:00:00.000Z');
+    assert.equal(row.removed_reason, 'delisted');
+    // `last_seen` still means the last time the source showed us the listing — the
+    // archive needs it to say how long the villa was live (SPEC §16).
+    assert.equal(row.last_seen, '2026-09-01T00:00:00.000Z');
   } finally {
     cleanup(t);
   }

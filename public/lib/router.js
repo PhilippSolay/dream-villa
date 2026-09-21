@@ -1,4 +1,4 @@
-// Hash router: #/, #/p/:id, #/market, #/map, #/agent, #/login.
+// Hash router: #/, #/p/:id, #/shared, #/map, #/market, #/gone, #/agent, #/login.
 // Views are `async mount(el, ctx) -> unmount()`. Home's scroll position survives a detour.
 
 const ROUTES = [
@@ -7,6 +7,7 @@ const ROUTES = [
   { path: '/shared', name: 'shared', match: /^\/shared$/ },
   { path: '/market', name: 'market', match: /^\/market$/ },
   { path: '/map', name: 'map', match: /^\/map$/ },
+  { path: '/gone', name: 'gone', match: /^\/gone$/ },
   { path: '/agent', name: 'agent', match: /^\/agent$/ },
   { path: '/login', name: 'login', match: /^\/login$/ },
 ];

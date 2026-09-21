@@ -42,3 +42,7 @@ export const RED_FLAGS = ['construction', 'main_road', 'balinese_old', 'over_bud
 // detection lives in `availability`. Lists hide both unless asked (removed=).
 export const STATUSES = ['new', 'shortlist', 'contacted', 'viewing_booked', 'viewed', 'offer', 'rejected', 'gone'];
 export const ACTIVE_STATUSES = ['shortlist', 'contacted', 'viewing_booked', 'viewed', 'offer'];
+
+// Why a listing left the market, stored in `removed_reason` alongside `removed_at`
+// (migration 006). Kept so the archive can say what happened, not just that it went.
+export const REMOVAL_REASONS = ['delisted', 'archived', 'unlisted', 'taken', 'merged'];

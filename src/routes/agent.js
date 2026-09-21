@@ -253,7 +253,9 @@ export default async function agentRoutes(app, { db, env = process.env, rateLimi
       }
     }
 
-    const goneRows = db.prepare("SELECT id, ref, title FROM properties WHERE availability = 'gone' AND last_seen > ?").all(since);
+    const goneRows = db
+      .prepare("SELECT id, ref, title FROM properties WHERE availability = 'gone' AND COALESCE(removed_at, last_seen) > ?")
+      .all(since);
     for (const row of goneRows) changes.push({ id: row.id, ref: row.ref, title: row.title, what: 'gone' });
 
     const statusRows = db

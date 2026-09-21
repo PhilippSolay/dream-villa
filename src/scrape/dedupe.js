@@ -338,8 +338,11 @@ function mergeOne(db, keep, drop, reason, now, by = null) {
   raw.merged_reason = reason;
   if (by != null) raw.merged_by = by;
 
-  db.prepare('UPDATE properties SET availability = ?, last_seen = ?, raw = ? WHERE id = ?')
-    .run('gone', now, JSON.stringify(raw), drop.id);
+  // `removed_reason = 'merged'` keeps this row out of the archive (SPEC §16): it is
+  // bookkeeping, not a villa that got away.
+  db.prepare(
+    'UPDATE properties SET availability = ?, last_seen = ?, removed_at = ?, removed_reason = ?, raw = ? WHERE id = ?'
+  ).run('gone', now, now, 'merged', JSON.stringify(raw), drop.id);
 
   return { kept_id: keep.id, merged_id: drop.id, reason };
 }

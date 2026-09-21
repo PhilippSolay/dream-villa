@@ -105,6 +105,21 @@ enabled adapter, images, geocode, dedupe, score, recheck, learn — then an in-p
 backup (`data/backups/villa-<date>.db`, keep 14). Overlapping ticks are skipped, not
 queued. `SCRAPE_CRON=off` disables it.
 
+## The archive (Gone)
+
+A listing is never deleted. When a source stops offering it — the detail page 404s
+(`delisted`), the page says unavailable (`archived`), it drops off the index for three
+days (`unlisted`) — or a person taps Gone because the agent said it is taken (`taken`),
+the row is stamped with `removed_at` and `removed_reason` and moves to the **Gone** tab
+(`#/gone`), where it says how long it was live and whether either of you ever called it.
+`last_seen` stays the last real sighting, so "live 11 days" is a real figure. Duplicates
+folded away by dedupe (`merged`) never appear there. See SPEC §16.
+
+```
+GET /api/properties?removed=only&sort=removed&removed_days=30
+GET /api/properties?removed=only&removed_reason=delisted,archived
+```
+
 ## Deploy
 
 VPS: Hostinger, `/opt/villa`, behind the existing Traefik (`proxy` network,

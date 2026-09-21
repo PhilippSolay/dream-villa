@@ -87,14 +87,15 @@ export async function recheckAll(db, ctx, adaptersById = {}, { now = nowIso(), l
       // parse failure, and marking every tracked villa gone because a site changed its
       // markup would be far worse than a missed update, so that is an error instead.
       if (d && d.gone) {
-        markGone(db, row.id, now);
+        // The page is still up but says so itself (Bali Home Immo's `is_archived`).
+        markGone(db, row.id, now, 'archived');
         out.gone.push(row.id);
         continue;
       }
       if (!d) {
         const status = fctx.statuses ? fctx.statuses.get(row.url) : undefined;
         if (GONE_STATUS.has(status)) {
-          markGone(db, row.id, now);
+          markGone(db, row.id, now, 'delisted');
           out.gone.push(row.id);
         } else {
           out.errors.push(`${row.ref || row.id}: no listing data in a ${status ?? 'n/a'} response — left as is`);

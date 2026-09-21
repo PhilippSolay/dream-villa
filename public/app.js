@@ -37,6 +37,7 @@ const TABS = [
   { route: 'shared', href: '#/shared', label: 'Shared', icon: icons.users },
   { route: 'map', href: '#/map', label: 'Map', icon: icons.map },
   { route: 'market', href: '#/market', label: 'Market', icon: icons.chart },
+  { route: 'gone', href: '#/gone', label: 'Gone', icon: icons.archive },
   { route: 'agent', href: '#/agent', label: 'Agent', icon: icons.robot },
 ];
 
@@ -83,6 +84,7 @@ const VIEWS = {
   home: () => import('./views/home.js').then((m) => m.mountHome),
   shared: () => import('./views/shared.js').then((m) => m.mountShared),
   detail: () => import('./views/detail.js').then((m) => m.mountDetail),
+  gone: () => import('./views/gone.js').then((m) => m.mountGone),
   login: () => import('./views/login.js').then((m) => m.mountLogin),
   agent: () => import('./views/agent.js').then((m) => m.mountAgent),
   market: () => loadOptional('./views/market.js', 'mountMarket', 'Market view not available yet'),

@@ -90,6 +90,7 @@ export const icons = {
   map: () => svg('<path d="M3.5 5.6 7.5 4l5 1.8 4-1.6v10.2l-4 1.6-5-1.8-4 1.6Z"/><path d="M7.5 4v12.2M12.5 5.8V18"/>'),
   chart: () => svg('<path d="M3.5 16.5h13"/><path d="M6 13.5V9M10 13.5V5M14 13.5v-5"/>'),
   robot: () => svg('<rect x="4" y="7" width="12" height="8" rx="2.4"/><path d="M10 4v3"/><circle cx="7.8" cy="11" r=".9"/><circle cx="12.2" cy="11" r=".9"/>'),
+  archive: () => svg('<rect x="3.2" y="3.8" width="13.6" height="3.4" rx="1.1"/><path d="M4.6 7.2v7.9a1.4 1.4 0 0 0 1.4 1.4h8a1.4 1.4 0 0 0 1.4-1.4V7.2"/><path d="M8.2 10.3h3.6"/>'),
 };
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,15 @@ export const STATUS_LABELS = {
   offer: 'Offer',
   rejected: 'Rejected',
   gone: 'Gone',
+};
+
+/** Why a listing left the market (SPEC §16 `removed_reason`), in plain words. */
+export const REMOVAL_LABELS = {
+  delisted: 'Page taken down',
+  archived: 'Marked unavailable',
+  unlisted: 'Dropped off the site',
+  taken: 'Agent said taken',
+  merged: 'Merged duplicate',
 };
 
 export const FEATURE_LABELS = {
@@ -210,6 +220,19 @@ export function dayLabel(iso) {
   const d = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
   if (Number.isNaN(d.getTime())) return iso;
   return new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: 'numeric', month: 'short' }).format(d);
+}
+
+/** An elapsed span in the card's shorthand: "today", "3d ago", "5w ago", "4mo ago". */
+export function agoLabel(iso) {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return null;
+  const days = Math.max(0, Math.floor(ms / 86_400_000));
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  if (days < 60) return `${Math.max(1, Math.round(days / 7))}w ago`;
+  return `${Math.max(1, Math.round(days / 30))}mo ago`;
 }
 
 export function durationLabel(startIso, endIso) {

@@ -15,9 +15,9 @@
 //    `config.band` (same as /api/market). Two metrics deliberately step outside it:
 //    `cross_source_gaps` (a merged row is merged by definition, so it can never pass
 //    the non-merged test) and nothing else.
-//  - "removed" = `availability IN ('gone','unlisted')`. `last_seen` is when the row
-//    was last confirmed, so it is the best available proxy for the removal date —
-//    said out loud in the response's `notes`.
+//  - "removed" = `availability IN ('gone','unlisted')`. The removal is dated by
+//    `removed_at` (SPEC §16), and time on market runs first_seen → last_seen, which is
+//    now genuinely the last sighting — said out loud in the response's `notes`.
 //  - calendar months and ISO weeks are Asia/Makassar (UTC+8, no DST), like stats.js.
 //  - `source_share`'s two share columns are each source's share OF the in-filter (resp.
 //    flagged) pool — they sum to ~100 across sources, which is what "where the good
@@ -248,6 +248,8 @@ function dayDiff(fromIso, toIso) {
 }
 
 const isRemoved = (r) => REMOVED_STATES.has(r.availability);
+/** When the row left the market: the stored stamp, or `last_seen` for pre-006 rows. */
+const removedAt = (r) => r.removed_at || r.last_seen;
 
 // ---------------------------------------------------------------------------
 // The thirteen metrics
@@ -302,7 +304,7 @@ function buildSupplyFlow(base, today) {
 
   for (const r of base) {
     bump(isoWeek(r.first_seen), r.area || 'other', 'new');
-    if (isRemoved(r)) bump(isoWeek(r.last_seen), r.area || 'other', 'removed');
+    if (isRemoved(r)) bump(isoWeek(removedAt(r)), r.area || 'other', 'removed');
   }
 
   const areaList = ['all', ...[...areas].sort()];
@@ -625,7 +627,7 @@ function buildNegotiableShare(base) {
 
 const SELECT_COLUMNS = `id, key, ref, source, url, title, description, notes, area, sub_area,
        bedrooms, price_month_idr, price_year_idr, term, build_m2, beach_km, inclusions,
-       availability, available_from, first_seen, last_seen, price_history,
+       availability, available_from, first_seen, last_seen, removed_at, removed_reason, price_history,
        scope, flagged, raw`;
 
 export default async function marketMetricsRoutes(app, opts) {
@@ -677,7 +679,7 @@ export default async function marketMetricsRoutes(app, opts) {
       negotiable_share: buildNegotiableShare(base),
       notes: {
         removed:
-          "A listing counts as removed when availability is 'gone' or 'unlisted'. `last_seen` is when it was last confirmed on the source, so it is used as the removal date — the real one is somewhere between that day and the next scrape.",
+          "A listing counts as removed when availability is 'gone' or 'unlisted'. The removal is dated by `removed_at` — the day we found the listing gone. Time on market runs from `first_seen` to `last_seen`, the last day the source actually showed it, so the real figure is somewhere between that and the removal date.",
         base: 'All figures except cross_source_gaps run over non-merged, priced listings inside the aggregation band.',
         yearly_discount: "Only listings whose term is 'both' count; a monthly price derived from a yearly one would always show 0 %.",
         source_share: 'The two share columns are each source’s share of the in-filter (resp. flagged) pool, so they add up to 100 %.',

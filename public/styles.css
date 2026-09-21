@@ -289,7 +289,7 @@ small, .small { font-size: 13px; }
   bottom: calc(var(--tabbar-inset) + env(safe-area-inset-bottom, 0px));
   z-index: 40;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   height: var(--tabbar-h);
   padding: 6px;
   border-radius: 999px;
@@ -327,6 +327,10 @@ small, .small { font-size: 13px; }
 .tab[aria-current='page']::before { opacity: 1; transform: none; }
 .tab[aria-current='page'] .icon { transform: translateY(-1px); }
 .tab:active .icon { transform: scale(0.9); }
+/* Six tabs on a 360 px phone leaves ~53 px each — the label has to give a little. */
+@media (max-width: 400px) {
+  .tab { font-size: 9.5px; letter-spacing: 0; gap: 2px; }
+}
 
 main.view {
   padding: 14px 14px calc(var(--tabbar-h) + var(--tabbar-inset) * 2 + 24px);
@@ -1734,3 +1738,31 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
     bottom: 16px;
   }
 }
+
+/* --- the archive: what left the market (villa-gone-archive) ---------------- */
+
+/* On a card: when it went, how long it lasted, and why. */
+.card-removal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.gone-page { display: block; }
+.gone-intro { margin: -6px 2px 10px; font-size: 14px; max-width: 62ch; }
+.gone-hint { margin: 2px 2px 10px; max-width: 62ch; }
+/* Two segmented controls do not fit side by side on a phone: each takes its own row,
+   and a control still wider than the screen scrolls rather than falling off it. */
+.gone-toolbar { flex-wrap: wrap; gap: 8px; }
+.gone-toolbar .seg { flex: 1 1 100%; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.gone-toolbar .seg::-webkit-scrollbar { display: none; }
+.gone-toolbar .seg button { flex: 1 0 auto; white-space: nowrap; }
+@media (min-width: 720px) {
+  .gone-toolbar .seg { flex: 0 1 auto; }
+}
+.gone-summary { margin: 0 2px 8px; font-size: 12.5px; color: var(--muted); }
+.gone-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 2px 14px; }
+.gone-reasons .chip { gap: 7px; }
+.gone-reasons b { color: var(--ink); font-weight: 500; }

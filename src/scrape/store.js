@@ -7,6 +7,9 @@ import { scoreRow } from './score.js';
 import { nearestBeach } from '../areas.js';
 import { mapUrl } from './pins.js';
 
+/** `availability` values that mean the listing is off the market (SPEC §16). */
+const REMOVED_AVAILABILITY = new Set(['gone', 'unlisted']);
+
 /**
  * Fields a person can hand-edit (SPEC §4 PATCH /api/properties/:id, plus the
  * fields the scraper only ever *seeds*: pin/beach and the initial red flags).
@@ -137,6 +140,15 @@ function updateProperty(db, existing, row, now) {
     if (wasGone !== isGone) changes.push({ what: 'gone' });
   }
 
+  // Back on the market: the source is showing it again, so the removal on record is
+  // over. The row keeps its history (first_seen, price_history); only the archive
+  // stamp is cleared, and `sets.availability` above has already been overwritten with
+  // whatever the source now says. A person-set `status = 'gone'` is theirs and stays.
+  if (REMOVED_AVAILABILITY.has(existing.availability) && row.availability != null && !REMOVED_AVAILABILITY.has(row.availability)) {
+    sets.removed_at = null;
+    sets.removed_reason = null;
+  }
+
   // Person fields: only fill a hole (existing is null); the scraper never overwrites a set value.
   // A null/undefined incoming value has nothing to contribute, so it's skipped rather than
   // writing null-over-null (which would falsely mark the row as changed).
@@ -229,8 +241,18 @@ export function rescoreAll(db, config = getConfig(db)) {
   return { total: rows.length, in_filter, market, flagged };
 }
 
-export function markGone(db, id, now = nowIso()) {
-  db.prepare('UPDATE properties SET availability = ?, last_seen = ? WHERE id = ?').run('gone', now, id);
+/**
+ * The source says this listing is off the market (SPEC §16). `last_seen` is deliberately
+ * NOT moved: it means the last time the source actually showed us the listing, and the
+ * archive needs that to say how long the villa was live before it went. `removed_at` is
+ * when we found out, which is the closest we get to when it actually went.
+ * @param {string} [reason] a REMOVAL_REASONS value
+ */
+export function markGone(db, id, now = nowIso(), reason = 'delisted') {
+  // `flagged = 0` right here rather than at the next rescore: a villa that has left the
+  // market must not still be Featured (SPEC §15.4).
+  db.prepare('UPDATE properties SET availability = ?, removed_at = ?, removed_reason = ?, flagged = 0 WHERE id = ?')
+    .run('gone', now, reason, id);
 }
 
 /**
@@ -253,12 +275,12 @@ export function markUnlisted(db, sourceIds, { now = nowIso(), staleDays = 3 } = 
   const cutoff = new Date(Date.parse(now) - staleDays * 86_400_000).toISOString();
   const info = db
     .prepare(
-      `UPDATE properties SET availability = 'unlisted'
+      `UPDATE properties SET availability = 'unlisted', removed_at = ?, removed_reason = 'unlisted', flagged = 0
         WHERE source IN (${sourceIds.map(() => '?').join(', ')})
           AND (availability IS NULL OR availability NOT IN ('gone', 'unlisted'))
           AND last_seen < ?`
     )
-    .run(...sourceIds, cutoff);
+    .run(now, ...sourceIds, cutoff);
   return { n: info.changes };
 }
 

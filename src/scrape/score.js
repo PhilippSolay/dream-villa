@@ -235,12 +235,16 @@ export function scoreRow(row, config = DEFAULT_CONFIG) {
   if (overBudget && at < 0) red_flags.push('over_budget');
   if (!overBudget && at >= 0) red_flags.splice(at, 1);
 
+  // SPEC §15.4: a gone listing is never flagged — from either source. Featuring a villa
+  // that left the market puts it back in the digest and the Fresh picks it no longer
+  // belongs in; the archive is where it goes instead (SPEC §16).
+  const removed = r.availability === 'gone' || r.availability === 'unlisted' || r.status === 'gone';
   const flagged =
     scope === 'in_filter' &&
     fit_score >= cfg.flag_threshold &&
     red_flags.length === 0 &&
     r.status !== 'rejected' &&
-    r.status !== 'gone'
+    !removed
       ? 1
       : 0;
 

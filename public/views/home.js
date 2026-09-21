@@ -5,7 +5,8 @@ import { filtersToQuery, activeFilterCount, defaultFilters, SORTS, sortOf } from
 import { STAGES, STAGE_ORDER, loadStageQueues } from '../lib/flow.js';
 import {
   $, $$, html, setHtml, toHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing,
-  FEATURE_LABELS, STATUS_LABELS, STYLE_LABELS, openSheet, closeSheet, debounce, makassarDate, makassarTime, dayLabel,
+  FEATURE_LABELS, STATUS_LABELS, STYLE_LABELS, REMOVAL_LABELS, openSheet, closeSheet, debounce,
+  makassarDate, makassarTime, dayLabel, agoLabel,
 } from '../lib/ui.js';
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
@@ -75,12 +76,28 @@ function areaLine(p, areas) {
 }
 
 /**
+ * "Gone 3d ago · live 11 days · Page taken down" — the archive's line (SPEC §16).
+ * Falls back gracefully: a row removed before migration 006 may have no reason, and a
+ * hand-added listing may have no `days_live`.
+ */
+function removalLine(p) {
+  const bits = [];
+  const ago = agoLabel(p.removed_at);
+  bits.push(ago ? `Gone ${ago}` : 'Gone');
+  if (p.days_live != null) bits.push(`live ${p.days_live} ${p.days_live === 1 ? 'day' : 'days'}`);
+  const why = REMOVAL_LABELS[p.removed_reason];
+  if (why) bits.push(why);
+  return html`<div class="card-removal mono">${bits.join(' · ')}</div>`;
+}
+
+/**
  * @param {object} p the listing row
  * @param {Array} areas
- * @param {{reason?: boolean, viewer?: {user: object, users: object[]}|null}} [opts]
+ * @param {{reason?: boolean, removal?: boolean, viewer?: {user: object, users: object[]}|null}} [opts]
  *   `viewer` adds the shared-search foot: both people's calls and the viewer's own control.
+ *   `removal` adds the when-and-why line the Gone archive needs.
  */
-export function cardHtml(p, areas, { reason = false, viewer = null } = {}) {
+export function cardHtml(p, areas, { reason = false, removal = false, viewer = null } = {}) {
   const bedrooms = p.bedrooms == null ? null : `${p.bedrooms} BR${p.extra_rooms ? ` +${p.extra_rooms}` : ''}`;
   const beach = beachLabel(p.beach_km);
   const age = ageLabel(p.first_seen);
@@ -117,6 +134,7 @@ export function cardHtml(p, areas, { reason = false, viewer = null } = {}) {
         ${reason
           ? html`<div class="card-reason">${(p.reasons || []).join(' · ')}</div>`
           : html`<div class="chips">${featureChips(p).map((f) => html`<span class="chip">${f}</span>`)}</div>`}
+        ${removal && removed ? removalLine(p) : ''}
       </div>
     </a>
     ${p.map_url

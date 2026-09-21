@@ -159,6 +159,31 @@ export const MIGRATIONS = [
         by INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );`),
   },
+  // The archive (SPEC §16): a listing that leaves the market keeps its row, and the row
+  // now records *when* it went and *why*, instead of the reader inferring it from
+  // `last_seen`. `last_seen` goes back to meaning what it says — the last time the source
+  // actually showed us the listing — so "it was live for 6 days" is answerable.
+  {
+    name: '006_removed_at',
+    up: (db) => {
+      addColumn(db, 'properties', 'removed_at', 'TEXT');
+      addColumn(db, 'properties', 'removed_reason', 'TEXT');
+      // Backfill what the old rows can still tell us. A gone/unlisted row's `last_seen`
+      // was the detection moment for `gone` and the last sighting for `unlisted`; both
+      // are the best removal date on record, so both become `removed_at`.
+      db.exec(`UPDATE properties
+                  SET removed_at = last_seen,
+                      removed_reason = CASE
+                        WHEN json_extract(raw, '$.merged_into') IS NOT NULL THEN 'merged'
+                        WHEN availability = 'unlisted' THEN 'unlisted'
+                        ELSE 'delisted' END
+                WHERE availability IN ('gone', 'unlisted') AND removed_at IS NULL`);
+      db.exec(`UPDATE properties
+                  SET removed_at = COALESCE(status_at, last_seen), removed_reason = 'taken'
+                WHERE status = 'gone' AND removed_at IS NULL`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_props_removed ON properties(removed_at DESC)');
+    },
+  },
 ];
 
 function runMigrations(db) {

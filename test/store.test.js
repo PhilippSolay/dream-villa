@@ -270,13 +270,19 @@ test('rescoreAll: writes scope/fit_score/flagged consistent with scoreRow and re
 // markGone
 // ---------------------------------------------------------------------------
 
-test('markGone sets availability=gone and last_seen', () => {
+test('markGone stamps the removal and leaves last_seen alone', () => {
   const ctx = tmpDb();
   const { id } = upsertProperty(ctx.db, baseRow(), { now: '2026-09-17T06:00:00.000Z' });
   markGone(ctx.db, id, '2026-09-20T06:00:00.000Z');
-  const row = ctx.db.prepare('SELECT availability, last_seen FROM properties WHERE id = ?').get(id);
+  const row = ctx.db
+    .prepare('SELECT availability, last_seen, removed_at, removed_reason FROM properties WHERE id = ?')
+    .get(id);
   assert.equal(row.availability, 'gone');
-  assert.equal(row.last_seen, '2026-09-20T06:00:00.000Z');
+  assert.equal(row.removed_at, '2026-09-20T06:00:00.000Z');
+  assert.equal(row.removed_reason, 'delisted');
+  // SPEC §16: `last_seen` is the last sighting, not the day we found out it was gone —
+  // without that, "it was live for 3 days" is unanswerable.
+  assert.equal(row.last_seen, '2026-09-17T06:00:00.000Z');
   cleanup(ctx);
 });
 
