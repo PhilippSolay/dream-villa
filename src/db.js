@@ -184,6 +184,21 @@ export const MIGRATIONS = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_props_removed ON properties(removed_at DESC)');
     },
   },
+  // SPEC §2 widened the budget to 20–80 M on 2026-09-20, but `seedConfig` only ever
+  // INSERT OR IGNOREs, so a database seeded before that kept scoring against 25–50 M.
+  // Move it — but only where the old pair is still untouched, so a budget someone set
+  // deliberately afterwards survives. Scope depends on it: the caller rescores (openDb).
+  {
+    name: '007_budget_20_80',
+    up: (db) => {
+      const read = db.prepare('SELECT value FROM config WHERE key = ?');
+      const at = (key) => read.get(key)?.value;
+      if (at('budget_min') !== '25000000' || at('budget_max') !== '50000000') return;
+      const set = db.prepare('UPDATE config SET value = ? WHERE key = ?');
+      set.run(String(DEFAULT_CONFIG.budget_min), 'budget_min');
+      set.run(String(DEFAULT_CONFIG.budget_max), 'budget_max');
+    },
+  },
 ];
 
 function runMigrations(db) {
@@ -193,13 +208,16 @@ function runMigrations(db) {
   );`);
   const done = new Set(db.prepare('SELECT name FROM migrations').all().map((r) => r.name));
   const record = db.prepare('INSERT INTO migrations (name, applied_at) VALUES (?, ?)');
+  const applied = [];
   for (const m of MIGRATIONS) {
     if (done.has(m.name)) continue;
     db.transaction(() => {
       m.up(db);
       record.run(m.name, nowIso());
     })();
+    applied.push(m.name);
   }
+  return applied;
 }
 
 /** Objects/arrays are stored as JSON; scalars as plain strings. */
@@ -260,8 +278,11 @@ export function openDb(dbPath = process.env.DB_PATH || 'data/villa.db') {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  runMigrations(db);
+  const applied = runMigrations(db);
   seedConfig(db);
+  // A migration can move the brief (007) or backfill derived columns (006); every scope
+  // and score is stale until someone rescores. `src/index.js` does it on boot.
+  db.migrationsApplied = applied;
   return db;
 }
 

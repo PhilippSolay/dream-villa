@@ -83,3 +83,40 @@ test('migrations run once and reopening is idempotent', () => {
 test('nowIso is an ISO-8601 timestamp', () => {
   assert.match(nowIso(), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 });
+
+test('007: an old 25–50 M budget is widened to the SPEC brief, a chosen one is left alone', () => {
+  // A database seeded before 2026-09-20 kept the narrow pair; seedConfig never overwrites.
+  const stale = openDb(tmpDbPath());
+  stale.prepare('DELETE FROM migrations WHERE name = ?').run('007_budget_20_80');
+  setConfig(stale, 'budget_min', 25_000_000);
+  setConfig(stale, 'budget_max', 50_000_000);
+  const file = stale.name;
+  stale.close();
+
+  const migrated = openDb(file);
+  assert.deepEqual(migrated.migrationsApplied, ['007_budget_20_80']);
+  assert.equal(getConfig(migrated).budget_min, 20_000_000);
+  assert.equal(getConfig(migrated).budget_max, 80_000_000);
+  migrated.close();
+
+  // A budget someone set deliberately survives the same migration.
+  const chosen = openDb(tmpDbPath());
+  chosen.prepare('DELETE FROM migrations WHERE name = ?').run('007_budget_20_80');
+  setConfig(chosen, 'budget_min', 30_000_000);
+  setConfig(chosen, 'budget_max', 45_000_000);
+  const chosenFile = chosen.name;
+  chosen.close();
+
+  const after = openDb(chosenFile);
+  assert.equal(getConfig(after).budget_min, 30_000_000);
+  assert.equal(getConfig(after).budget_max, 45_000_000);
+  after.close();
+});
+
+test('openDb reports nothing applied on a database that is already current', () => {
+  const file = tmpDbPath();
+  openDb(file).close();
+  const again = openDb(file);
+  assert.deepEqual(again.migrationsApplied, []);
+  again.close();
+});
