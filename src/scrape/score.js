@@ -53,8 +53,9 @@ export function inBand(row, config = DEFAULT_CONFIG) {
 }
 
 /**
- * SPEC §2 hard filters. Beach distance is not one of them (soft, see fitScore); an unknown
- * distance is recorded in `unknowns` so the pin step can revisit it.
+ * SPEC §2 hard filters. Beach distance and construction are not among them (soft — beach
+ * scores, construction only red-flags); an unknown beach distance is recorded in `unknowns`
+ * so the pin step can revisit it.
  * @returns {{pass:boolean, fails:string[], unknowns:string[]}}
  */
 export function hardFilters(row, config = DEFAULT_CONFIG) {
@@ -77,7 +78,9 @@ export function hardFilters(row, config = DEFAULT_CONFIG) {
 
   if (r.style === 'balinese_old') fails.push('style');
 
-  if (asArray(r.red_flags).includes('construction')) fails.push('construction');
+  // Construction is a SOFT signal (Philipp, 2026-09-22): the keyword is too easy to hit —
+  // "brand new construction", "solid construction", a finished build next door — so it never
+  // excludes. The red flag stays on the row, and a red-flagged row is never featured (scoreRow).
 
   return { pass: fails.length === 0, fails, unknowns };
 }

@@ -596,7 +596,7 @@ test('agent-info: construction in planned_builds raises the red flag', async (t)
   assert.equal(res.statusCode, 200);
   const after = (await call({ method: 'GET', url: `/api/properties/${ids.A}` })).json();
   assert.deepEqual(after.red_flags, ['construction']);
-  assert.equal(after.scope, 'market', 'construction is a hard filter (SPEC §2)');
+  assert.equal(after.scope, 'in_filter', 'construction stopped excluding on 2026-09-22 (SPEC §2)');
   assert.equal(after.flagged, 0);
 });
 

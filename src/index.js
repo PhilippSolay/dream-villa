@@ -7,6 +7,7 @@ import { openDb } from './db.js';
 import { seedUsers } from './auth.js';
 import { buildServer } from './server.js';
 import { scheduleScrape } from './scrape/index.js';
+import { rescoreAll } from './scrape/store.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -55,6 +56,14 @@ export async function main() {
 
   const app = await buildServer({ db, env, logger: true });
   const port = Number(env.PORT || 8080);
+
+  // A migration that moves the brief leaves every scope and fit_score stale (db.js).
+  if (db.migrationsApplied?.length) {
+    const n = rescoreAll(db);
+    app.log.info(
+      `migrations ${db.migrationsApplied.join(', ')} — rescored ${n.total}: ${n.in_filter} in filter, ${n.flagged} flagged`
+    );
+  }
 
   let task = null;
   const close = async () => {

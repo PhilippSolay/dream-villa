@@ -15,7 +15,7 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 - budget: `20_000_000 <= price_month_idr <= 80_000_000` (yearly normalised ÷ 12; widened from 25–50 M on 2026-09-20)
 - area: in the target list (§7) — anything else is `market` at best
 - style: `style != 'balinese_old'`
-- neighbours: no known construction next door (`red_flags` does not contain `construction`)
+- ~~neighbours~~: **soft** since 2026-09-22 — the `construction` keyword is too easy to hit ("brand new construction", "solid construction", a neighbour's build that is already finished), so it no longer excludes. The flag is still raised — by the scraper's text rules, by agent info, and by a viewing with `construction_nearby >= 4` — and any red flag still keeps a villa out of the flagged set (§2 Flag rule below), so a real building site is de-featured rather than hidden.
 - furnishing: any (unfurnished gets `notes` hint "unfurnished — add furnishing budget")
 - availability: any
 - ~~beach~~: **soft** since 2026-09-17 — beach distance never excludes a listing; it is scored (see `beach` row below). `beach_km_max` (4) only sets the scale midpoint and the UI's default slider. Pool is likewise a scored preference, never a filter.
