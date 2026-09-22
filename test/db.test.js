@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { openDb, getConfig, setConfig, nowIso, MIGRATIONS } from '../src/db.js';
 import { DEFAULT_WEIGHTS } from '../src/defaults.js';
+import { AREAS } from '../src/areas.js';
 
 const TABLES = [
   'users', 'properties', 'contacts', 'property_contacts', 'agent_info', 'viewings',
@@ -119,4 +120,47 @@ test('openDb reports nothing applied on a database that is already current', () 
   const again = openDb(file);
   assert.deepEqual(again.migrationsApplied, []);
   again.close();
+});
+
+test('008: the Canggu belt joins an untouched target list, a hand-edited one is left alone', () => {
+  const BEFORE = [
+    'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit',
+    'mengwi', 'bingin', 'padang_padang', 'uluwatu', 'balangan', 'ungasan', 'pandawa',
+  ];
+
+  const stale = openDb(tmpDbPath());
+  stale.prepare('DELETE FROM migrations WHERE name = ?').run('008_canggu_belt_areas');
+  setConfig(stale, 'areas', BEFORE);
+  const file = stale.name;
+  stale.close();
+
+  const migrated = openDb(file);
+  assert.deepEqual(migrated.migrationsApplied, ['008_canggu_belt_areas']);
+  const areas = getConfig(migrated).areas;
+  assert.equal(areas.length, 21);
+  for (const a of ['canggu', 'babakan', 'berawa', 'padonan', 'tibubeneng', 'umalas']) {
+    assert.ok(areas.includes(a), `${a} joined the target list`);
+  }
+  for (const a of BEFORE) assert.ok(areas.includes(a), `${a} is still in it`);
+  migrated.close();
+
+  // Someone who narrowed the brief by hand keeps their list.
+  const chosen = openDb(tmpDbPath());
+  chosen.prepare('DELETE FROM migrations WHERE name = ?').run('008_canggu_belt_areas');
+  setConfig(chosen, 'areas', ['pererenan', 'seseh']);
+  const chosenFile = chosen.name;
+  chosen.close();
+
+  const after = openDb(chosenFile);
+  assert.deepEqual(getConfig(after).areas, ['pererenan', 'seseh']);
+  after.close();
+});
+
+test('every area in the default brief is a SPEC §7 area with a group', () => {
+  const db = openDb(tmpDbPath());
+  for (const id of getConfig(db).areas) {
+    assert.ok(AREAS[id], `${id} is in areas.js`);
+    assert.ok(['center', 'west_coast', 'south'].includes(AREAS[id].group), `${id} has a group`);
+  }
+  db.close();
 });

@@ -475,7 +475,7 @@ test('area: a distance reference to a target area does not count ("X minutes to 
     },
   });
   const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(res.json().ids[0]);
-  assert.equal(row.area, 'other', 'Canggu is out of target and "to Pererenan" is a distance reference, not the area');
+  assert.equal(row.area, 'canggu', 'the villa is in Canggu; "to Pererenan" is a distance reference, not the area');
 });
 
 test('area: an out-of-target place with no target word at all is "other"', async (t) => {
@@ -484,7 +484,7 @@ test('area: an out-of-target place with no target word at all is "other"', async
     method: 'POST', url: '/api/import/posts',
     payload: {
       source: 'fb', group_id: 'canggu-group',
-      posts: [post({ post_id: 'area3', text: 'Brand new 3 bedroom villa for rent in Umalas, IDR 45.000.000/month.' })],
+      posts: [post({ post_id: 'area3', text: 'Brand new 3 bedroom villa for rent in Seminyak, IDR 45.000.000/month.' })],
     },
   });
   const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(res.json().ids[0]);

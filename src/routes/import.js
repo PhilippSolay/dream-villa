@@ -14,6 +14,7 @@ import { finishRow } from '../scrape/ingest.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
 import { dedupeAll } from '../scrape/dedupe.js';
 import { strictSchemas, saveImage, imagesDirFor, jsonArray } from './_common.js';
+import { PLACE_WORDS } from '../areas.js';
 
 const MAX_POSTS = 200;
 // A 200-post batch with an embedded gallery (up to 8 images) per post can run large;
@@ -87,35 +88,14 @@ function classifySkip(text) {
  *  target-area word reads as 'other' — see detectArea. Cepaka is deliberately
  *  NOT here: it is itself a §7 target keyword (-> tanah_lot), not an exclusion. */
 const OUT_OF_TARGET_RE =
-  /\b(?:canggu|berawa|batu\s+bolong|babakan|padonan|umalas|kerobokan|seminyak|sanur|ubud|jimbaran|nusa\s+dua|denpasar|tibubeneng)\b/i;
+  /\b(?:kerobokan|seminyak|petitenget|batu\s+belig|sanur|jimbaran|nusa\s+dua|denpasar)\b/i;
 
 const PROXIMITY_RE = /\b(?:to|from|minutes?|mins?|drive|near|close to|dekat)\b/i;
 const PROXIMITY_WINDOW_CHARS = 25;
 
-const AREA_KEYWORDS = [
-  [/\bseseh\b/i, 'seseh'],
-  [/\bcemagi\b/i, 'cemagi'],
-  [/\bmunggu\b/i, 'munggu'],
-  [/\bpererenan\b/i, 'pererenan'],
-  [/tumbak\s*bayuh/i, 'pererenan'], // SPEC §7: inland north-Pererenan pocket
-  [/\bnyanyi\b/i, 'nyanyi'],
-  [/\bkedungu\b/i, 'kedungu'],
-  [/tanah\s*lot/i, 'tanah_lot'],
-  [/\bcepaka\b/i, 'tanah_lot'],
-  [/\bbuwit\b/i, 'buwit'],
-  [/\bmengwi\b/i, 'mengwi'],
-  [/kaba[-\s]?kaba/i, 'tanah_lot'],
-  [/\bbingin\b/i, 'bingin'],
-  [/padang\s*padang/i, 'padang_padang'],
-  [/\buluwatu\b/i, 'uluwatu'],
-  [/\bpecatu\b/i, 'uluwatu'],
-  [/nyang\s*nyang/i, 'uluwatu'],
-  [/\bbalangan\b/i, 'balangan'],
-  [/\bungasan\b/i, 'ungasan'],
-  [/\bmelasti\b/i, 'ungasan'],
-  [/\bpandawa\b/i, 'pandawa'],
-  [/\bkutuh\b/i, 'pandawa'],
-];
+/** SPEC §7 place names → area, banjars included. One table, in areas.js. Order matters:
+ *  the first match wins, so a banjar beats the region that contains it. */
+const AREA_KEYWORDS = PLACE_WORDS;
 
 /** True when a proximity phrase sits in the ~25 chars right before this match —
  *  "10 minutes to Pererenan" is a distance reference, not the villa's location. */

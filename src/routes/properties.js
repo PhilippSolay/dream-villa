@@ -151,7 +151,7 @@ export function publicRow(row) {
 
 export const PERSON_VERDICTS = ['yes', 'maybe', 'no']; // (VERDICTS above belongs to viewings)
 /** List filters, all relative to the person asking (`request.user.id`). */
-export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'maybe', 'unvoted'];
+export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'yes', 'maybe', 'no', 'unvoted'];
 /** `my_verdict=`: the caller's own call, or 'none' for listings they have not called. */
 export const MY_VERDICT_FILTERS = [...PERSON_VERDICTS, 'none'];
 
@@ -265,7 +265,11 @@ function verdictWhere(filter, userId) {
     waiting_other: `${mine} IS NOT NULL AND ${mine} != 'no' AND ${other} IS NULL`,
     waiting_me: `${mine} IS NULL AND ${other} IS NOT NULL`,
     disagree: `${mine} IS NOT NULL AND ${other} IS NOT NULL AND ${mine} != ${other}`,
+    // yes / maybe / no read the same way: either of you said it. `match` is the stricter
+    // one — both of you said yes — and `my_verdict=` is the one that means only your call.
+    yes: `(${mine} = 'yes' OR ${other} = 'yes')`,
     maybe: `(${mine} = 'maybe' OR ${other} = 'maybe')`,
+    no: `(${mine} = 'no' OR ${other} = 'no')`,
     unvoted: `${mine} IS NULL AND ${other} IS NULL`,
   }[filter];
   const count = (sql.match(/\?/g) || []).length;

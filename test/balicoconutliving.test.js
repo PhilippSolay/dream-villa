@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import bcl, { cardsFrom, detailFrom, applyDetail, parseMeta } from '../src/scrape/adapters/balicoconutliving.js';
 import { normaliseListing } from '../src/scrape/normalise.js';
 import { inBand } from '../src/scrape/score.js';
+import { DEFAULT_CONFIG } from '../src/defaults.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexHtml = fs.readFileSync(path.join(ROOT, 'test/fixtures/balicoconutliving-index.html'), 'utf8');
@@ -46,12 +47,17 @@ test('cardsFrom keeps the target-area rentals and drops the rest', () => {
   const inArea = cardsFrom(indexHtml, {});
   const all = cardsFrom(indexHtml, {}, { all: true });
   assert.equal(all.length, 12); // 12 cards a page
-  assert.equal(inArea.length, 4); // all four Pererenan
+  // 4 Pererenan, plus the Canggu belt the brief took in on 2026-09-22.
+  assert.equal(inArea.length, 11);
+  assert.deepEqual(
+    inArea.reduce((n, c) => ({ ...n, [c.area]: (n[c.area] || 0) + 1 }), {}),
+    { babakan: 2, canggu: 4, pererenan: 4, padonan: 1 }
+  );
   for (const c of inArea) {
     assert.equal(c.source, 'balicoconutliving');
     assert.match(c.ref, /^V\d{3}-\d{3,5}$/);
-    assert.equal(c.area, 'pererenan', 'the adapter states the §7 area outright');
-    assert.equal(c.location, 'Pererenan');
+    assert.ok(DEFAULT_CONFIG.areas.includes(c.area), `${c.ref} is in a §7 area`);
+    assert.ok(c.location, 'the card states where it is');
     assert.ok(c.url.startsWith('https://balicoconutliving.com/bali-villa-'));
     assert.ok(Number.isInteger(c.bedrooms));
     // A "for rent and sale" card can render only its leasehold pane, leaving both
@@ -60,7 +66,7 @@ test('cardsFrom keeps the target-area rentals and drops the rest', () => {
       assert.ok(c[k] === null || c[k] > 0, `${c.ref} ${k}`);
     }
   }
-  assert.equal(inArea.filter((c) => c.price_month_idr != null || c.price_year_idr != null).length, 3);
+  assert.equal(inArea.filter((c) => c.price_month_idr != null || c.price_year_idr != null).length, 8);
 });
 
 test('cardsFrom reads the per-term price panes and the rented label', () => {
@@ -81,8 +87,8 @@ test('cardsFrom reads the per-term price panes and the rented label', () => {
 test('list() walks the long-term index and yields only in-area cards', async () => {
   const out = [];
   for await (const card of bcl.list(stubCtx())) out.push(card);
-  assert.equal(out.length, 4);
-  assert.equal(new Set(out.map((c) => c.ref)).size, 4);
+  assert.equal(out.length, 11);
+  assert.equal(new Set(out.map((c) => c.ref)).size, 11);
 });
 
 test('detail() reads the fact list, description and facilities', async () => {

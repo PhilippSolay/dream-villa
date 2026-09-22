@@ -26,9 +26,13 @@ export const DEFAULT_CONFIG = {
   beach_km_max: 4,
   // Aggregation band: what the scraper keeps at all.
   band: { bedrooms_min: 1, bedrooms_max: 4, price_min: 15_000_000, price_max: 80_000_000 },
+  // West coast, then the Canggu belt (added 2026-09-22), then the Bukit — west to east,
+  // the order the filter drawer shows them in.
   areas: [
-    'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit', 'mengwi',
-    'bingin', 'padang_padang', 'uluwatu', 'balangan', 'ungasan', 'pandawa',
+    'ubud',
+    'mengwi', 'buwit', 'kedungu', 'nyanyi', 'tanah_lot', 'munggu', 'cemagi', 'seseh',
+    'pererenan', 'padonan', 'canggu', 'tibubeneng', 'babakan', 'berawa', 'umalas',
+    'balangan', 'bingin', 'padang_padang', 'uluwatu', 'ungasan', 'pandawa',
   ],
   red_flag_keywords: {
     construction: ['construction', 'under construction', 'building site'],

@@ -199,6 +199,60 @@ export const MIGRATIONS = [
       set.run(String(DEFAULT_CONFIG.budget_max), 'budget_max');
     },
   },
+  // The Canggu belt joined the brief on 2026-09-22 (SPEC §2, §7). `config.areas` is seeded
+  // once and never widens on its own, so a database from before that date scores the belt
+  // as `market`. Both lists are spelled out here rather than read from DEFAULT_CONFIG: an
+  // applied migration must mean the same thing forever. Replace the list only where it is
+  // still exactly the old one, so a target list someone edited by hand survives.
+  {
+    name: '008_canggu_belt_areas',
+    up: (db) => {
+      const BEFORE = [
+        'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit',
+        'mengwi', 'bingin', 'padang_padang', 'uluwatu', 'balangan', 'ungasan', 'pandawa',
+      ];
+      const AFTER = [
+        'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit',
+        'mengwi', 'canggu', 'babakan', 'berawa', 'padonan', 'tibubeneng', 'umalas',
+        'bingin', 'padang_padang', 'uluwatu', 'balangan', 'ungasan', 'pandawa',
+      ];
+      const row = db.prepare("SELECT value FROM config WHERE key = 'areas'").get();
+      if (!row) return;
+      let stored;
+      try {
+        stored = JSON.parse(row.value);
+      } catch {
+        return;
+      }
+      if (!Array.isArray(stored) || stored.length !== BEFORE.length) return;
+      if (!BEFORE.every((a) => stored.includes(a))) return;
+      db.prepare("UPDATE config SET value = ? WHERE key = 'areas'").run(JSON.stringify(AFTER));
+    },
+  },
+  // Center — around Ubud — joined the brief on 2026-09-22, a few hours after the belt
+  // (SPEC §2, §7). Same guard, same reason as 008: only a list that is still exactly the
+  // one 008 left behind is widened, so a brief someone narrowed by hand survives.
+  {
+    name: '009_ubud_area',
+    up: (db) => {
+      const BEFORE = [
+        'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit',
+        'mengwi', 'canggu', 'babakan', 'berawa', 'padonan', 'tibubeneng', 'umalas',
+        'bingin', 'padang_padang', 'uluwatu', 'balangan', 'ungasan', 'pandawa',
+      ];
+      const row = db.prepare("SELECT value FROM config WHERE key = 'areas'").get();
+      if (!row) return;
+      let stored;
+      try {
+        stored = JSON.parse(row.value);
+      } catch {
+        return;
+      }
+      if (!Array.isArray(stored) || stored.length !== BEFORE.length) return;
+      if (!BEFORE.every((a) => stored.includes(a))) return;
+      db.prepare("UPDATE config SET value = ? WHERE key = 'areas'").run(JSON.stringify([...BEFORE, 'ubud']));
+    },
+  },
 ];
 
 function runMigrations(db) {

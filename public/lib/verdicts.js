@@ -18,7 +18,10 @@ export function verdictFilterOptions(otherName) {
     ['waiting_me', 'My turn'],
     ['waiting_other', `Waiting for ${other}`],
     ['disagree', 'Disagree'],
+    // Either of you said it — the trio reads together, so it stays in yes-maybe-no order.
+    ['yes', 'Yes'],
     ['maybe', 'Maybe'],
+    ['no', 'No'],
   ];
 }
 

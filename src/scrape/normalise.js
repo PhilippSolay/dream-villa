@@ -1,7 +1,7 @@
 // SPEC §6 "Normalise" + §7 area map. Pure functions, zero dependencies.
 // Nothing here touches the database and nothing here writes person fields.
 
-import { AREAS } from '../areas.js';
+import { AREAS, PLACE_WORDS } from '../areas.js';
 import { DEFAULT_CONFIG } from '../defaults.js';
 
 // ---------------------------------------------------------------------------
@@ -222,13 +222,17 @@ export function parseBeachKm(text) {
 
 /** The canonical Bali Home Immo location string, anchored at the END of whatever we were given. */
 const LOCATION_RE =
-  /(Cemagi\s*\/\s*Seseh|Pererenan|Tanah Lot Area|Uluwatu|Ungasan|Pandawa|Other Bali Area)(?:\s*-\s*(.+))?$/i;
+  /(Cemagi\s*\/\s*Seseh|Pererenan|Tanah Lot Area|Canggu|Berawa|Umalas|Ubud|Uluwatu|Ungasan|Pandawa|Other Bali Area)(?:\s*-\s*(.+))?$/i;
 
 /** URL category slug → area (the fallback when the location string is empty or garbage). */
 const SLUG_AREA = {
   seseh: 'seseh',
   pererenan: 'pererenan',
   'tanah-lot-area': 'tanah_lot',
+  canggu: 'canggu',
+  berawa: 'berawa',
+  umalas: 'umalas',
+  ubud: 'ubud',
   uluwatu: 'uluwatu',
   ungasan: 'ungasan',
   pandawa: 'pandawa',
@@ -243,15 +247,42 @@ const PERERENAN_INLAND = [
 ];
 const PERERENAN_INLAND_KM = 4;
 
-/** Title-only area hints, used inside "Other Bali Area" and as the last fallback. */
+/**
+ * Bali Home Immo files the whole belt under a broad "Canggu"; its sub-area, or the title,
+ * names the village. Most specific first — Berawa is both a §7 area and a Canggu sub-area.
+ */
+const CANGGU_BELT = [
+  { re: /\bumalas\b/i, area: 'umalas', name: 'Umalas' },
+  { re: /\bbabakan\b/i, area: 'babakan', name: 'Babakan' },
+  { re: /\bpadonan\b/i, area: 'padonan', name: 'Padonan' },
+  { re: /\btibubeneng\b/i, area: 'tibubeneng', name: 'Tibubeneng' },
+  { re: /\bberawa\b|\bbrawa\b/i, area: 'berawa', name: 'Berawa' },
+];
+
+/**
+ * "5 minutes to Canggu" is a distance boast, not an address. A belt name in a title only
+ * counts when no proximity phrase runs into it — the same rule the Facebook importer uses,
+ * and the reason a Pererenan villa does not file itself under Canggu.
+ */
+const PROXIMITY_BEFORE = /\b(?:to|from|mins?|minutes?|drive|near|close to|dekat|walk|walking distance)\b[\s\W]{0,12}$/i;
+
+function namedNotNear(text, re) {
+  const m = re.exec(text);
+  return !!m && !PROXIMITY_BEFORE.test(text.slice(0, m.index));
+}
+
+/**
+ * Title-only area hints, used inside "Other Bali Area" and as the last fallback. Walks the
+ * one §7 place table (areas.js PLACE_WORDS), so a banjar in the title — Kayu Tulang,
+ * Nyuh Kuning, Tumbak Bayuh — lands in its area instead of falling through to `other`.
+ * A name only counts when no proximity phrase runs into it.
+ */
 function areaFromTitle(title) {
   const t = String(title || '');
-  if (/\bbuwit\b/i.test(t)) return { area: 'buwit', sub_area: null };
-  if (/\bmengwi\b/i.test(t)) return { area: 'mengwi', sub_area: null };
   if (/kaba[-\s]?kaba/i.test(t)) return { area: 'tanah_lot', sub_area: 'Kaba-Kaba' };
-  if (/\bnyanyi\b/i.test(t)) return { area: 'nyanyi', sub_area: null };
-  if (/\bkedungu\b/i.test(t)) return { area: 'kedungu', sub_area: null };
-  if (/\bmunggu\b/i.test(t)) return { area: 'munggu', sub_area: null };
+  for (const [re, area] of PLACE_WORDS) {
+    if (namedNotNear(t, re)) return { area, sub_area: null };
+  }
   return null;
 }
 
@@ -310,6 +341,19 @@ export function mapArea({ location = '', title = '', category = '' } = {}) {
       if (/kaba[-\s]?kaba/i.test(title_)) return out('tanah_lot', 'Kaba-Kaba');
       return out('tanah_lot', sub);
     }
+
+    if (head === 'canggu') {
+      for (const v of CANGGU_BELT) {
+        if (v.re.test(subL)) return out(v.area, sub);
+        if (namedNotNear(title_, v.re)) return out(v.area, sub);
+      }
+      // Batu Bolong / Echo Beach and North Canggu are Canggu proper; the sub-area says which.
+      return out('canggu', sub);
+    }
+
+    if (head === 'berawa') return out('berawa', sub);
+    if (head === 'umalas') return out('umalas', sub);
+    if (head === 'ubud') return out('ubud', sub); // incl. Nyuh Kuning, Penestanan, Sayan
 
     if (head === 'uluwatu') {
       if (/bingin/.test(subL)) return out('bingin', sub);

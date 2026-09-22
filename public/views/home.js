@@ -158,16 +158,31 @@ function checkboxes(items, name) {
   );
 }
 
-/** One coast: its heading with All / Clear, then the checkboxes. Both coasts feed the one `area` filter. */
+/** SPEC §7 regions, north to south. The labels live here; the areas come from the API. */
+const AREA_REGIONS = [
+  ['center', 'Center'],
+  ['west_coast', 'West Coast'],
+  ['south', 'South'],
+];
+
+/**
+ * One region, collapsible: the name, how many of its areas are on, All / Clear, and the
+ * checkboxes. Every region feeds the one `area` filter — collapsing only hides the rows,
+ * it never clears them, which is why the count sits in the summary where it stays visible.
+ */
 function areaGroup(label, key, items) {
-  return html`<div class="group-head">
-      <span class="group-label">${label}</span>
-      <span class="group-actions">
-        <button type="button" class="link-btn" data-area-set="${key}" data-area-mode="all">All</button>
-        <button type="button" class="link-btn" data-area-set="${key}" data-area-mode="none">Clear</button>
-      </span>
-    </div>
-    <div class="filter-cols">${checkboxes(items, 'area')}</div>`;
+  return html`<details class="filter-region" data-region="${key}">
+      <summary>
+        <span class="group-label">${label}</span>
+        <span class="group-actions">
+          <span class="region-count mono" data-region-count hidden></span>
+          <button type="button" class="link-btn" data-area-set="${key}" data-area-mode="all">All</button>
+          <button type="button" class="link-btn" data-area-set="${key}" data-area-mode="none">Clear</button>
+          ${icons.chevron()}
+        </span>
+      </summary>
+      <div class="filter-cols">${checkboxes(items, 'area')}</div>
+    </details>`;
 }
 
 /** Position of a range input's value along its track, as a CSS percentage. */
@@ -189,8 +204,13 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
   const panel = document.createElement('form');
   panel.className = 'filters';
   panel.setAttribute('novalidate', '');
-  const west = areas.filter((a) => a.group === 'west').map((a) => ({ value: a.id, label: a.label }));
-  const bukit = areas.filter((a) => a.group === 'bukit').map((a) => ({ value: a.id, label: a.label }));
+  // SPEC §7 regions, north to south; the areas inside them arrive in that order too.
+  // A region with nothing in it is not drawn at all.
+  const regions = AREA_REGIONS.map(([id, label]) => ({
+    id,
+    label,
+    options: areas.filter((a) => a.group === id).map((a) => ({ value: a.id, label: a.label })),
+  })).filter((r) => r.options.length);
 
   setHtml(
     panel,
@@ -204,8 +224,7 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
         <span class="label">Area</span>
         <span class="summary-hint"><span data-role="area-hint">Any</span>${icons.chevron()}</span>
       </summary>
-      ${areaGroup('West coast', 'west', west)}
-      ${areaGroup('Bukit', 'bukit', bukit)}
+      ${regions.map((r) => areaGroup(r.label, r.id, r.options))}
     </details>
 
     <div class="filter-group">
@@ -506,6 +525,17 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       !(f.status || []).includes('rejected') && !(f.status || []).includes('all');
     $('[data-role="in-filter"]', panel).checked = f.scope === 'in_filter';
     $('[data-role="area-hint"]', panel).textContent = areaHint(f.area || [], areas);
+    // Each region carries its own tally, and opens itself when it has one — a selection
+    // must never hide behind a collapsed summary.
+    for (const r of regions) {
+      const el = $(`.filter-region[data-region="${r.id}"]`, panel);
+      if (!el) continue;
+      const n = r.options.filter((o) => (f.area || []).includes(o.value)).length;
+      const count = $('[data-region-count]', el);
+      count.textContent = `${n}`;
+      count.hidden = n === 0;
+      if (n > 0) el.open = true;
+    }
     paintRanges();
   }
 
@@ -609,7 +639,8 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
     } else if (role === 'anchor-remove') {
       if (anchorSelect.value) onAnchorRemove?.(Number(anchorSelect.value));
     } else if (areaSet) {
-      const ids = (areaSet === 'west' ? west : bukit).map((a) => a.value);
+      event.preventDefault(); // the buttons sit in the <summary>; a click must not collapse it
+      const ids = (regions.find((r) => r.id === areaSet)?.options || []).map((a) => a.value);
       onChange((f) => {
         const rest = (f.area || []).filter((id) => !ids.includes(id));
         return { area: areaMode === 'all' ? [...rest, ...ids] : rest };
