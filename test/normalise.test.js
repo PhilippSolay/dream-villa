@@ -696,3 +696,36 @@ test('mapArea — the belt slugs resolve when the location string is empty', () 
   assert.equal(mapArea({ location: '', title: 'Villa', category: 'berawa' }).area, 'berawa');
   assert.equal(mapArea({ location: '', title: 'Villa', category: 'umalas' }).area, 'umalas');
 });
+
+// ---------------------------------------------------------------------------
+// Banjar level — Region › Area › Banjar (SPEC §7, 2026-09-22)
+// ---------------------------------------------------------------------------
+
+test('mapArea — a banjar in the title lands in its area, not in "other"', () => {
+  const banjars = [
+    ['Villa in Kayu Tulang', 'canggu'],
+    ['Villa on Padang Linjong', 'canggu'],
+    ['Villa in Tegal Gundul', 'canggu'],
+    ['Villa in Pelambingan', 'tibubeneng'],
+    ['Villa in Nyuh Kuning', 'ubud'],
+    ['Villa in Penestanan', 'ubud'],
+    ['Villa in Sayan', 'ubud'],
+    ['Villa in Pengosekan', 'ubud'],
+    ['Villa in Tumbak Bayuh', 'pererenan'],
+    ['Villa in Cepaka', 'tanah_lot'],
+    ['Villa in Labuan Sait', 'padang_padang'],
+    ['Villa in Pecatu', 'uluwatu'],
+  ];
+  for (const [title, area] of banjars) {
+    assert.equal(mapArea({ location: '', title }).area, area, title);
+  }
+});
+
+test('mapArea — Ubud, and the west coast still outranks it', () => {
+  assert.equal(mapArea({ location: 'Ubud', title: 'Villa' }).area, 'ubud');
+  assert.equal(mapArea({ location: 'Ubud - Nyuh Kuning', title: 'Villa' }).area, 'ubud');
+  assert.equal(mapArea({ location: '', title: 'Villa', category: 'ubud' }).area, 'ubud');
+  // A bare "Ubud" is the last word in the table, so anything more specific wins.
+  assert.equal(mapArea({ location: '', title: 'Villa in Pererenan with Ubud vibes' }).area, 'pererenan');
+  assert.equal(mapArea({ location: '', title: 'Canggu villa, 40 minutes to Ubud' }).area, 'canggu');
+});

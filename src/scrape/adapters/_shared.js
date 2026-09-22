@@ -3,7 +3,7 @@
 // belongs in normalise.js, and nothing here duplicates a rule that lives there.
 
 import { parsePrice } from '../normalise.js';
-import { AREAS } from '../../areas.js';
+import { AREAS, PLACE_WORDS } from '../../areas.js';
 
 /** SPEC §6: stop paging after 10 pages or when a page yields nothing new. */
 export const MAX_PAGES = 10;
@@ -101,38 +101,8 @@ export function moneyIdr(text, config = {}) {
 // Areas
 // ---------------------------------------------------------------------------
 
-/**
- * SPEC §7 place names (and the sub-area names §7 itself lists) → canonical area id.
- * Most specific first; a bare "Bukit"/"Badung" deliberately matches nothing, because those
- * cover both target and non-target villages. Canggu itself joined the target list on
- * 2026-09-22 and sits last, so a west-coast or Bukit name in the same string still wins.
- */
-const AREA_WORDS = [
-  [/\bseseh\b/i, 'seseh'],
-  [/\bcemagi\b|\bmengening\b/i, 'cemagi'],
-  [/\bmunggu\b/i, 'munggu'],
-  [/\bpererenan\b|tumbak\s*bayuh|\btumbak\b|\bbuduk\b|tiying\s*tutul/i, 'pererenan'],
-  [/\bnyanyi\b/i, 'nyanyi'],
-  [/\bkedungu\b/i, 'kedungu'],
-  [/\bbuwit\b/i, 'buwit'],
-  [/kaba[-\s]?kaba|tanah\s*lot/i, 'tanah_lot'],
-  [/\bmengwi\b/i, 'mengwi'],
-  [/\bbingin\b/i, 'bingin'],
-  [/padang\s*padang/i, 'padang_padang'],
-  [/\bbalangan\b/i, 'balangan'],
-  [/\bpandawa\b|\bkutuh\b/i, 'pandawa'],
-  [/\bungasan\b|\bmelasti\b/i, 'ungasan'],
-  [/\buluwatu\b|\bpecatu\b|\bsuluban\b|nyang\s*nyang/i, 'uluwatu'],
-  // Tabanan is the regency around Tanah Lot; SPEC §7 maps its "North side" there.
-  [/\btabanan\b/i, 'tanah_lot'],
-  // The Canggu belt, last: an agency that writes "Pererenan, Canggu" means Pererenan.
-  [/\bumalas\b/i, 'umalas'],
-  [/\bbabakan\b/i, 'babakan'],
-  [/\bpadonan\b/i, 'padonan'],
-  [/\btibubeneng\b/i, 'tibubeneng'],
-  [/\bberawa\b|\bbrawa\b/i, 'berawa'],
-  [/\bcanggu\b|batu\s*bolong|echo\s*beach/i, 'canggu'],
-];
+/** SPEC §7 place names → canonical area id, banjars included. One table, in areas.js. */
+const AREA_WORDS = PLACE_WORDS;
 
 /**
  * First SPEC §7 area named anywhere in `text`, or null.

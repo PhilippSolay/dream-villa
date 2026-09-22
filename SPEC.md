@@ -13,7 +13,7 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 **Hard filters** (fail → `scope = market`, still stored):
 - rooms: `bedrooms >= 1 AND (bedrooms + extra_rooms) >= 2 AND bedrooms <= 3`
 - budget: `20_000_000 <= price_month_idr <= 80_000_000` (yearly normalised ÷ 12; widened from 25–50 M on 2026-09-20)
-- area: in the target list (§7) — anything else is `market` at best. The Canggu belt (Canggu, Babakan, Berawa, Padonan, Tibubeneng, Umalas) joined it on 2026-09-22.
+- area: in the target list (§7) — anything else is `market` at best. The Canggu belt (Canggu, Babakan, Berawa, Padonan, Tibubeneng, Umalas) and Center (Ubud) joined it on 2026-09-22.
 - style: `style != 'balinese_old'`
 - ~~neighbours~~: **soft** since 2026-09-22 — the `construction` keyword is too easy to hit ("brand new construction", "solid construction", a neighbour's build that is already finished), so it no longer excludes. The flag is still raised — by the scraper's text rules, by agent info, and by a viewing with `construction_nearby >= 4` — and any red flag still keeps a villa out of the flagged set (§2 Flag rule below), so a real building site is de-featured rather than hidden.
 - furnishing: any (unfurnished gets `notes` hint "unfurnished — add furnishing budget")
@@ -250,35 +250,38 @@ export default {
 
 ## 7. Areas, centroids, beaches
 
-Canonical `area` values and rough centroids (verify with a geocoder once; these are approximate and only for `pin_source='centroid'`):
+Three levels, and the words for them: **Region › Area › Banjar** — `group` › `area` › `sub_area`. Center › Ubud › Nyuh Kuning, West Coast › Pererenan › Tumbak Bayuh. A listing that names only a banjar still resolves to its area (`PLACE_WORDS` in `src/areas.js`, the one table the BHI mapper, the other adapters and the Facebook importer all read). `sub_area` also holds what a source calls a side rather than a banjar ("Beach Side", "North Side").
+
+Regions run north to south — Center, West Coast, South — and so do the areas inside them, which is the order the filter drawer shows and the order of this table. Canonical `area` values and rough centroids (verify with a geocoder once; these are approximate and only for `pin_source='centroid'`):
 
 | area | label | centroid (lat, lng) | nearest beach point | group |
 |---|---|---|---|---|
-| seseh | Seseh | -8.628, 115.099 | Seseh Beach -8.6315, 115.0975 | west |
-| cemagi | Cemagi | -8.619, 115.103 | Cemagi/Mengening -8.6255, 115.0995 | west |
-| munggu | Munggu | -8.617, 115.094 | Munggu Beach -8.6215, 115.0905 | west |
-| pererenan | Pererenan | -8.640, 115.121 | Pererenan Beach -8.6475, 115.1185 | west |
-| nyanyi | Nyanyi | -8.608, 115.080 | Nyanyi Beach -8.6125, 115.0765 | west |
-| kedungu | Kedungu | -8.597, 115.064 | Kedungu Beach -8.6005, 115.0605 | west |
-| tanah_lot | Tanah Lot area | -8.615, 115.090 | Tanah Lot -8.6215, 115.0865 | west |
-| buwit | Buwit | -8.583, 115.100 | Nyanyi Beach | west (inland ~4–5 km) |
-| mengwi | Mengwi | -8.545, 115.170 | Seseh Beach | west (inland ~10 km) |
-| canggu | Canggu | -8.652, 115.130 | Batu Bolong / Echo -8.6565, 115.1265 | canggu |
-| babakan | Babakan | -8.657, 115.139 | Batu Bolong / Echo | canggu (inland ~1.5 km) |
-| berawa | Berawa | -8.666, 115.143 | Berawa Beach -8.6725, 115.1400 | canggu |
-| padonan | Padonan | -8.645, 115.148 | Berawa Beach | canggu (inland ~3 km) |
-| tibubeneng | Tibubeneng | -8.653, 115.151 | Berawa Beach | canggu (inland ~2.5 km) |
-| umalas | Umalas | -8.670, 115.157 | Berawa Beach | canggu (inland ~2 km) |
-| bingin | Bingin | -8.806, 115.113 | Bingin Beach -8.8075, 115.1095 | bukit |
-| padang_padang | Padang Padang | -8.811, 115.106 | Padang Padang -8.8115, 115.1035 | bukit |
-| uluwatu | Uluwatu / Pecatu | -8.829, 115.098 | Suluban -8.8145, 115.0885 | bukit |
-| balangan | Balangan | -8.792, 115.124 | Balangan Beach -8.7915, 115.1215 | bukit |
-| ungasan | Ungasan | -8.833, 115.160 | Melasti -8.8475, 115.1555 | bukit |
-| pandawa | Pandawa / Kutuh | -8.842, 115.190 | Pandawa Beach -8.8455, 115.1875 | bukit |
+| ubud | Ubud | -8.507, 115.263 | Berawa Beach -8.6725, 115.14 | center (~30 km inland) |
+| mengwi | Mengwi | -8.545, 115.17 | Seseh Beach -8.6315, 115.0975 | west_coast (inland ~10 km) |
+| buwit | Buwit | -8.583, 115.1 | Nyanyi Beach -8.6125, 115.0765 | west_coast (inland ~4–5 km) |
+| kedungu | Kedungu | -8.597, 115.064 | Kedungu Beach -8.6005, 115.0605 | west_coast |
+| nyanyi | Nyanyi | -8.608, 115.08 | Nyanyi Beach -8.6125, 115.0765 | west_coast |
+| tanah_lot | Tanah Lot area | -8.615, 115.09 | Tanah Lot -8.6215, 115.0865 | west_coast |
+| munggu | Munggu | -8.617, 115.094 | Munggu Beach -8.6215, 115.0905 | west_coast |
+| cemagi | Cemagi | -8.619, 115.103 | Cemagi/Mengening -8.6255, 115.0995 | west_coast |
+| seseh | Seseh | -8.628, 115.099 | Seseh Beach -8.6315, 115.0975 | west_coast |
+| pererenan | Pererenan | -8.64, 115.121 | Pererenan Beach -8.6475, 115.1185 | west_coast |
+| padonan | Padonan | -8.645, 115.148 | Berawa Beach -8.6725, 115.14 | west_coast (inland ~3 km) |
+| canggu | Canggu | -8.652, 115.13 | Batu Bolong / Echo -8.6565, 115.1265 | west_coast |
+| tibubeneng | Tibubeneng | -8.653, 115.151 | Berawa Beach -8.6725, 115.14 | west_coast (inland ~2.5 km) |
+| babakan | Babakan | -8.657, 115.139 | Batu Bolong / Echo -8.6565, 115.1265 | west_coast (inland ~1.5 km) |
+| berawa | Berawa | -8.666, 115.143 | Berawa Beach -8.6725, 115.14 | west_coast |
+| umalas | Umalas | -8.67, 115.157 | Berawa Beach -8.6725, 115.14 | west_coast (inland ~2 km) |
+| balangan | Balangan | -8.792, 115.124 | Balangan Beach -8.7915, 115.1215 | south |
+| bingin | Bingin | -8.806, 115.113 | Bingin Beach -8.8075, 115.1095 | south |
+| padang_padang | Padang Padang | -8.811, 115.106 | Padang Padang -8.8115, 115.1035 | south |
+| uluwatu | Uluwatu / Pecatu | -8.829, 115.098 | Suluban -8.8145, 115.0885 | south |
+| ungasan | Ungasan | -8.833, 115.16 | Melasti -8.8475, 115.1555 | south |
+| pandawa | Pandawa / Kutuh | -8.842, 115.19 | Pandawa Beach -8.8455, 115.1875 | south |
 
 `beach_km` computed = haversine(pin, nearest beach point) × 1.3 (road factor). Text-derived distances win over computed.
 
-Bali Home Immo location strings → area: `Cemagi / Seseh - Beach Side` → cemagi (if title says Seseh → seseh); `Cemagi / Seseh - Residential Side` → seseh; title containing Munggu → munggu; `Pererenan - Beach Side|North Side` → pererenan (sub_area kept; "Tumbak Bayuh", "Buduk", "Tiying Tutul" are inland north Pererenan, beach_km ≈ 3–5); `Tanah Lot Area - East side (Nyanyi)` → nyanyi; `West side (Kedungu)` → kedungu; `North side (Tabanan)` → buwit if title says Buwit else tanah_lot; `Canggu - Berawa` → berawa; `Canggu - Batu Bolong / Echo Beach|North Canggu` → canggu (a title naming Babakan, Padonan, Tibubeneng or Umalas wins, unless a proximity phrase runs into it — "5 minutes to Canggu" is a boast, not an address); `Berawa` → berawa; `Umalas` → umalas; `Uluwatu - Bingin*` → bingin; `Padang Padang` → padang_padang; `Balangan` → balangan; `Uluwatu - West|Central|East` → uluwatu; `Ungasan*` → ungasan; `Pandawa*` → pandawa.
+Bali Home Immo location strings → area: `Cemagi / Seseh - Beach Side` → cemagi (if title says Seseh → seseh); `Cemagi / Seseh - Residential Side` → seseh; title containing Munggu → munggu; `Pererenan - Beach Side|North Side` → pererenan (sub_area kept; "Tumbak Bayuh", "Buduk", "Tiying Tutul" are inland north Pererenan, beach_km ≈ 3–5); `Tanah Lot Area - East side (Nyanyi)` → nyanyi; `West side (Kedungu)` → kedungu; `North side (Tabanan)` → buwit if title says Buwit else tanah_lot; `Canggu - Berawa` → berawa; `Canggu - Batu Bolong / Echo Beach|North Canggu` → canggu (a title naming Babakan, Padonan, Tibubeneng or Umalas wins, unless a proximity phrase runs into it — "5 minutes to Canggu" is a boast, not an address); `Berawa` → berawa; `Umalas` → umalas; `Ubud*` → ubud (its banjars — Nyuh Kuning, Penestanan, Sayan, Pengosekan — resolve there too); `Uluwatu - Bingin*` → bingin; `Padang Padang` → padang_padang; `Balangan` → balangan; `Uluwatu - West|Central|East` → uluwatu; `Ungasan*` → ungasan; `Pandawa*` → pandawa.
 
 ## 8. Seed
 

@@ -21,6 +21,8 @@ export const TARGET_SLUGS = [
   'canggu',
   'berawa',
   'umalas',
+  // Center (2026-09-22): Ubud and the banjars around it.
+  'ubud',
   'uluwatu',
   'ungasan',
   'pandawa',

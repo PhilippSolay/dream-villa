@@ -160,7 +160,7 @@ test('every area in the default brief is a SPEC §7 area with a group', () => {
   const db = openDb(tmpDbPath());
   for (const id of getConfig(db).areas) {
     assert.ok(AREAS[id], `${id} is in areas.js`);
-    assert.ok(['west', 'canggu', 'bukit'].includes(AREAS[id].group), `${id} has a group`);
+    assert.ok(['center', 'west_coast', 'south'].includes(AREAS[id].group), `${id} has a group`);
   }
   db.close();
 });
