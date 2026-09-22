@@ -4,6 +4,8 @@
 // loads it itself as a fallback. Styles live in views/charts.css (injected once).
 
 import { filtersToQuery } from '../lib/filters.js';
+// SPEC §7, the one copy (src/areas.js re-exports this same module server-side).
+import { BEACHES } from '../lib/areas.js';
 
 // Resolved against this module's own URL, so it follows the /v/<hash>/ asset prefix.
 const CHARTS_CSS_HREF = new URL('./charts.css', import.meta.url).pathname;
@@ -14,38 +16,6 @@ const LEAFLET_CSS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.c
 const FALLBACK_CENTER = [-8.72, 115.13];
 const FALLBACK_ZOOM = 11;
 const BEACH_RING_M = 4000;
-
-// SPEC §7 — hard-coded fallback, used only if ctx.areas is empty AND /api/areas fails.
-const FALLBACK_AREAS = {
-  // Center — around Ubud. Inland: ~30 km from the nearest beach we track, so the beach
-  // score is 0 by construction rather than by a missing value.
-  ubud:          { label: 'Ubud',              group: 'center',     centroid: [-8.507, 115.263], beach: { name: 'Berawa Beach',      lat: -8.6725, lng: 115.1400 } },
-
-  // West Coast — north to south, Tabanan down to the Kerobokan edge.
-  mengwi:        { label: 'Mengwi',            group: 'west_coast', centroid: [-8.545, 115.170], beach: { name: 'Seseh Beach',        lat: -8.6315, lng: 115.0975 } },
-  buwit:         { label: 'Buwit',             group: 'west_coast', centroid: [-8.583, 115.100], beach: { name: 'Nyanyi Beach',       lat: -8.6125, lng: 115.0765 } },
-  kedungu:       { label: 'Kedungu',           group: 'west_coast', centroid: [-8.597, 115.064], beach: { name: 'Kedungu Beach',      lat: -8.6005, lng: 115.0605 } },
-  nyanyi:        { label: 'Nyanyi',            group: 'west_coast', centroid: [-8.608, 115.080], beach: { name: 'Nyanyi Beach',       lat: -8.6125, lng: 115.0765 } },
-  tanah_lot:     { label: 'Tanah Lot area',    group: 'west_coast', centroid: [-8.615, 115.090], beach: { name: 'Tanah Lot',          lat: -8.6215, lng: 115.0865 } },
-  munggu:        { label: 'Munggu',            group: 'west_coast', centroid: [-8.617, 115.094], beach: { name: 'Munggu Beach',       lat: -8.6215, lng: 115.0905 } },
-  cemagi:        { label: 'Cemagi',            group: 'west_coast', centroid: [-8.619, 115.103], beach: { name: 'Cemagi/Mengening',   lat: -8.6255, lng: 115.0995 } },
-  seseh:         { label: 'Seseh',             group: 'west_coast', centroid: [-8.628, 115.099], beach: { name: 'Seseh Beach',        lat: -8.6315, lng: 115.0975 } },
-  pererenan:     { label: 'Pererenan',         group: 'west_coast', centroid: [-8.640, 115.121], beach: { name: 'Pererenan Beach',    lat: -8.6475, lng: 115.1185 } },
-  padonan:       { label: 'Padonan',           group: 'west_coast', centroid: [-8.645, 115.148], beach: { name: 'Berawa Beach',       lat: -8.6725, lng: 115.1400 } },
-  canggu:        { label: 'Canggu',            group: 'west_coast', centroid: [-8.652, 115.130], beach: { name: 'Batu Bolong / Echo', lat: -8.6565, lng: 115.1265 } },
-  tibubeneng:    { label: 'Tibubeneng',        group: 'west_coast', centroid: [-8.653, 115.151], beach: { name: 'Berawa Beach',       lat: -8.6725, lng: 115.1400 } },
-  babakan:       { label: 'Babakan',           group: 'west_coast', centroid: [-8.657, 115.139], beach: { name: 'Batu Bolong / Echo', lat: -8.6565, lng: 115.1265 } },
-  berawa:        { label: 'Berawa',            group: 'west_coast', centroid: [-8.666, 115.143], beach: { name: 'Berawa Beach',       lat: -8.6725, lng: 115.1400 } },
-  umalas:        { label: 'Umalas',            group: 'west_coast', centroid: [-8.670, 115.157], beach: { name: 'Berawa Beach',       lat: -8.6725, lng: 115.1400 } },
-
-  // South — the Bukit, north to south.
-  balangan:      { label: 'Balangan',          group: 'south',      centroid: [-8.792, 115.124], beach: { name: 'Balangan Beach',     lat: -8.7915, lng: 115.1215 } },
-  bingin:        { label: 'Bingin',            group: 'south',      centroid: [-8.806, 115.113], beach: { name: 'Bingin Beach',       lat: -8.8075, lng: 115.1095 } },
-  padang_padang: { label: 'Padang Padang',     group: 'south',      centroid: [-8.811, 115.106], beach: { name: 'Padang Padang',      lat: -8.8115, lng: 115.1035 } },
-  uluwatu:       { label: 'Uluwatu / Pecatu',  group: 'south',      centroid: [-8.829, 115.098], beach: { name: 'Suluban',            lat: -8.8145, lng: 115.0885 } },
-  ungasan:       { label: 'Ungasan',           group: 'south',      centroid: [-8.833, 115.160], beach: { name: 'Melasti',            lat: -8.8475, lng: 115.1555 } },
-  pandawa:       { label: 'Pandawa / Kutuh',   group: 'south',      centroid: [-8.842, 115.190], beach: { name: 'Pandawa Beach',      lat: -8.8455, lng: 115.1875 } },
-};
 
 const STATUS_COLOR = {
   new: 'var(--muted)',
@@ -121,52 +91,12 @@ function ensureLeaflet() {
   return leafletPromise;
 }
 
-/**
- * The interface promises `ctx.areas` as a map keyed by area id, but the shell's
- * actual GET /api/areas (and the store's `areas` field it's copied from) returns
- * an *array* of `{id, label, group, centroid, beach}`. Accept either shape.
- */
-function normaliseAreas(input) {
-  if (!input) return null;
-  if (Array.isArray(input)) {
-    if (!input.length) return null;
-    const map = {};
-    for (const a of input) if (a && a.id) map[a.id] = a;
-    return Object.keys(map).length ? map : null;
-  }
-  if (typeof input === 'object' && Object.keys(input).length) return input;
-  return null;
-}
-
-async function resolveAreas(ctx) {
-  const fromCtx = normaliseAreas(ctx.areas);
-  if (fromCtx) return fromCtx;
-  try {
-    const res = await ctx.api.get('/api/areas');
-    const areas = normaliseAreas(res && res.areas ? res.areas : res);
-    if (areas) return areas;
-  } catch {
-    // fall through to the hard-coded SPEC §7 points
-  }
-  return FALLBACK_AREAS;
-}
-
 /** Filters (same names/values as GET /api/properties) → a query string, +limit=500. */
 // The list query is built by the shared filters module: it knows which filter keys the
 // API accepts and how (e.g. the client-only sort 'worth' goes out as 'fit'). A hand-rolled
 // dump of the filter object here once sent sort=worth and got a 400 for every map load.
 function buildQuery(filters) {
   return filtersToQuery(filters || {}, { limit: 500 });
-}
-
-/** Distinct beach points (deduped by name) across every area. */
-function beachPoints(areasMap) {
-  const seen = new Map();
-  for (const area of Object.values(areasMap || {})) {
-    const b = area && area.beach;
-    if (b && b.name && !seen.has(b.name)) seen.set(b.name, b);
-  }
-  return [...seen.values()];
 }
 
 function popupHtml(p) {
@@ -232,14 +162,6 @@ export async function mountMap(el, ctx) {
   }
   if (destroyed) return noopCleanup;
 
-  let areasMap = FALLBACK_AREAS;
-  try {
-    areasMap = await resolveAreas(ctx);
-  } catch {
-    areasMap = FALLBACK_AREAS;
-  }
-  if (destroyed) return noopCleanup;
-
   // --- container + map -----------------------------------------------------
   el.innerHTML = `<div class="map-view"><div class="map-container"></div></div>`;
   const viewEl = el.querySelector('.map-view');
@@ -270,7 +192,7 @@ export async function mountMap(el, ctx) {
   markersLayer = L.layerGroup().addTo(map);
   const ringsLayer = L.layerGroup().addTo(map);
 
-  for (const beach of beachPoints(areasMap)) {
+  for (const beach of BEACHES) {
     L.circle([beach.lat, beach.lng], {
       radius: BEACH_RING_M,
       color: 'var(--gold)',
