@@ -10,6 +10,8 @@ import {
 } from '../lib/ui.js';
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
+// SPEC §7 regions, north to south — the one copy, shared with the server.
+import { AREA_GROUPS } from '../lib/areas.js';
 
 const PRICE_MIN_M = 15;
 const PRICE_MAX_M = 80;
@@ -158,13 +160,6 @@ function checkboxes(items, name) {
   );
 }
 
-/** SPEC §7 regions, north to south. The labels live here; the areas come from the API. */
-const AREA_REGIONS = [
-  ['center', 'Center'],
-  ['west_coast', 'West Coast'],
-  ['south', 'South'],
-];
-
 /**
  * One region, collapsible: the name, how many of its areas are on, All / Clear, and the
  * checkboxes. Every region feeds the one `area` filter — collapsing only hides the rows,
@@ -206,7 +201,7 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
   panel.setAttribute('novalidate', '');
   // SPEC §7 regions, north to south; the areas inside them arrive in that order too.
   // A region with nothing in it is not drawn at all.
-  const regions = AREA_REGIONS.map(([id, label]) => ({
+  const regions = AREA_GROUPS.map(({ id, label }) => ({
     id,
     label,
     options: areas.filter((a) => a.group === id).map((a) => ({ value: a.id, label: a.label })),
