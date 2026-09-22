@@ -189,8 +189,10 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
   const panel = document.createElement('form');
   panel.className = 'filters';
   panel.setAttribute('novalidate', '');
-  const west = areas.filter((a) => a.group === 'west').map((a) => ({ value: a.id, label: a.label }));
-  const bukit = areas.filter((a) => a.group === 'bukit').map((a) => ({ value: a.id, label: a.label }));
+  const inGroup = (g) => areas.filter((a) => a.group === g).map((a) => ({ value: a.id, label: a.label }));
+  const west = inGroup('west');
+  const canggu = inGroup('canggu');
+  const bukit = inGroup('bukit');
 
   setHtml(
     panel,
@@ -205,6 +207,7 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
         <span class="summary-hint"><span data-role="area-hint">Any</span>${icons.chevron()}</span>
       </summary>
       ${areaGroup('West coast', 'west', west)}
+      ${areaGroup('Canggu belt', 'canggu', canggu)}
       ${areaGroup('Bukit', 'bukit', bukit)}
     </details>
 

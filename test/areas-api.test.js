@@ -54,7 +54,7 @@ test('GET /api/areas: every SPEC §7 area with label, group, centroid and beach'
   assert.deepEqual(areas.map((a) => a.id), Object.keys(AREAS));
   assert.deepEqual(
     [...new Set(areas.map((a) => a.group))].sort(),
-    ['bukit', 'west']
+    ['bukit', 'canggu', 'west']
   );
 
   const cemagi = areas.find((a) => a.id === 'cemagi');

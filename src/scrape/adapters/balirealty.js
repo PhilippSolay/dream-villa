@@ -84,8 +84,10 @@ export function cardFrom($, el, config = {}) {
     if (label && value != null) attrs[label] = value;
   });
 
-  const $img = $card.find('img[data-src]').first();
-  const thumb = absUrl($img.attr('data-src') || $img.attr('src'), BASE);
+  // Two lazy-loading dialects on this site: plain `data-src`, and the EWWW plugin's
+  // `data-src-img` behind a 1x1 base64 gif in `src` (card 2997 in the fixture).
+  const $img = $card.find('img[data-src], img[data-src-img], img[src]').first();
+  const thumb = absUrl($img.attr('data-src') || $img.attr('data-src-img') || $img.attr('src'), BASE);
 
   return {
     source: 'balirealty',

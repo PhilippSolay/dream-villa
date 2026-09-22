@@ -147,7 +147,7 @@ test('listings outside the aggregation band are skipped, not stored (SPEC §2)',
     method: 'POST', url: '/api/import/listings',
     payload: importPayload({}, [
       listing({ ref: 'ok', area: 'seseh' }),
-      listing({ ref: 'canggu', area: undefined, location: 'Berawa, Canggu', title: '2 Bedroom Villa in Berawa' }),
+      listing({ ref: 'seminyak', area: undefined, location: 'Petitenget, Seminyak', title: '2 Bedroom Villa in Seminyak' }),
       listing({ ref: 'pricey', price_month_idr: 150_000_000 }),
       listing({ ref: 'big', bedrooms: 6 }),
     ]),

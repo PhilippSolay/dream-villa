@@ -87,7 +87,7 @@ function classifySkip(text) {
  *  target-area word reads as 'other' — see detectArea. Cepaka is deliberately
  *  NOT here: it is itself a §7 target keyword (-> tanah_lot), not an exclusion. */
 const OUT_OF_TARGET_RE =
-  /\b(?:canggu|berawa|batu\s+bolong|babakan|padonan|umalas|kerobokan|seminyak|sanur|ubud|jimbaran|nusa\s+dua|denpasar|tibubeneng)\b/i;
+  /\b(?:kerobokan|seminyak|petitenget|batu\s+belig|sanur|ubud|jimbaran|nusa\s+dua|denpasar)\b/i;
 
 const PROXIMITY_RE = /\b(?:to|from|minutes?|mins?|drive|near|close to|dekat)\b/i;
 const PROXIMITY_WINDOW_CHARS = 25;
@@ -113,6 +113,16 @@ const AREA_KEYWORDS = [
   [/\bbalangan\b/i, 'balangan'],
   [/\bungasan\b/i, 'ungasan'],
   [/\bmelasti\b/i, 'ungasan'],
+  // The Canggu belt (2026-09-22), last: a post naming Pererenan and Canggu means Pererenan.
+  [/\bumalas\b/i, 'umalas'],
+  [/\bbabakan\b/i, 'babakan'],
+  [/\bpadonan\b/i, 'padonan'],
+  [/\btibubeneng\b/i, 'tibubeneng'],
+  [/\bberawa\b/i, 'berawa'],
+  [/\bbrawa\b/i, 'berawa'],
+  [/batu\s*bolong/i, 'canggu'],
+  [/echo\s*beach/i, 'canggu'],
+  [/\bcanggu\b/i, 'canggu'],
   [/\bpandawa\b/i, 'pandawa'],
   [/\bkutuh\b/i, 'pandawa'],
 ];

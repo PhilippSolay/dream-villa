@@ -103,8 +103,9 @@ export function moneyIdr(text, config = {}) {
 
 /**
  * SPEC §7 place names (and the sub-area names §7 itself lists) → canonical area id.
- * Most specific first; a bare "Bukit"/"Badung"/"Canggu" deliberately matches nothing,
- * because those cover both target and non-target villages.
+ * Most specific first; a bare "Bukit"/"Badung" deliberately matches nothing, because those
+ * cover both target and non-target villages. Canggu itself joined the target list on
+ * 2026-09-22 and sits last, so a west-coast or Bukit name in the same string still wins.
  */
 const AREA_WORDS = [
   [/\bseseh\b/i, 'seseh'],
@@ -124,6 +125,13 @@ const AREA_WORDS = [
   [/\buluwatu\b|\bpecatu\b|\bsuluban\b|nyang\s*nyang/i, 'uluwatu'],
   // Tabanan is the regency around Tanah Lot; SPEC §7 maps its "North side" there.
   [/\btabanan\b/i, 'tanah_lot'],
+  // The Canggu belt, last: an agency that writes "Pererenan, Canggu" means Pererenan.
+  [/\bumalas\b/i, 'umalas'],
+  [/\bbabakan\b/i, 'babakan'],
+  [/\bpadonan\b/i, 'padonan'],
+  [/\btibubeneng\b/i, 'tibubeneng'],
+  [/\bberawa\b|\bbrawa\b/i, 'berawa'],
+  [/\bcanggu\b|batu\s*bolong|echo\s*beach/i, 'canggu'],
 ];
 
 /**
@@ -144,6 +152,8 @@ export function areaFromText(...parts) {
  * the sub-area, so "Canggu, Pererenan" has no sub and "Bukit, Uluwatu, Pecatu" has
  * "Pecatu".
  */
+// (Canggu stays here even though it is now an area: as a sub-area it only restates
+// the region, so "Canggu, Berawa" keeps Berawa and drops the Canggu.)
 const BROAD_WORDS = /^(bali|badung|bukit|canggu|tabanan|kuta utara|kec\.?\s*\w+)$/i;
 
 /**

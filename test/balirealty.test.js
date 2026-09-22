@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import balirealty, { cardsFrom, detailFrom, applyDetail } from '../src/scrape/adapters/balirealty.js';
 import { normaliseListing } from '../src/scrape/normalise.js';
 import { inBand } from '../src/scrape/score.js';
+import { DEFAULT_CONFIG } from '../src/defaults.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexHtml = fs.readFileSync(path.join(ROOT, 'test/fixtures/balirealty-index.html'), 'utf8');
@@ -34,11 +35,16 @@ test('cardsFrom keeps the target-area rentals and drops the rest', () => {
   const inArea = cardsFrom(indexHtml, {});
   const all = cardsFrom(indexHtml, {}, { all: true });
   assert.equal(all.length, 12); // the page renders 12 rental cards
-  assert.equal(inArea.length, 2); // both Pererenan; the other 10 are Seminyak / Jimbaran / …
+  // 2 Pererenan and 4 in the Canggu belt; the other 6 are Seminyak / Jimbaran / …
+  assert.equal(inArea.length, 6);
+  assert.deepEqual(
+    inArea.reduce((n, c) => ({ ...n, [c.area]: (n[c.area] || 0) + 1 }), {}),
+    { canggu: 2, umalas: 1, berawa: 1, pererenan: 2 }
+  );
   for (const c of inArea) {
     assert.equal(c.source, 'balirealty');
     assert.match(c.ref, /^\d{3,6}$/);
-    assert.equal(c.area, 'pererenan', 'the adapter states the §7 area outright');
+    assert.ok(DEFAULT_CONFIG.areas.includes(c.area), `${c.ref} is in a §7 area`);
     assert.ok(c.url.startsWith('https://www.balirealty.com/properties/'));
     assert.ok(Number.isInteger(c.bedrooms));
     assert.ok(c.thumb && c.thumb.startsWith('https://'));
@@ -64,8 +70,8 @@ test('the card title loses the theme-appended reference', () => {
 test('list() walks the rental filter and yields only in-area cards', async () => {
   const out = [];
   for await (const card of balirealty.list(stubCtx())) out.push(card);
-  assert.equal(out.length, 2);
-  assert.deepEqual(out.map((c) => c.ref).sort(), ['2984', '2985']);
+  assert.equal(out.length, 6);
+  assert.deepEqual(out.map((c) => c.ref).sort(), ['2984', '2985', '2987', '2988', '2994', '2997']);
 });
 
 test('detail() states the period in full and wins over the card', async () => {
@@ -134,4 +140,15 @@ test('the adapter object has the SPEC §6 shape', () => {
   assert.equal(typeof balirealty.list, 'function');
   assert.equal(typeof balirealty.detail, 'function');
   assert.equal(typeof balirealty.applyDetail, 'function');
+});
+
+test('a lazy-loaded card thumbnail is read from data-src-img, not the 1x1 placeholder', () => {
+  // Card 2997 is served by the EWWW plugin: `src` is a base64 gif and the real image
+  // sits in `data-src-img`. It only entered the target set with the Canggu belt.
+  const c = cardsFrom(indexHtml, {}).find((x) => x.ref === '2997');
+  assert.equal(c.area, 'canggu');
+  assert.equal(c.thumb, 'https://www.balirealty.com/wp-content/uploads/2026/09/Canggu-Villa-2997-1-1024x614.jpg');
+  for (const card of cardsFrom(indexHtml, {}, { all: true })) {
+    assert.ok(card.thumb === null || card.thumb.startsWith('https://'), `${card.ref} thumb`);
+  }
 });

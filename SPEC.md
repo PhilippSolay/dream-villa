@@ -13,7 +13,7 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 **Hard filters** (fail → `scope = market`, still stored):
 - rooms: `bedrooms >= 1 AND (bedrooms + extra_rooms) >= 2 AND bedrooms <= 3`
 - budget: `20_000_000 <= price_month_idr <= 80_000_000` (yearly normalised ÷ 12; widened from 25–50 M on 2026-09-20)
-- area: in the target list (§7) — anything else is `market` at best
+- area: in the target list (§7) — anything else is `market` at best. The Canggu belt (Canggu, Babakan, Berawa, Padonan, Tibubeneng, Umalas) joined it on 2026-09-22.
 - style: `style != 'balinese_old'`
 - ~~neighbours~~: **soft** since 2026-09-22 — the `construction` keyword is too easy to hit ("brand new construction", "solid construction", a neighbour's build that is already finished), so it no longer excludes. The flag is still raised — by the scraper's text rules, by agent info, and by a viewing with `construction_nearby >= 4` — and any red flag still keeps a villa out of the flagged set (§2 Flag rule below), so a real building site is de-featured rather than hidden.
 - furnishing: any (unfurnished gets `notes` hint "unfurnished — add furnishing budget")
@@ -263,6 +263,12 @@ Canonical `area` values and rough centroids (verify with a geocoder once; these 
 | tanah_lot | Tanah Lot area | -8.615, 115.090 | Tanah Lot -8.6215, 115.0865 | west |
 | buwit | Buwit | -8.583, 115.100 | Nyanyi Beach | west (inland ~4–5 km) |
 | mengwi | Mengwi | -8.545, 115.170 | Seseh Beach | west (inland ~10 km) |
+| canggu | Canggu | -8.652, 115.130 | Batu Bolong / Echo -8.6565, 115.1265 | canggu |
+| babakan | Babakan | -8.657, 115.139 | Batu Bolong / Echo | canggu (inland ~1.5 km) |
+| berawa | Berawa | -8.666, 115.143 | Berawa Beach -8.6725, 115.1400 | canggu |
+| padonan | Padonan | -8.645, 115.148 | Berawa Beach | canggu (inland ~3 km) |
+| tibubeneng | Tibubeneng | -8.653, 115.151 | Berawa Beach | canggu (inland ~2.5 km) |
+| umalas | Umalas | -8.670, 115.157 | Berawa Beach | canggu (inland ~2 km) |
 | bingin | Bingin | -8.806, 115.113 | Bingin Beach -8.8075, 115.1095 | bukit |
 | padang_padang | Padang Padang | -8.811, 115.106 | Padang Padang -8.8115, 115.1035 | bukit |
 | uluwatu | Uluwatu / Pecatu | -8.829, 115.098 | Suluban -8.8145, 115.0885 | bukit |
@@ -272,7 +278,7 @@ Canonical `area` values and rough centroids (verify with a geocoder once; these 
 
 `beach_km` computed = haversine(pin, nearest beach point) × 1.3 (road factor). Text-derived distances win over computed.
 
-Bali Home Immo location strings → area: `Cemagi / Seseh - Beach Side` → cemagi (if title says Seseh → seseh); `Cemagi / Seseh - Residential Side` → seseh; title containing Munggu → munggu; `Pererenan - Beach Side|North Side` → pererenan (sub_area kept; "Tumbak Bayuh", "Buduk", "Tiying Tutul" are inland north Pererenan, beach_km ≈ 3–5); `Tanah Lot Area - East side (Nyanyi)` → nyanyi; `West side (Kedungu)` → kedungu; `North side (Tabanan)` → buwit if title says Buwit else tanah_lot; `Uluwatu - Bingin*` → bingin; `Padang Padang` → padang_padang; `Balangan` → balangan; `Uluwatu - West|Central|East` → uluwatu; `Ungasan*` → ungasan; `Pandawa*` → pandawa.
+Bali Home Immo location strings → area: `Cemagi / Seseh - Beach Side` → cemagi (if title says Seseh → seseh); `Cemagi / Seseh - Residential Side` → seseh; title containing Munggu → munggu; `Pererenan - Beach Side|North Side` → pererenan (sub_area kept; "Tumbak Bayuh", "Buduk", "Tiying Tutul" are inland north Pererenan, beach_km ≈ 3–5); `Tanah Lot Area - East side (Nyanyi)` → nyanyi; `West side (Kedungu)` → kedungu; `North side (Tabanan)` → buwit if title says Buwit else tanah_lot; `Canggu - Berawa` → berawa; `Canggu - Batu Bolong / Echo Beach|North Canggu` → canggu (a title naming Babakan, Padonan, Tibubeneng or Umalas wins, unless a proximity phrase runs into it — "5 minutes to Canggu" is a boast, not an address); `Berawa` → berawa; `Umalas` → umalas; `Uluwatu - Bingin*` → bingin; `Padang Padang` → padang_padang; `Balangan` → balangan; `Uluwatu - West|Central|East` → uluwatu; `Ungasan*` → ungasan; `Pandawa*` → pandawa.
 
 ## 8. Seed
 

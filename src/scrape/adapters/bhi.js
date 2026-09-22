@@ -16,6 +16,11 @@ export const TARGET_SLUGS = [
   'seseh',
   'pererenan',
   'tanah-lot-area',
+  // The Canggu belt (2026-09-22). BHI files Babakan, Padonan and Tibubeneng inside
+  // 'canggu'; its sub-area or the title names the village (normalise.js CANGGU_BELT).
+  'canggu',
+  'berawa',
+  'umalas',
   'uluwatu',
   'ungasan',
   'pandawa',

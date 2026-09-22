@@ -79,7 +79,11 @@ test('areaFromText maps the site dialects onto SPEC §7 areas', () => {
   assert.equal(areaFromText('Canggu, Pererenan'), 'pererenan');
   assert.equal(areaFromText('Tabanan, Nyanyi'), 'nyanyi');
   assert.equal(areaFromText('Tabanan'), 'tanah_lot');
-  assert.equal(areaFromText('Kayu Tulang, Canggu'), null, 'a bare Canggu is not a target area');
+  // The Canggu belt joined §7 on 2026-09-22; a west-coast name in the same string still wins.
+  assert.equal(areaFromText('Kayu Tulang, Canggu'), 'canggu');
+  assert.equal(areaFromText('Babakan, Canggu'), 'babakan', 'the village beats the region');
+  assert.equal(areaFromText('Umalas'), 'umalas');
+  assert.equal(areaFromText('Brawa'), 'berawa', 'the spelling agents actually use');
   assert.equal(areaFromText('Bukit, Nusa Dua'), null, 'a bare Bukit is not a target area');
   assert.equal(areaFromText(null, 'Villa in Seseh'), 'seseh', 'later parts are searched too');
 });

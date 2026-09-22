@@ -657,3 +657,42 @@ test('normaliseListing — an explicit canonical area from the adapter wins over
   const bad = normaliseListing({ source: 'x', ref: '2', url: 'https://x/2', title: 'Villa in Cemagi', location: 'Cemagi / Seseh - Beach Side', area: 'nowhere', bedrooms: 2, price_month_idr: 30_000_000 });
   assert.equal(bad.row.area, 'cemagi', 'an unknown area falls back to the location map');
 });
+
+// ---------------------------------------------------------------------------
+// The Canggu belt (SPEC §7, added 2026-09-22)
+// ---------------------------------------------------------------------------
+
+test('mapArea — Bali Home Immo files the whole belt under a broad "Canggu"', () => {
+  assert.deepEqual(
+    mapArea({ location: 'Canggu - Batu Bolong / Echo Beach', title: '2 Bedroom Villa' }),
+    { area: 'canggu', sub_area: 'Batu Bolong / Echo Beach', beach_km_hint: null }
+  );
+  assert.equal(mapArea({ location: 'Canggu - North Canggu', title: 'Villa' }).area, 'canggu');
+  // Berawa is both a §7 area of its own and one of Canggu's sub-areas.
+  assert.equal(mapArea({ location: 'Canggu - Berawa', title: 'Villa' }).area, 'berawa');
+  assert.equal(mapArea({ location: 'Berawa', title: 'Villa' }).area, 'berawa');
+  assert.equal(mapArea({ location: 'Umalas', title: 'Villa' }).area, 'umalas');
+});
+
+test('mapArea — inside Canggu, a village named in the title wins', () => {
+  assert.equal(mapArea({ location: 'Canggu', title: '3 Bedroom Villa in Babakan' }).area, 'babakan');
+  assert.equal(mapArea({ location: 'Canggu', title: 'Villa in Padonan, quiet lane' }).area, 'padonan');
+  assert.equal(mapArea({ location: 'Canggu', title: 'Family villa in Tibubeneng' }).area, 'tibubeneng');
+  assert.equal(mapArea({ location: 'Canggu', title: 'Modern villa in Umalas' }).area, 'umalas');
+});
+
+test('mapArea — a proximity phrase is a boast, not an address', () => {
+  // The title is the last resort, reached when the location string says nothing.
+  assert.equal(mapArea({ location: '', title: 'Villa in Pererenan, 10 minutes to Canggu' }).area, 'pererenan');
+  assert.equal(mapArea({ location: '', title: 'Quiet villa close to Berawa' }).area, 'other');
+  assert.equal(mapArea({ location: '', title: 'Walking distance to Canggu beach' }).area, 'other');
+  // …but a villa that is actually there still lands there.
+  assert.equal(mapArea({ location: '', title: 'Charming 2 bedroom villa in Canggu' }).area, 'canggu');
+  assert.equal(mapArea({ location: '', title: 'Wooden villa in Babakan' }).area, 'babakan');
+});
+
+test('mapArea — the belt slugs resolve when the location string is empty', () => {
+  assert.equal(mapArea({ location: '', title: 'Villa', category: 'canggu' }).area, 'canggu');
+  assert.equal(mapArea({ location: '', title: 'Villa', category: 'berawa' }).area, 'berawa');
+  assert.equal(mapArea({ location: '', title: 'Villa', category: 'umalas' }).area, 'umalas');
+});
