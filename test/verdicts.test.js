@@ -207,3 +207,28 @@ test('list: my_verdict filters on the caller\'s own call, none = not called yet'
   const bad = await philipp({ method: 'GET', url: '/api/properties?my_verdict=sure' });
   assert.equal(bad.statusCode, 400);
 });
+
+test('list: shared yes and no mean either of you said it, unlike match', async (t) => {
+  const { ids, philipp, abigail, vote, list, keysOf } = await setup(t);
+  // A: both yes. B: Philipp maybe. C: Philipp yes, Abigail no. D: nobody.
+  await vote(philipp, ids.A, 'yes');
+  await vote(abigail, ids.A, 'yes');
+  await vote(philipp, ids.B, 'maybe');
+  await vote(philipp, ids.C, 'yes');
+  await vote(abigail, ids.C, 'no');
+
+  // yes: A (both) and C (Philipp's) — the same answer whoever asks.
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=yes')).sort(), ['bhi:A', 'bhi:C']);
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=yes')).sort(), ['bhi:A', 'bhi:C']);
+
+  // no: only C, where Abigail said no.
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=no')), ['bhi:C']);
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=no')), ['bhi:C']);
+
+  // match stays the stricter one: both said yes.
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=match')), ['bhi:A']);
+
+  // my_verdict is the one that means only your own call: C is Philipp's yes, Abigail's no.
+  assert.deepEqual(keysOf(await list(philipp, 'my_verdict=no')), []);
+  assert.deepEqual(keysOf(await list(abigail, 'my_verdict=no')), ['bhi:C']);
+});
