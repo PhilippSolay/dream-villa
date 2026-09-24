@@ -1,0 +1,67 @@
+<urlset xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://livuma.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://livuma.com/long-term-rentals/seseh</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+    <lastmod>2026-09-07</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://livuma.com/long-term-rentals/seseh" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://livuma.com/id/sewa-jangka-panjang/seseh" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://livuma.com/de/long-term-rentals/seseh" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://livuma.com/long-term-rentals/seseh" />
+  </url>
+  <url>
+    <loc>https://livuma.com/s/3914/2br-new-private-villa-in-seseh-for-rent</loc>
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <image:image>
+      <image:loc>https://cdn.livuma.com/cdn-cgi/image/width=1280,quality=92,f=auto/prod/uploads/listings/f919203a-9c98-48b4-9e6a-74840f839c39/66c2d415-f30a-4348-9a56-9a7b2e595fd2.webp</image:loc>
+      <image:title>2BR New Private Villa in Seseh For rent</image:title>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://livuma.com/s/3155/3br-villa-in-tumbakbayuh-for-rent</loc>
+    <lastmod>2026-01-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <image:image>
+      <image:loc>https://cdn.livuma.com/cdn-cgi/image/width=1280,quality=92,f=auto/prod/uploads/listings/0e213b83-4995-4f12-b1af-c6c1a56b757d/dfe00a8f-e165-4415-8382-c2bb886d6030.webp</image:loc>
+      <image:title>3BR VILLA IN TUMBAKBAYUH FOR RENT</image:title>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://livuma.com/s/2605/brand-new-3br-villa-for-sale-in-kedungu</loc>
+    <lastmod>2026-02-02</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <image:image>
+      <image:loc>https://cdn.livuma.com/cdn-cgi/image/width=1280,quality=92,f=auto/prod/uploads/listings/7ce2cee5-2c70-4fe0-a7f7-0d8b02a7fe63/7140f25d-42c3-4a31-b552-ad96b022a4a5.webp</image:loc>
+      <image:title>Brand New 3BR Villa For Sale in Kedungu</image:title>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://livuma.com/s/2854/the-desert-retreat-room</loc>
+    <lastmod>2025-06-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <image:image>
+      <image:loc>https://cdn.livuma.com/cdn-cgi/image/width=1280,quality=92,f=auto/prod/uploads/listings/bb03052b-0fce-49d1-b6f8-60f3cfa7babd/1b641503-b316-4fa4-89c5-d30706a6fbef.webp</image:loc>
+      <image:title>🌵 The Desert Retreat Room 🌵</image:title>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://livuma.com/s/1011/do-60-land-for-sale-in-nusa-dua-bali</loc>
+    <lastmod>2025-12-12</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+    <image:image>
+      <image:loc>https://cdn.livuma.com/cdn-cgi/image/width=1280,quality=92,f=auto/prod/uploads/listings/06e72da1-a4ec-4b4f-9b22-046e6931f941/2d12e57c-abe8-4cf0-b970-2476190e8a80.webp</image:loc>
+      <image:title>DO 60 - LAND FOR SALE IN NUSA DUA BALI</image:title>
+    </image:image>
+  </url>
+</urlset>

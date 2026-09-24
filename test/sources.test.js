@@ -106,6 +106,29 @@ test('listSources seeds every adapter plus the six skipped sites on first read',
   assert.equal(getConfig(db).sources.length, ids.length);
 });
 
+test('listSources adds an adapter registered after the list was seeded, leaving the rest alone', (t) => {
+  const db = tmpDb(t);
+  const seeded = listSources(db);
+  // A list stored before `livuma` existed, with one scraper already turned off by hand.
+  const old = seeded
+    .filter((s) => s.id !== 'livuma')
+    .map((s) => (s.id === 'rumah123' ? { ...s, enabled: false } : s));
+  setConfig(db, 'sources', old);
+
+  const ids = listSources(db).map((s) => s.id);
+  for (const id of ADAPTER_IDS) assert.ok(ids.includes(id), `${id} listed`);
+  // Joined right after the last registry scraper, before the skipped sites.
+  assert.equal(ids.indexOf('livuma'), ids.indexOf('rumah123') + 1);
+  assert.equal(ids.indexOf('exotiq'), ids.indexOf('livuma') + 1);
+
+  const livuma = getSource(db, 'livuma');
+  assert.equal(livuma.enabled, true);
+  assert.equal(livuma.kind, 'scraper');
+  assert.equal(livuma.url, 'https://livuma.com');
+  assert.equal(getSource(db, 'rumah123').enabled, false, 'a stored entry is never touched');
+  assert.equal(getConfig(db).sources.length, seeded.length, 'persisted');
+});
+
 test('slugify — a non-scraper id is its name', () => {
   assert.equal(slugify('Bali Rentals Canggu'), 'bali-rentals-canggu');
   assert.equal(slugify('  Abigaïl’s WA group! '), 'abigail-s-wa-group');

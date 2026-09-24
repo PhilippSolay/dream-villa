@@ -149,10 +149,40 @@ function readRaw(db) {
 /** Every source, seeding `config.sources` on the first read. Archived entries included. */
 export function listSources(db) {
   const stored = readRaw(db);
-  if (stored) return stored.map(normalise);
+  if (stored) return withNewAdapters(db, stored.map(normalise));
   const seeded = seedList();
   setConfig(db, 'sources', seeded);
   return seeded;
+}
+
+/**
+ * An adapter added to the registry after `config.sources` was seeded joins the stored
+ * list on the next read — enabled, right after the last registry scraper — so the Agent
+ * page shows it and can turn it off. Entries already stored are never touched.
+ */
+function withNewAdapters(db, list, now = nowIso()) {
+  const have = new Set(list.map((s) => s.id));
+  const missing = ADAPTER_IDS.filter((id) => !have.has(id));
+  if (!missing.length) return list;
+  const added = missing.map((id) =>
+    normalise({
+      id,
+      kind: 'scraper',
+      name: registry[id].name || id,
+      url: registry[id].base || null,
+      enabled: true,
+      created_by: 'system',
+      created_at: now,
+      updated_at: now,
+    })
+  );
+  let at = -1;
+  list.forEach((s, i) => {
+    if (ADAPTER_IDS.includes(s.id)) at = i;
+  });
+  const merged = [...list.slice(0, at + 1), ...added, ...list.slice(at + 1)];
+  save(db, merged);
+  return merged;
 }
 
 export function getSource(db, id) {
