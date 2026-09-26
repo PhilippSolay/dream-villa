@@ -3,7 +3,7 @@
 // (config.sources, see src/sources.js).
 
 import {
-  $, $$, html, setHtml, icons, toast, makassarDate, makassarTime, dayLabel, durationLabel, priceLabel,
+  $, $$, html, setHtml, icons, toast, makassarDate, makassarTime, dayLabel, durationLabel, priceLabel, thumbUrl,
 } from '../lib/ui.js';
 
 const WEIGHT_LABELS = {
@@ -178,7 +178,7 @@ function dupSide(o, side) {
   return html`<div class="dup-side" data-side="${side}">
     <a class="dup-thumb" href="#/p/${o.id}" aria-label="Open ${o.title}">
       ${o.hero_url
-        ? html`<img src="${o.hero_url}" alt="" loading="lazy" decoding="async" />`
+        ? html`<img src="${thumbUrl(o.hero_url)}" alt="" loading="lazy" decoding="async" />`
         : html`<span class="placeholder small">No photo</span>`}
     </a>
     <div class="dup-main">

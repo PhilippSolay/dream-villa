@@ -7,7 +7,7 @@
 
 import { nowIso } from '../db.js';
 import { dedupeAll, mergeInto } from '../scrape/dedupe.js';
-import { allCandidates, candidatesFor, loadContext } from '../scrape/duplicates.js';
+import { allCandidates, cachedContext, candidatesFor, forgetContext } from '../scrape/duplicates.js';
 import { finishRun, parseRow, startRun } from '../scrape/store.js';
 import { badRequest, getProperty, heroUrl, notFound, placeholders, strictSchemas } from './_common.js';
 import { publicRow } from './properties.js';
@@ -80,6 +80,7 @@ export default async function duplicatesRoutes(app, opts) {
       const pairs = candidatesFor(db, id, {
         limit: request.query.limit ?? 10,
         minScore: request.query.min_score ?? 0.6,
+        ctx: cachedContext(db),
       });
       const summaries = summariesFor(db, pairs.map((p) => p.b));
 
@@ -110,6 +111,7 @@ export default async function duplicatesRoutes(app, opts) {
       const pairs = allCandidates(db, {
         limit: request.query.limit ?? 100,
         minScore: request.query.min_score ?? 0.6,
+        ctx: cachedContext(db),
       });
       const summaries = summariesFor(db, pairs.flatMap((p) => [p.a, p.b]));
 
@@ -153,6 +155,7 @@ export default async function duplicatesRoutes(app, opts) {
       // The pair is settled; a stale dismissal would only confuse a later pass.
       const [a, b] = ordered(keepId, mergeId);
       db.prepare('DELETE FROM duplicate_dismissals WHERE property_a = ? AND property_b = ?').run(a, b);
+      forgetContext(db);
 
       return { ok: true, merged: result, property: publicRow(getProperty(db, keepId)) };
     }
@@ -186,6 +189,7 @@ export default async function duplicatesRoutes(app, opts) {
         const [a, b] = ordered(m.kept_id, m.merged_id);
         drop.run(a, b);
       }
+      forgetContext(db);
 
       const notes = [`dedupe: run by ${request.user.name}`];
       notes.push(

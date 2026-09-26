@@ -9,6 +9,7 @@ import fastifyStatic from '@fastify/static';
 import { registerAuth } from './auth.js';
 import { nowIso } from './db.js';
 import { sameTeamSql } from './teams.js';
+import { ensureThumb } from './thumbs.js';
 import propertiesRoutes from './routes/properties.js';
 import marketRoutes from './routes/market.js';
 import marketMetricsRoutes from './routes/market-metrics.js';
@@ -126,6 +127,28 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
     return payload;
   });
   await app.register(fastifyStatic, { root: imagesDir, prefix: '/images/', decorateReply: false, maxAge: '30d' });
+
+  // Card-sized WebP cuts of the listing photos (src/thumbs.js), public like the photos
+  // they are cut from and cached as long. Numeric names only: `v3-1.jpg` (a viewing's
+  // photo, gated above) never matches. A cut that fails sends the caller to the original.
+  const thumbsDir = path.resolve(ROOT, env.THUMBS_DIR || path.join(path.dirname(imagesDir), 'thumbs'));
+  app.get('/thumbs/:id/:file', async (request, reply) => {
+    const { id, file } = request.params;
+    const m = /^(\d+)\.webp$/.exec(file);
+    if (!/^\d+$/.test(id) || !m) return reply.code(404).send({ error: 'not_found' });
+    let thumb;
+    try {
+      thumb = await ensureThumb(imagesDir, thumbsDir, id, m[1]);
+    } catch (err) {
+      request.log.warn({ err }, `thumb ${id}/${m[1]} failed`);
+      return reply.redirect(`/images/${id}/${m[1]}.jpg`, 302);
+    }
+    if (!thumb) return reply.code(404).send({ error: 'not_found' });
+    return reply
+      .header('Cache-Control', 'public, max-age=2592000')
+      .type('image/webp')
+      .send(fs.createReadStream(thumb));
+  });
 
   app.get('/healthz', async (request, reply) => {
     let dbOk = false;

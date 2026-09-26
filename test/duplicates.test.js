@@ -11,7 +11,9 @@ import path from 'node:path';
 import { openDb } from '../src/db.js';
 import { seedUsers } from '../src/auth.js';
 import { buildServer } from '../src/server.js';
-import { allCandidates, candidatesFor, scorePair, loadContext } from '../src/scrape/duplicates.js';
+import {
+  allCandidates, candidatesFor, scorePair, loadContext, cachedContext, forgetContext, CONTEXT_TTL_MS,
+} from '../src/scrape/duplicates.js';
 
 const ENV = {
   NODE_ENV: 'test',
@@ -458,4 +460,42 @@ test('API: /api/duplicates/auto takes no body fields', async (t) => {
   photoTwin(db);
   const res = await call({ method: 'POST', url: '/api/duplicates/auto', payload: { source: 'bhi' } });
   assert.equal(res.statusCode, 400);
+});
+
+test('cache: the context is kept until a listing, contact, dismissal or the clock moves it', (t) => {
+  const { db } = tmpDb(t);
+  const shared = 'https://cdn.test/kept.jpg';
+  const a = insert(db, { images: JSON.stringify([{ src_url: shared }]) });
+  const now = 1_000_000;
+
+  const first = cachedContext(db, { now });
+  assert.equal(cachedContext(db, { now: now + 1000 }), first, 'nothing moved: the same object');
+
+  // A new listing is read at once — its own detail page must find itself.
+  const b = insert(db, { source: 'fb', key: 'fb:kept', ref: 'kept', images: JSON.stringify([{ src_url: shared }]) });
+  const second = cachedContext(db, { now: now + 2000 });
+  assert.notEqual(second, first);
+  assert.ok(second.rows.some((r) => r.id === b));
+
+  linkContact(db, a, '+6281234500001');
+  const third = cachedContext(db, { now: now + 3000 });
+  assert.notEqual(third, second, 'a linked contact moves it');
+
+  db.prepare('INSERT INTO duplicate_dismissals (property_a, property_b, by, created_at) VALUES (?, ?, ?, ?)')
+    .run(Math.min(a, b), Math.max(a, b), 1, '2026-09-18T00:00:00.000Z');
+  const fourth = cachedContext(db, { now: now + 4000 });
+  assert.ok(fourth.dismissed.size === 1, 'a dismissal moves it');
+
+  db.prepare('UPDATE properties SET availability = ? WHERE id = ?').run('gone', b);
+  const fifth = cachedContext(db, { now: now + 5000 });
+  assert.notEqual(fifth, fourth, 'a listing gone moves it');
+
+  // A price edit is invisible to the fingerprint; the TTL bounds it.
+  db.prepare('UPDATE properties SET price_month_idr = ? WHERE id = ?').run(99_000_000, a);
+  assert.equal(cachedContext(db, { now: now + 6000 }), fifth);
+  const aged = cachedContext(db, { now: now + 5000 + CONTEXT_TTL_MS });
+  assert.equal(aged.rows.find((r) => r.id === a).price_month_idr, 99_000_000);
+
+  forgetContext(db);
+  assert.notEqual(cachedContext(db, { now: now + 5000 + CONTEXT_TTL_MS }), aged, 'forgetContext drops it');
 });

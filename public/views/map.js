@@ -6,6 +6,7 @@
 import { filtersToQuery } from '../lib/filters.js';
 // SPEC §7, the one copy (src/areas.js re-exports this same module server-side).
 import { BEACHES } from '../lib/areas.js';
+import { thumbUrl } from '../lib/ui.js';
 
 // Resolved against this module's own URL, so it follows the /v/<hash>/ asset prefix.
 const CHARTS_CSS_HREF = new URL('./charts.css', import.meta.url).pathname;
@@ -100,7 +101,7 @@ function buildQuery(filters) {
 }
 
 function popupHtml(p) {
-  const thumb = p.hero_url ? `<img class="map-popup-thumb" src="${escapeHtml(p.hero_url)}" alt="" />` : '';
+  const thumb = p.hero_url ? `<img class="map-popup-thumb" src="${escapeHtml(thumbUrl(p.hero_url))}" alt="" />` : '';
   const price = p.price_month_idr != null ? `${fmtMoney(p.price_month_idr)} / mo` : '— / mo';
   const beach = p.beach_km != null ? `${p.beach_km} km beach` : 'beach n/a';
   const bedrooms = p.bedrooms != null ? `${p.bedrooms} BR` : '';

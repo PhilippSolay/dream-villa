@@ -136,6 +136,47 @@ export function loadContext(db) {
 }
 
 // ---------------------------------------------------------------------------
+// The same read, kept between requests
+// ---------------------------------------------------------------------------
+
+// loadContext reads every live row with its description, every contact and every photo
+// hash: ~0.4 s on 6 000 listings, synchronous, so each detail page that asked for its
+// duplicates held up every photo queued behind it. The context is kept per database and
+// re-read when the fingerprint moves (a listing added, merged or gone, a contact linked,
+// a pair dismissed) or after CONTEXT_TTL_MS, which bounds how stale a changed price or
+// a newly hashed photo can be in a hint that only ever suggests.
+export const CONTEXT_TTL_MS = 10 * 60_000;
+const contexts = new WeakMap(); // db → { stamp, at, ctx }
+
+function fingerprint(db) {
+  const p = db
+    .prepare(
+      `SELECT COUNT(*) AS n, MAX(id) AS max_id,
+              SUM(CASE WHEN availability = 'gone' THEN 1 ELSE 0 END) AS gone
+         FROM properties`
+    )
+    .get();
+  const links = db.prepare('SELECT COUNT(*) AS n FROM property_contacts').get().n;
+  const dismissed = db.prepare('SELECT COUNT(*) AS n FROM duplicate_dismissals').get().n;
+  return `${p.n}:${p.max_id}:${p.gone}:${links}:${dismissed}`;
+}
+
+/** loadContext, served from memory while nothing it depends on has visibly moved. */
+export function cachedContext(db, { now = Date.now() } = {}) {
+  const stamp = fingerprint(db);
+  const hit = contexts.get(db);
+  if (hit && hit.stamp === stamp && now - hit.at < CONTEXT_TTL_MS) return hit.ctx;
+  const ctx = loadContext(db);
+  contexts.set(db, { stamp, at: now, ctx });
+  return ctx;
+}
+
+/** Forget the kept context — after a merge, whose effect the fingerprint may not see. */
+export function forgetContext(db) {
+  contexts.delete(db);
+}
+
+// ---------------------------------------------------------------------------
 // Scoring
 // ---------------------------------------------------------------------------
 
@@ -297,4 +338,4 @@ export function allCandidates(db, { limit = 200, minScore = 0.5, ctx = null } = 
   return out.slice(0, limit);
 }
 
-export default { candidatesFor, allCandidates, scorePair, loadContext, SIGNALS };
+export default { candidatesFor, allCandidates, scorePair, loadContext, cachedContext, forgetContext, SIGNALS };
