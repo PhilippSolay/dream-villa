@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import kibarer, { cardsFrom, detailFrom, lastPageOf, applyDetail } from '../src/scrape/adapters/kibarer.js';
+import kibarer, { cardsFrom, detailFrom, lastPageOf, applyDetail, TARGET_SLUGS } from '../src/scrape/adapters/kibarer.js';
 import { normaliseListing } from '../src/scrape/normalise.js';
 import { inBand } from '../src/scrape/score.js';
 
@@ -166,4 +166,55 @@ test('the adapter object has the SPEC §6 shape', () => {
   assert.equal(typeof kibarer.detail, 'function');
   assert.equal(typeof kibarer.applyDetail, 'function');
   assert.ok(Array.isArray(kibarer.areas) && kibarer.areas.includes('pererenan'));
+});
+
+test('TARGET_SLUGS covers the west-coast and Canggu-belt indexes probed 2026-09-26', () => {
+  // The original six plus the villages that were previously never reached.
+  const added = [
+    'mengwi', 'buwit', 'kedungu', 'nyanyi', 'tanah-lot',
+    'munggu', 'cemagi', 'seseh', 'padonan',
+    'tibubeneng', 'babakan', 'berawa', 'umalas',
+    'balangan', 'bingin', 'padang-padang', 'ungasan', 'pandawa',
+  ];
+  for (const slug of added) assert.ok(TARGET_SLUGS.includes(slug), `missing ${slug}`);
+  // The pre-existing slugs stay.
+  for (const slug of ['pererenan', 'tabanan', 'uluwatu', 'bukit', 'canggu', 'ubud']) {
+    assert.ok(TARGET_SLUGS.includes(slug), `missing ${slug}`);
+  }
+  assert.equal(new Set(TARGET_SLUGS).size, TARGET_SLUGS.length, 'no duplicate slugs');
+});
+
+/** Builds one synthetic index page: one fresh, in-area card plus a paginator that
+ * links up to `lastPage`. Used to prove the adapter walks past the shared
+ * `_shared.MAX_PAGES` (10) cap that other adapters still use. */
+function syntheticPage(page, lastPage) {
+  const nav = [...Array(lastPage).keys()].map((i) => `<a class="page-link" href="?page=${i + 1}">${i + 1}</a>`).join('');
+  return `<html><body>
+    <div class="property-thumbnail" data-id="${page}">
+      <a href="/realestate-property/for-rent/villa/annually/canggu/villa-p${page}-yrz${1000 + page}"></a>
+      <span class="property-code">YRZ${1000 + page}</span>
+      <div class="property-title">Synthetic Villa ${page}</div>
+      <div class="property-location"><div>Canggu, Berawa</div></div>
+      <div class="property-price"><div class="property-status">Yearly Rent</div><span>idr 200,000,000 / Annually</span></div>
+    </div>
+    <div class="pagination">${nav}</div>
+  </body></html>`;
+}
+
+test('list() walks a slug past the shared 10-page cap up to the Kibarer-specific one', async () => {
+  const LAST_PAGE = 20; // > _shared.MAX_PAGES (10), well under the 50-page ceiling
+  const ctx = {
+    config: {},
+    log: { warn() {}, info() {} },
+    async fetchHtml(url) {
+      const m = /[?&]page=(\d+)/.exec(url);
+      const page = m ? Number(m[1]) : 1;
+      if (page > LAST_PAGE) return { html: null, status: 404 };
+      return { html: syntheticPage(page, LAST_PAGE), status: 200 };
+    },
+  };
+  const out = [];
+  for await (const card of kibarer.list(ctx, { areas: ['canggu'] })) out.push(card);
+  assert.equal(out.length, LAST_PAGE, 'every page up to the paginator\'s own last page was walked');
+  assert.equal(new Set(out.map((c) => c.ref)).size, LAST_PAGE, 'refs stay deduped across pages');
 });

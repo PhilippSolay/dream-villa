@@ -32,12 +32,46 @@ The adapter id stays `kibarer` (SPEC §6) and `base` is villabalisale.com.
 /realestate-property/for-rent/villa/<annually|monthly>/<area>/<slug>-<ref>   # detail
 ```
 
-Rental area slugs offered: `amed bukit canggu lombok lovina nusa-islands pererenan
-sanur seminyak tabanan ubud umalas uluwatu`. The adapter walks the five that can hold
-a SPEC §7 area: **`pererenan tabanan uluwatu bukit canggu ubud`** (`TARGET_SLUGS`);
-`ubud` joined on 2026-09-26 with the Center region (≥ 9 pages, 10 cards each).
-Observed page counts 2026-09-18: pererenan 15, tabanan 7, uluwatu 4, bukit 9, canggu 46
-— capped at `MAX_PAGES = 10`.
+Rental area slugs offered include `amed bukit canggu lombok lovina nusa-islands
+pererenan sanur seminyak tabanan ubud umalas uluwatu` plus per-village slugs that
+aren't in that top-level list but resolve fine (`munggu`, `cemagi`, `mengwi`, `seseh`,
+`kedungu`, `nyanyi`, `buwit`, `tanah-lot`, `padonan`, `tibubeneng`, `babakan`,
+`berawa`, `balangan`, `bingin`, `padang-padang`, `ungasan`, `pandawa` — all probed
+2026-09-26 with curl, browser UA, 1 req/s). `TARGET_SLUGS` now walks every slug that
+exists and maps to a `defaults.js` `areas` entry, west to east:
+
+```
+ubud                                                              # Center
+mengwi buwit kedungu nyanyi tanah-lot tabanan
+munggu cemagi seseh pererenan padonan canggu
+tibubeneng babakan berawa umalas                                  # West Coast + Canggu belt
+bukit balangan bingin padang-padang uluwatu ungasan pandawa       # South (the Bukit)
+```
+
+`tabanan` and `bukit` are broad regional indexes kept alongside their villages' own
+slugs — the site's per-village page is not a strict subset of the regional one, and
+`list()` dedupes by ref across every slug regardless of overlap. `buwit` returned zero
+listings on 2026-09-26 (`No Properties Found`, still a valid page) and is kept for
+when one appears.
+
+Observed page counts 2026-09-26 (curl, browser UA, 1 req/s; last `?page=N` seen):
+
+| slug | pages | | slug | pages | | slug | pages |
+|---|---|---|---|---|---|---|---|
+| ubud | 3 | | tanah-lot | 2 | | umalas | 16 |
+| mengwi | 4 | | tabanan | 7 | | bukit | 9 |
+| buwit | 1 (0 cards) | | munggu | 3 | | balangan | 2 |
+| kedungu | 3 | | cemagi | 6 | | bingin | 1 |
+| nyanyi | 2 | | seseh | 3 | | padang-padang | 1 |
+| pererenan | 15 | | padonan | 7 | | uluwatu | 4 |
+| canggu | 45 | | tibubeneng | 1 | | ungasan | 8 |
+| | | | babakan | 3 | | pandawa | 1 |
+| | | | berawa | 17 | | | |
+
+`MAX_PAGES` from `_shared.js` (10) is shared with adapters whose indexes stay small;
+Kibarer's own `KIBARER_MAX_PAGES = 50` covers `canggu`'s ~45 pages with room to grow.
+It is a safety ceiling only — `list()` still stops at the paginator's own last page or
+the first page that yields nothing new, whichever comes first.
 
 `all` is a term-agnostic index; each card's own URL carries `annually` or `monthly`.
 
