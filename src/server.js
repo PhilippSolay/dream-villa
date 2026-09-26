@@ -10,6 +10,7 @@ import { registerAuth } from './auth.js';
 import { nowIso } from './db.js';
 import { sameTeamSql } from './teams.js';
 import { ensureThumb } from './thumbs.js';
+import { createJobs } from './jobs/index.js';
 import propertiesRoutes from './routes/properties.js';
 import marketRoutes from './routes/market.js';
 import marketMetricsRoutes from './routes/market-metrics.js';
@@ -46,10 +47,26 @@ export function assetVersion(dir) {
   return hash.digest('hex').slice(0, 10);
 }
 
-export async function buildServer({ db, env = process.env, logger = false } = {}) {
+/**
+ * @param {object} opts
+ * @param {object} [opts.jobs] createJobs options (src/jobs). Inline unless it says
+ *   `mode: 'fork'`, which is what src/index.js — production — asks for.
+ */
+export async function buildServer({ db, env = process.env, logger = false, jobs: jobOptions = {} } = {}) {
   if (!db) throw new Error('buildServer needs a db');
 
   const app = Fastify({ logger, trustProxy: true });
+
+  // Scrape and import work, off this thread (src/jobs). The routes and the cron hand it over.
+  const jobs = createJobs({
+    db,
+    env,
+    mode: 'inline',
+    log: (line, level = 'info') => (app.log[level] || app.log.info).call(app.log, line),
+    ...jobOptions,
+  });
+  app.decorate('jobs', jobs);
+  app.addHook('onClose', async () => jobs.close());
 
   await registerAuth(app, db, env);
 
@@ -161,15 +178,16 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
     return { ok: true, db: true, time: nowIso() };
   });
 
-  // API route modules (SPEC §4). Each receives { db, env }.
+  // API route modules (SPEC §4). Each receives { db, env }; the scraper and import routes
+  // also get `jobs`.
   await app.register(propertiesRoutes, { db, env });
   await app.register(marketRoutes, { db, env });
   await app.register(marketMetricsRoutes, { db, env });
-  await app.register(adminRoutes, { db, env });
+  await app.register(adminRoutes, { db, env, jobs });
   await app.register(agentRoutes, { db, env });
   await app.register(statsRoutes, { db, env });
-  await app.register(importRoutes, { db, env });
-  await app.register(importListingsRoutes, { db, env });
+  await app.register(importRoutes, { db, env, jobs });
+  await app.register(importListingsRoutes, { db, env, jobs });
   await app.register(duplicatesRoutes, { db, env });
   await app.register(anchorsRoutes, { db, env });
   await app.register(peopleRoutes, { db, env });

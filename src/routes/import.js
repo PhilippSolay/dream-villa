@@ -469,11 +469,76 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
 }
 
 // ---------------------------------------------------------------------------
+// The batch — run by the `import-posts` job (src/jobs/handlers.js), off the request thread.
+// ---------------------------------------------------------------------------
+
+/**
+ * One batch of posts → listing rows, one dedupe pass over the table, one `runs` row.
+ * @returns the route's response body
+ */
+export async function importPosts(db, { groupId, posts, imagesDir }) {
+  const config = getConfig(db);
+
+  const skipped = { no_signal: 0, offtopic: 0, wanted: 0 };
+  const ids = [];
+  let newCount = 0;
+  let updatedCount = 0;
+  let skippedImages = 0;
+
+  for (const post of posts) {
+    const skip = classifySkip(post.text);
+    if (skip) {
+      skipped[skip] += 1;
+      continue;
+    }
+    const result = await upsertPost(db, config, groupId, post, imagesDir);
+    ids.push(result.id);
+    // A re-import of an already-seen post_id is "updated" for this summary
+    // whether or not any listing fact actually changed (upsertProperty may
+    // report 'unchanged' for a byte-identical repost) — from the caller's
+    // point of view it is not a new listing either way.
+    if (result.action === 'inserted') newCount += 1;
+    else updatedCount += 1;
+    skippedImages += result.skippedImages;
+  }
+
+  // SPEC §6 dedupe: fb cross-posts of the same villa share an image or a
+  // description prefix. Run once over the whole table after the batch —
+  // never dedupe.js's own rule; only the imported rows are freshly scored,
+  // so rescoreAll is not needed here.
+  const { merged } = dedupeAll(db);
+
+  const notes = [
+    `skipped_no_signal=${skipped.no_signal}`,
+    `skipped_offtopic=${skipped.offtopic}`,
+    `skipped_wanted=${skipped.wanted}`,
+    `skipped_images=${skippedImages}`,
+  ];
+  for (const m of merged) notes.push(`kept #${m.kept_id} <- merged #${m.merged_id} (${m.reason})`);
+
+  const runId = startRun(db, 'scrape', [`fb:${groupId}`]);
+  finishRun(db, runId, { seen: posts.length, new: newCount, updated: updatedCount, notes });
+
+  return {
+    ok: true,
+    run_id: runId,
+    seen: posts.length,
+    imported: newCount + updatedCount,
+    new: newCount,
+    updated: updatedCount,
+    skipped,
+    skipped_images: skippedImages,
+    merged: merged.length,
+    ids,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
 export default async function importRoutes(app, opts) {
-  const { db, env = process.env } = opts;
+  const { db, env = process.env, jobs } = opts;
   const imagesDir = imagesDirFor(env);
   // SPEC §17: importing writes listing facts for everyone — owners only. The bearer
   // ADMIN_TOKEN still works: it resolves to user 1, an owner of the home team.
@@ -550,62 +615,11 @@ export default async function importRoutes(app, opts) {
         },
       },
     },
+    // The batch runs in a job worker (src/jobs): its dedupe pass reads the whole table, and
+    // on the web thread that held up every photo behind it. The response is the worker's.
     async (request) => {
       const { group_id: groupId, posts } = request.body;
-      const config = getConfig(db);
-
-      const skipped = { no_signal: 0, offtopic: 0, wanted: 0 };
-      const ids = [];
-      let newCount = 0;
-      let updatedCount = 0;
-      let skippedImages = 0;
-
-      for (const post of posts) {
-        const skip = classifySkip(post.text);
-        if (skip) {
-          skipped[skip] += 1;
-          continue;
-        }
-        const result = await upsertPost(db, config, groupId, post, imagesDir);
-        ids.push(result.id);
-        // A re-import of an already-seen post_id is "updated" for this summary
-        // whether or not any listing fact actually changed (upsertProperty may
-        // report 'unchanged' for a byte-identical repost) — from the caller's
-        // point of view it is not a new listing either way.
-        if (result.action === 'inserted') newCount += 1;
-        else updatedCount += 1;
-        skippedImages += result.skippedImages;
-      }
-
-      // SPEC §6 dedupe: fb cross-posts of the same villa share an image or a
-      // description prefix. Run once over the whole table after the batch —
-      // never dedupe.js's own rule; only the imported rows are freshly scored,
-      // so rescoreAll is not needed here.
-      const { merged } = dedupeAll(db);
-
-      const notes = [
-        `skipped_no_signal=${skipped.no_signal}`,
-        `skipped_offtopic=${skipped.offtopic}`,
-        `skipped_wanted=${skipped.wanted}`,
-        `skipped_images=${skippedImages}`,
-      ];
-      for (const m of merged) notes.push(`kept #${m.kept_id} <- merged #${m.merged_id} (${m.reason})`);
-
-      const runId = startRun(db, 'scrape', [`fb:${groupId}`]);
-      finishRun(db, runId, { seen: posts.length, new: newCount, updated: updatedCount, notes });
-
-      return {
-        ok: true,
-        run_id: runId,
-        seen: posts.length,
-        imported: newCount + updatedCount,
-        new: newCount,
-        updated: updatedCount,
-        skipped,
-        skipped_images: skippedImages,
-        merged: merged.length,
-        ids,
-      };
+      return jobs.run('import-posts', { groupId, posts, imagesDir });
     }
   );
 

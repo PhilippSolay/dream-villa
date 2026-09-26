@@ -19,17 +19,6 @@ const CONFIG_KEYS = [
 
 const MAX_WEIGHT = 20;
 
-/**
- * One scrape at a time per process. `src/scrape/index.js` has a `running` flag of its own,
- * but it is private to the cron scheduler, so the API keeps its own module-level lock.
- */
-let scrapeRunning = false;
-
-/** Exposed for tests and for anything that wants to know before POSTing. */
-export function isScrapeRunning() {
-  return scrapeRunning;
-}
-
 export function publicConfig(db) {
   const cfg = getConfig(db);
   const out = {};
@@ -73,10 +62,9 @@ function parseRun(row) {
 }
 
 export default async function adminRoutes(app, opts) {
-  const { db, env = process.env } = opts;
-  // Injected by tests; production loads the real scraper lazily — a static import here
-  // would close the cycle src/index.js → server.js → admin.js → scrape/index.js → src/index.js.
-  const runScrape = opts.runScrape || (async (args) => (await import('../scrape/index.js')).runScrape(args));
+  // `jobs` (src/jobs) runs the scraper in a worker, and holds the one-scrape-at-a-time
+  // guard the cron shares.
+  const { db, env = process.env, jobs } = opts;
   // onRequest: auth must answer before schema validation (see properties.js).
   const auth = { onRequest: app.requireUser };
   // SPEC §17: the scraper/brief/agent controls are the owners' — a friend's tap never
@@ -183,17 +171,11 @@ export default async function adminRoutes(app, opts) {
       },
     },
     async (request, reply) => {
-      if (scrapeRunning) return reply.code(409).send({ error: 'already_running' });
+      if (jobs.busy('scrape')) return reply.code(409).send({ error: 'already_running' });
       const source = str(request.body?.source);
-      scrapeRunning = true;
 
-      // Fire and forget: a full run takes minutes (SPEC §11), far longer than a request.
-      Promise.resolve()
-        .then(() => runScrape({ db, sources: source ? [source] : null, log: (...a) => request.log?.info?.(a.join(' ')) }))
-        .catch((err) => request.log?.error?.({ err }, 'scrape failed'))
-        .finally(() => {
-          scrapeRunning = false;
-        });
+      // Fire and forget: a full run takes minutes to hours (SPEC §11), far longer than a request.
+      jobs.run('scrape', { sources: source ? [source] : null }).catch((err) => app.log.error({ err }, 'scrape failed'));
 
       return reply.code(202).send({ started: true, source: source || null });
     }

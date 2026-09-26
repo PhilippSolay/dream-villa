@@ -102,9 +102,15 @@ per token across the whole set (`src/routes/agent.js`).
 ## Daily schedule
 
 `SCRAPE_CRON` (default `0 6 * * *`, `TZ=Asia/Makassar`) runs the full scrape — every
-enabled adapter, images, geocode, dedupe, score, recheck, learn — then an in-process
-backup (`data/backups/villa-<date>.db`, keep 14). Overlapping ticks are skipped, not
-queued. `SCRAPE_CRON=off` disables it.
+enabled adapter, images, geocode, dedupe, score, recheck, learn — then a backup
+(`data/backups/villa-<date>.db`, keep 14). A tick that finds a scrape still running
+(its own or one started from the Agent page) is skipped, not queued. `SCRAPE_CRON=off`
+disables it.
+
+The scrape, the backup, `POST /api/scrape`, the two import routes and the rescore after
+a migration never run on the web thread: each is a job (`src/jobs/`) in a child process
+of its own with its own SQLite connection, so photos and the API keep answering while
+it works. Same container, no extra service.
 
 ## The archive (Gone)
 

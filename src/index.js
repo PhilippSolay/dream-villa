@@ -7,7 +7,6 @@ import { openDb } from './db.js';
 import { seedUsers } from './auth.js';
 import { buildServer } from './server.js';
 import { scheduleScrape } from './scrape/index.js';
-import { rescoreAll } from './scrape/store.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -54,16 +53,9 @@ export async function main() {
   const db = openDb(env.DB_PATH || path.join(ROOT, 'data/villa.db'));
   seedUsers(db, env);
 
-  const app = await buildServer({ db, env, logger: true });
+  // Scrape, import and backup jobs each run in a child process of their own (src/jobs).
+  const app = await buildServer({ db, env, logger: true, jobs: { mode: 'fork' } });
   const port = Number(env.PORT || 8080);
-
-  // A migration that moves the brief leaves every scope and fit_score stale (db.js).
-  if (db.migrationsApplied?.length) {
-    const n = rescoreAll(db);
-    app.log.info(
-      `migrations ${db.migrationsApplied.join(', ')} — rescored ${n.total}: ${n.in_filter} in filter, ${n.flagged} flagged`
-    );
-  }
 
   let task = null;
   const close = async () => {
@@ -77,8 +69,23 @@ export async function main() {
 
   await app.listen({ host: '0.0.0.0', port });
 
+  // A migration that moves the brief leaves every scope and fit_score stale (db.js). The
+  // rescore runs in a worker once the port is open, instead of holding it shut. It sits on
+  // the scrape lane, so no scrape can start while it runs.
+  if (db.migrationsApplied?.length) {
+    app.jobs
+      .run('rescore')
+      .then((n) =>
+        app.log.info(
+          `migrations ${db.migrationsApplied.join(', ')} — rescored ${n.total}: ${n.in_filter} in filter, ${n.flagged} flagged`
+        )
+      )
+      .catch((err) => app.log.error({ err }, 'post-migration rescore failed'));
+  }
+
   // SPEC §6 (06:00 Asia/Makassar scrape) + §9 (nightly backup, same tick).
   task = scheduleScrape(db, {
+    jobs: app.jobs,
     cron: env.SCRAPE_CRON || undefined,
     tz: env.TZ || undefined,
     backupDir: env.BACKUP_DIR || path.join(ROOT, 'data/backups'),

@@ -15,6 +15,7 @@ import { buildServer } from '../src/server.js';
 import { upsertProperty, rescoreAll } from '../src/scrape/store.js';
 import { percentiles } from '../src/routes/market.js';
 import adminRoutes from '../src/routes/admin.js';
+import { createJobs } from '../src/jobs/index.js';
 
 const ENV = {
   NODE_ENV: 'test',
@@ -923,8 +924,9 @@ test('inbox: POST records the person, GET lists pending', async (t) => {
 });
 
 /**
- * POST /api/scrape is tested against a stub injected through the plugin's own options —
- * cleaner than an env switch, and it lets the 409 lock be exercised for real.
+ * POST /api/scrape is tested against a stub scrape handler on an inline job runner handed
+ * to the plugin — cleaner than an env switch, and it lets the 409 lock be exercised for
+ * real. (test/jobs.test.js runs the real thing in a worker.)
  */
 async function adminApp(t, { runScrape }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'villa-scrape-'));
@@ -932,7 +934,8 @@ async function adminApp(t, { runScrape }) {
   seedUsers(db, ENV);
   const app = Fastify();
   await registerAuth(app, db, ENV);
-  await app.register(adminRoutes, { db, env: ENV, runScrape });
+  const jobs = createJobs({ db, mode: 'inline', handlers: { scrape: (_db, args) => runScrape(args) } });
+  await app.register(adminRoutes, { db, env: ENV, jobs });
   t.after(async () => {
     await app.close();
     db.close();

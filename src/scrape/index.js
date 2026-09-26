@@ -19,7 +19,7 @@ import { processInbox } from './inbox.js';
 import { dedupeAll } from './dedupe.js';
 import { recheckAll } from './recheck.js';
 import { rescoreAll, startRun, finishRun, countsSummary, markUnlisted } from './store.js';
-import { runBackup, DEFAULT_BACKUP_DIR, DEFAULT_KEEP } from '../backup.js';
+import { DEFAULT_BACKUP_DIR, DEFAULT_KEEP } from '../backup.js';
 import { disabledSourceIds } from '../sources.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -99,6 +99,7 @@ function sortedEntries(map) {
  * @param {boolean} [opts.detail] fetch detail pages
  * @param {boolean} [opts.images] download/resize images
  * @param {Function} [opts.log]
+ * @param {Function} [opts.onRun] told the runs row id as soon as it exists (src/jobs closes it if the worker dies)
  * @returns {Promise<object>} the run summary
  */
 export async function runScrape({
@@ -110,6 +111,7 @@ export async function runScrape({
   detail = true,
   images = true,
   log = (...a) => console.log(...a),
+  onRun = null,
   cacheDir = process.env.CACHE_DIR || path.join(ROOT, 'data/cache'),
   now = nowIso(),
 } = {}) {
@@ -163,6 +165,7 @@ export async function runScrape({
   const bySlug = new Map();
 
   summary.run_id = dry ? null : startRun(db, 'scrape', ids);
+  if (summary.run_id != null) onRun?.(summary.run_id);
   log(
     `[scrape] ${dry ? 'DRY ' : ''}start — sources ${ids.join(', ') || 'none'}` +
       `${skippedSources.length ? ` (disabled: ${skippedSources.join(', ')})` : ''}` +
@@ -492,13 +495,18 @@ export function runReport(summary) {
 // ---------------------------------------------------------------------------
 
 /**
- * Daily scrape + nightly backup (SPEC §6, §9), node-cron v4.
- * `SCRAPE_CRON=off` disables it. Overlapping ticks are skipped, not queued.
+ * Daily scrape + nightly backup (SPEC §6, §9), node-cron v4. Both run as jobs (src/jobs),
+ * in a worker off the web thread. A tick that finds a scrape still running — its own
+ * previous one, or one started from the Agent page — is skipped, not queued: the same
+ * guard POST /api/scrape answers 409 from. `SCRAPE_CRON=off` disables it.
+ * @param {object} opts
+ * @param {{run:Function, busy:Function}} opts.jobs the server's job runner (`app.jobs`)
  * @returns {import('node-cron').ScheduledTask|null}
  */
 export function scheduleScrape(
   db,
   {
+    jobs,
     cron = process.env.SCRAPE_CRON || DEFAULT_CRON,
     tz = process.env.TZ || DEFAULT_TZ,
     log = (...a) => console.log(...a),
@@ -513,28 +521,24 @@ export function scheduleScrape(
     return null;
   }
   if (!nodeCron.validate(cron)) throw new Error(`invalid SCRAPE_CRON: ${cron}`);
-
-  let running = false;
+  if (!jobs) throw new Error('scheduleScrape needs the job runner (src/jobs)');
 
   const task = nodeCron.schedule(
     cron,
     async () => {
-      if (running) {
-        log('[cron] previous scrape still running — skipping this tick');
+      if (jobs.busy('scrape')) {
+        log('[cron] a scrape is still running — skipping this tick');
         return;
       }
-      running = true;
       try {
-        await runScrape({ db, log, ...scrapeOptions });
+        await jobs.run('scrape', scrapeOptions);
       } catch (err) {
         log(`[cron] scrape failed: ${String((err && err.message) || err)}`);
-      } finally {
-        running = false;
       }
 
       if (backup) {
         try {
-          const { file, removed } = await runBackup(db, backupDir, keep);
+          const { file, removed } = await jobs.run('backup', { dir: backupDir, keep });
           log(`[cron] backup ${file}${removed.length ? ` (pruned ${removed.length})` : ''}`);
         } catch (err) {
           log(`[cron] backup failed: ${String((err && err.message) || err)}`);

@@ -219,7 +219,12 @@ export function upsertProperty(db, row, { now = nowIso(), runKind = 'scrape' } =
   return tx();
 }
 
-/** Re-run scoreRow over every property and persist scope/fit_score/flagged/red_flags. */
+/**
+ * Re-run scoreRow over every property and persist scope/fit_score/flagged/red_flags.
+ * Scored first, written second: the write transaction holds SQLite's one write lock, and
+ * with the scrape in a worker (src/jobs) the web process's own writes wait on it — so it
+ * holds only the UPDATEs, not the scoring of every row.
+ */
 export function rescoreAll(db, config = getConfig(db)) {
   const rows = db.prepare('SELECT * FROM properties').all();
   const update = db.prepare('UPDATE properties SET scope = ?, fit_score = ?, flagged = ?, red_flags = ? WHERE id = ?');
@@ -228,14 +233,16 @@ export function rescoreAll(db, config = getConfig(db)) {
   let market = 0;
   let flagged = 0;
 
+  const scores = rows.map((row) => {
+    const scored = scoreRow(parseRow(row), config);
+    if (scored.scope === 'in_filter') in_filter++;
+    else market++;
+    if (scored.flagged) flagged++;
+    return [scored.scope, scored.fit_score, scored.flagged, JSON.stringify(scored.red_flags), row.id];
+  });
+
   db.transaction(() => {
-    for (const row of rows) {
-      const scored = scoreRow(parseRow(row), config);
-      update.run(scored.scope, scored.fit_score, scored.flagged, JSON.stringify(scored.red_flags), row.id);
-      if (scored.scope === 'in_filter') in_filter++;
-      else market++;
-      if (scored.flagged) flagged++;
-    }
+    for (const params of scores) update.run(...params);
   })();
 
   return { total: rows.length, in_filter, market, flagged };

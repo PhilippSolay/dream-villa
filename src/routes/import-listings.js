@@ -24,7 +24,7 @@ import { finishRow } from '../scrape/ingest.js';
 import { inBand } from '../scrape/score.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
 import { settleImport } from '../scrape/settle.js';
-import { createCtx as createFetchCtx } from '../scrape/fetch.js';
+import { createCtx } from '../scrape/fetch.js';
 import { AREAS } from '../areas.js';
 import { strictSchemas, saveImage, imagesDirFor, jsonArray } from './_common.js';
 
@@ -283,8 +283,112 @@ const listingSchema = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// The batch and its settle — the `import-listings` and `settle` jobs (src/jobs/handlers.js).
+// ---------------------------------------------------------------------------
+
+/**
+ * One batch of listings → rows (plus any embedded photos) and one `runs` row.
+ * @returns the route's response body; `ids` is what the settle job takes next
+ */
+export async function importListings(db, { source, listings, imagesDir, now = nowIso() }) {
+  const config = getConfig(db);
+
+  const ids = [];
+  let newCount = 0;
+  let updatedCount = 0;
+  let contactsLinked = 0;
+  let embeddedFailed = 0;
+  let outOfBand = 0;
+
+  for (const listing of listings) {
+    const result = upsertListing(db, config, source, listing, now);
+    if (result.action === 'skipped') {
+      outOfBand += 1;
+      continue;
+    }
+    ids.push(result.id);
+    if (result.action === 'inserted') newCount += 1;
+    else updatedCount += 1;
+    if (result.hadContact) contactsLinked += 1;
+
+    if (Array.isArray(listing.images_b64) && listing.images_b64.length) {
+      const { failed } = await attachEmbeddedImages(db, imagesDir, result.id, listing.images_b64);
+      embeddedFailed += failed;
+    }
+  }
+
+  const downloaded = 0;
+  const imagesFailed = embeddedFailed;
+
+  const notes = [
+    `contacts_linked=${contactsLinked}`,
+    `images_downloaded=${downloaded}`,
+    `images_queued=${ids.length}`,
+    `images_failed=${imagesFailed}`,
+    `out_of_band=${outOfBand}`,
+    'settle=queued',
+  ];
+
+  const runId = startRun(db, 'scrape', [source]);
+  finishRun(db, runId, { seen: listings.length, new: newCount, updated: updatedCount, notes });
+
+  return {
+    ok: true,
+    run_id: runId,
+    seen: listings.length,
+    new: newCount,
+    updated: updatedCount,
+    skipped: { out_of_band: outOfBand },
+    images_downloaded: downloaded,
+    images_queued: ids.length,
+    images_failed: imagesFailed,
+    settle_queued: true,
+    ids,
+  };
+}
+
+/**
+ * Settle an imported batch (src/scrape/settle.js): dedupe on the cheap evidence first,
+ * probe one hero image per surviving row, merge whatever turns out to be a villa we
+ * already have, and only then download the remaining galleries — a duplicate must not
+ * cost 20 downloads it is about to lose ("make sure you dont get dups before downloading
+ * images"). A `settle` run row records what it did.
+ */
+export async function settleBatch(db, { source, ids, imagesDir, log, onRun = () => {} }) {
+  const ctx = createCtx({ db, config: getConfig(db), log });
+  let settleRunId = null;
+  try {
+    settleRunId = startRun(db, 'settle', [source]);
+    onRun(settleRunId);
+    const summary = await settleImport(db, ctx, { ids, imagesDir, log });
+    const settleNotes = [
+      `merged_early=${summary.merged_early}`,
+      `merged_by_hero=${summary.merged_by_hero}`,
+      `merged_late=${summary.merged_late}`,
+      `galleries_downloaded=${summary.galleries_downloaded}`,
+      `files_removed=${summary.files_removed}`,
+    ];
+    for (const m of summary.merges) {
+      settleNotes.push(`kept #${m.kept_id} <- merged #${m.merged_id} (${m.reason})`);
+    }
+    const gone = summary.merged_early + summary.merged_by_hero + summary.merged_late;
+    finishRun(db, settleRunId, { seen: ids.length, gone, notes: settleNotes, errors: summary.errors });
+    return { run_id: settleRunId, gone, galleries_downloaded: summary.galleries_downloaded };
+  } catch (err) {
+    // settleImport swallows its own step failures; this records the rest on the run row
+    // (a finishRun that can no longer write gives up quietly) and lets the job fail.
+    try {
+      if (settleRunId != null) finishRun(db, settleRunId, { seen: ids.length, errors: [String((err && err.message) || err)] });
+    } catch {
+      /* nothing left to report to */
+    }
+    throw err;
+  }
+}
+
 export default async function importListingsRoutes(app, opts) {
-  const { db, env = process.env, createCtx = createFetchCtx } = opts;
+  const { db, env = process.env, jobs } = opts;
   const imagesDir = imagesDirFor(env);
   // SPEC §17: importing writes listing facts for everyone — owners only. The bearer
   // ADMIN_TOKEN still works: it resolves to user 1, an owner of the home team.
@@ -309,107 +413,18 @@ export default async function importListingsRoutes(app, opts) {
         },
       },
     },
+    // The upserts run in a job worker (src/jobs), off the request thread; the settle is
+    // queued behind them on a lane of its own. Runs in the background: a batch of 50
+    // listings can mean 500 downloads at one per second, far longer than the proxy's
+    // request timeout. The response reports the queued count; a `settle` run row records
+    // what the job did.
     async (request) => {
       const { source, listings } = request.body;
-      const config = getConfig(db);
-      const now = nowIso();
-
-      const ids = [];
-      let newCount = 0;
-      let updatedCount = 0;
-      let contactsLinked = 0;
-      let embeddedFailed = 0;
-      let outOfBand = 0;
-
-      for (const listing of listings) {
-        const result = upsertListing(db, config, source, listing, now);
-        if (result.action === 'skipped') {
-          outOfBand += 1;
-          continue;
-        }
-        ids.push(result.id);
-        if (result.action === 'inserted') newCount += 1;
-        else updatedCount += 1;
-        if (result.hadContact) contactsLinked += 1;
-
-        if (Array.isArray(listing.images_b64) && listing.images_b64.length) {
-          const { failed } = await attachEmbeddedImages(db, imagesDir, result.id, listing.images_b64);
-          embeddedFailed += failed;
-        }
-      }
-
-      // Settle the batch in the background (src/scrape/settle.js): dedupe on the cheap
-      // evidence first, probe one hero image per surviving row, merge whatever turns out
-      // to be a villa we already have, and only then download the remaining galleries —
-      // a duplicate must not cost 20 downloads it is about to lose ("make sure you dont
-      // get dups before downloading images"). Runs in the background: a batch of 50
-      // listings can mean 500 downloads at one per second, far longer than the proxy's
-      // request timeout. The response reports the queued count; a `settle` run row
-      // records what the job did.
-      const ctx = createCtx({ db, config, log: app.log });
-      const queuedIds = ids.slice();
-      setImmediate(async () => {
-        let settleRunId = null;
-        try {
-          settleRunId = startRun(db, 'settle', [source]);
-          const summary = await settleImport(db, ctx, { ids: queuedIds, imagesDir, log: app.log });
-          const settleNotes = [
-            `merged_early=${summary.merged_early}`,
-            `merged_by_hero=${summary.merged_by_hero}`,
-            `merged_late=${summary.merged_late}`,
-            `galleries_downloaded=${summary.galleries_downloaded}`,
-            `files_removed=${summary.files_removed}`,
-          ];
-          for (const m of summary.merges) {
-            settleNotes.push(`kept #${m.kept_id} <- merged #${m.merged_id} (${m.reason})`);
-          }
-          finishRun(db, settleRunId, {
-            seen: queuedIds.length,
-            gone: summary.merged_early + summary.merged_by_hero + summary.merged_late,
-            notes: settleNotes,
-            errors: summary.errors,
-          });
-        } catch (err) {
-          // settleImport swallows its own step failures; this catches the rest (a closed
-          // db, a finishRun that can no longer write) so the job never rejects.
-          try {
-            app.log.error({ err, source }, 'import-listings: background settle failed');
-            if (settleRunId != null) {
-              finishRun(db, settleRunId, { seen: queuedIds.length, errors: [String((err && err.message) || err)] });
-            }
-          } catch {
-            /* nothing left to report to */
-          }
-        }
-      });
-      const downloaded = 0;
-      const imagesFailed = embeddedFailed;
-
-      const notes = [
-        `contacts_linked=${contactsLinked}`,
-        `images_downloaded=${downloaded}`,
-        `images_queued=${queuedIds.length}`,
-        `images_failed=${imagesFailed}`,
-        `out_of_band=${outOfBand}`,
-        'settle=queued',
-      ];
-
-      const runId = startRun(db, 'scrape', [source]);
-      finishRun(db, runId, { seen: listings.length, new: newCount, updated: updatedCount, notes });
-
-      return {
-        ok: true,
-        run_id: runId,
-        seen: listings.length,
-        new: newCount,
-        updated: updatedCount,
-        skipped: { out_of_band: outOfBand },
-        images_downloaded: downloaded,
-        images_queued: queuedIds.length,
-        images_failed: imagesFailed,
-        settle_queued: true,
-        ids,
-      };
+      const response = await jobs.run('import-listings', { source, listings, imagesDir });
+      jobs
+        .run('settle', { source, ids: response.ids, imagesDir })
+        .catch((err) => app.log.error({ err, source }, 'import-listings: background settle failed'));
+      return response;
     }
   );
 

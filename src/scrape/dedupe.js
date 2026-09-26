@@ -381,7 +381,9 @@ export function dedupeAll(db, { now = nowIso() } = {}) {
       const keep = get.get(pair.kept_id);
       const drop = get.get(pair.merged_id);
       if (!keep || !drop) continue;
-      if (drop.availability === 'gone') continue;
+      // Re-read inside the transaction: another connection (a scrape and an import run in
+      // separate workers, src/jobs) may have merged either row since findDuplicates looked.
+      if (drop.availability === 'gone' || keep.availability === 'gone') continue;
       merged.push(mergeOne(db, keep, drop, pair.reason, now));
       done.add(pair.merged_id);
     }

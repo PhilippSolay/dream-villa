@@ -4,7 +4,7 @@ Private villa-search tracker for Philipp and Abigaïl. One Docker container on t
 
 ## What this is
 - A mobile-first web app (two owners, plus friends in their own teams) to browse, filter, rate and annotate villa listings in three regions (SPEC §7): **Center** (Ubud and the desa around it — Tegallalang, Payangan, Pejeng, Lodtunduh), **West Coast** (Tanah Lot area down through Seseh / Cemagi / Pererenan to the Canggu belt) and **South** (the Bukit: Bingin / Uluwatu / Ungasan).
-- A scraper that runs daily at 06:00 Asia/Makassar inside the same service, pulls listings from agency sites and portals, downloads images, resolves map pins, dedupes, scores, flags.
+- A scraper that runs daily at 06:00 Asia/Makassar inside the same service, pulls listings from agency sites and portals, downloads images, resolves map pins, dedupes, scores, flags. It runs in a child process (`src/jobs/`), as do the imports, the backup and the post-migration rescore, so the web thread keeps serving while they work. New heavy work belongs there too: better-sqlite3 is synchronous.
 - A small GET-only "agent API" that a cloud Claude session reads every morning at 07:00 to write the push notification and leave notes.
 
 ## Stack (do not swap without asking)
