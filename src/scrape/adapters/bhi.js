@@ -31,8 +31,13 @@ export const TARGET_SLUGS = [
 
 const TERMS = ['monthly', 'yearly'];
 
-/** Safety stop: the doc says most areas are 1–3 pages. */
-const MAX_PAGES = 10;
+/**
+ * Safety stop only — the walk ends on `pagination.last_page` or an empty page. 30 cards
+ * a page; on 2026-09-26 `yearly/canggu` ran to exactly 10 pages (277 villas), so the
+ * old cap of 10 was one listing away from silently dropping the tail. 40 pages is
+ * 1 200 villas in one slug × term, four times the biggest seen.
+ */
+export const MAX_PAGES = 40;
 
 const MAX_IMAGES = 20;
 
@@ -364,6 +369,9 @@ async function* list(ctx, { areas = TARGET_SLUGS, terms = TERMS } = {}) {
         }
 
         if (lastPage != null && page >= lastPage) break;
+        if (page === MAX_PAGES && ctx.log && ctx.log.warn) {
+          ctx.log.warn(`[bhi] ${term}/${slug}: stopped at MAX_PAGES=${MAX_PAGES} of ${lastPage ?? '?'}`);
+        }
       }
     }
   }

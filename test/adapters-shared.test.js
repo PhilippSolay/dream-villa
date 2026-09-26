@@ -84,6 +84,9 @@ test('areaFromText maps the site dialects onto SPEC §7 areas', () => {
   assert.equal(areaFromText('Babakan, Canggu'), 'babakan', 'the village beats the region');
   assert.equal(areaFromText('Umalas'), 'umalas');
   assert.equal(areaFromText('Brawa'), 'berawa', 'the spelling agents actually use');
+  // Two Bali Realty titles (2026-09-26) that named only a banjar or a beach and were dropped.
+  assert.equal(areaFromText('Newly Built Three-Bedroom Villa, Fully Furnished in Semat'), 'tibubeneng');
+  assert.equal(areaFromText('Chic and Spacious Three-Bedroom Villa for Yearly Rental Near Lima Beach'), 'pererenan');
   assert.equal(areaFromText('Bukit, Nusa Dua'), null, 'a bare Bukit is not a target area');
   assert.equal(areaFromText(null, 'Villa in Seseh'), 'seseh', 'later parts are searched too');
 });

@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import bhi, { parseInertia, htmlToText, mapView, mapStyle } from '../src/scrape/adapters/bhi.js';
+import bhi, { parseInertia, htmlToText, mapView, mapStyle, MAX_PAGES as bhi_MAX_PAGES } from '../src/scrape/adapters/bhi.js';
 import { normaliseListing } from '../src/scrape/normalise.js';
 import { scoreRow } from '../src/scrape/score.js';
 import { openDb, getConfig } from '../src/db.js';
@@ -235,6 +235,23 @@ test('list() reads the index Inertia payload and dedupes refs across terms', asy
   assert.equal(rf2.price_month_idr, 40_000_000);
   assert.equal(rf2.price_year_idr, 450_000_000);
   assert.equal(out[2].term, 'yearly');
+});
+
+test('list() follows pagination past page 10 to last_page (yearly/canggu was 10 pages on 2026-09-26)', async () => {
+  const LAST = 12;
+  const fetched = [];
+  const ctx = {
+    async fetchHtml(url) {
+      fetched.push(url);
+      const page = Number((/[?&]page=(\d+)/.exec(url) || [])[1] || 1);
+      return { html: indexHtml([entry(`RF${page}00`)], { current_page: page, last_page: LAST }), status: 200 };
+    },
+  };
+  const out = [];
+  for await (const item of bhi.list(ctx, { areas: ['canggu'], terms: ['yearly'] })) out.push(item);
+  assert.equal(out.length, LAST, 'one card from every page, the 11th and 12th included');
+  assert.equal(fetched.length, LAST, 'stops on last_page, not one page later');
+  assert.ok(bhi_MAX_PAGES >= 30, 'the cap is a safety stop well past any real slug');
 });
 
 test('list() stops an area on an empty page', async () => {

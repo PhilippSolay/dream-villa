@@ -36,7 +36,7 @@ export const PLACE_WORDS = [
   [/\bseseh\b/i, 'seseh'],
   [/\bcemagi\b|\bmengening\b/i, 'cemagi'],
   [/\bmunggu\b/i, 'munggu'],
-  [/\bpererenan\b|tumbak\s*bayuh|\btumbak\b|\bbuduk\b|tiying\s*tutul/i, 'pererenan'],
+  [/\bpererenan\b|tumbak\s*bayuh|\btumbak\b|\bbuduk\b|tiying\s*tutul|lima\s+beach|pantai\s+lima/i, 'pererenan'],
   [/\bnyanyi\b/i, 'nyanyi'],
   [/\bkedungu\b/i, 'kedungu'],
   [/\bbuwit\b/i, 'buwit'],
@@ -58,7 +58,7 @@ export const PLACE_WORDS = [
   [/\bumalas\b/i, 'umalas'],
   [/\bbabakan\b/i, 'babakan'],
   [/\bpadonan\b/i, 'padonan'],
-  [/\bpelambingan\b|\bumasari\b|\btibubeneng\b/i, 'tibubeneng'],
+  [/\bpelambingan\b|\bumasari\b|\bsemat\b|\btibubeneng\b/i, 'tibubeneng'],
   [/\bberawa\b|\bbrawa\b/i, 'berawa'],
   [/kayu\s*tulang|padang\s*linjong|tegal\s*gundul|batu\s*bolong|echo\s*beach|batu\s*mejan|pantai\s*nelayan|\bcanggu\b/i, 'canggu'],
 

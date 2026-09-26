@@ -23,8 +23,17 @@ follow the stricter `*` group.)
 
 - Search: `https://www.rumah123.com/sewa/{kabupaten}/{area}/{villa|rumah}/` — `sewa` = rent.
   Pagination `?page=n`, `n` from 2; page 1 has no parameter. The next page is linked as
-  `<a rel="next" href="…?page=2">`; absence of `rel="next"` is the end.
+  `<a rel="next" href="…?page=2">`; absence of a **live** `rel="next"` is the end. The last
+  page still renders a "Next page" arrow carrying `rel="next"`, but disabled
+  (`aria-disabled="true"`, no `href`) — counting it cost one wasted request per slug × type
+  and would walk a slug to the cap; only `a[rel="next"][href]` not `aria-disabled` counts.
 - 20 cards per page (sometimes fewer, e.g. `tabanan/kerambitan` had 3).
+- **Verified 200 (2026-09-26), Canggu belt:** `badung/canggu` (1 183 villa results),
+  `badung/umalas` (421), `badung/tibubeneng` (169). **Verified 404:** `badung/berawa`,
+  `badung/babakan`, `badung/padonan` — banjars, found under canggu/tibubeneng by title.
+  Not walked: `badung/kerobokan` (605, mostly Kerobokan/Seminyak — Umalas has its own
+  slug), `badung/kerobokan-kelod` (74), `badung/dalung` (87), `badung/kuta-utara` (115, the
+  kecamatan, overlaps the desa slugs).
 - **Verified 200 (2026-09-26), Center:** `gianyar/`: `ubud` (364 villa results),
   `sukawati` (17), `tegallalang` (8), `payangan` (3), `tampaksiring` (3). Gianyar's
   kecamatan are the §7 areas; `tampaksiring` files under `pejeng`, `sukawati` has no
@@ -191,10 +200,16 @@ set on the partial, so **the adapter resolves the area itself and states it outr
 
 `resolveArea` works in this order:
 village keyword in the *location* string → village keyword in the *title* → the search slug's
-own area → kecamatan default. Village keywords: seseh, cemagi/mengening, munggu, pererenan,
+own area → kecamatan default. Village keywords: seseh, cemagi/mengening, munggu, pererenan
+(with Tumbak Bayuh, Buduk, Tiying Tutul — SPEC §7's inland north Pererenan),
 nyanyi, kedungu/belalang, tanah lot / beraban / kaba-kaba (→ `tanah_lot`), buwit, bingin,
 padang padang, balangan, ungasan / melasti (→ `ungasan`), pandawa / kutuh (→ `pandawa`),
-pecatu / uluwatu / suluban (→ `uluwatu`).
+pecatu / uluwatu / suluban (→ `uluwatu`), and the Canggu belt's banjars — berawa/brawa,
+babakan, padonan, umalas, pelambingan/umasari/semat (→ `tibubeneng`), batu bolong / echo
+beach / kayu tulang / padang linjong / tegal gundul (→ `canggu`). The **desa** names
+Canggu and Tibubeneng are deliberately *not* village keywords but kecamatan-level defaults:
+the portal writes `Tibubeneng, Badung` on a card titled "…in Berawa", and the banjar in the
+title must win.
 
 Kecamatan defaults (**assumptions, SPEC is silent**):
 
@@ -217,10 +232,45 @@ ignored `partial.area`, with "adjacent in-band proxy" areas for `munggu`, `mengw
 which `applyDetail` had to undo. `normaliseListing` now takes the area directly; the workaround
 and the proxies are gone.
 
+## Coverage audit — 2026-09-26
+
+The adapter used to stop every slug × type at **3 pages (60 cards)**. The result list is
+ordered by relevance, not by date (page 45 of Canggu mixes "updated 13 hours ago" with
+"3 months ago"), so the cap cut a random slice, not a stale tail. 17 of the 44 slug ×
+type walks were truncated that day: `pererenan/villa` 402 results, `ungasan/villa` 372,
+`ubud/villa` 363, `ungasan/rumah` 161, `ubud/rumah` 152, `munggu/villa` 146,
+`mengwi/villa` 117, `kuta-selatan/villa` 110, `munggu/rumah` 109, `cemagi/villa` 107,
+`pecatu/villa` 96, `seseh/villa` 95, `mengwi/rumah` 92, `uluwatu/villa` 89,
+`kedungu/villa` 81, `pererenan/rumah` 73, `kuta-selatan/rumah` 66. And the Canggu belt —
+in §7 since 2026-09-22 — had no slug at all.
+
+Now: `MAX_PAGES = 80` (a safety stop that warns; Canggu's 60 pages is the biggest), the
+walk ends on the live `rel="next"`, and the three Canggu-belt slugs are in.
+
+| | before | after |
+|---|---|---|
+| index requests / day | ~92 | ~297 |
+| cards in a §7 area | 1 039 | 3 586 |
+| in the band | 657 | 2 559 |
+
+After, by area: canggu 631, pererenan 494, umalas 402, ungasan 361, ubud 283, berawa 252,
+munggu 188, uluwatu 176, tibubeneng 112, cemagi 97, padonan 97, seseh 86, kedungu 72,
+pandawa 63, mengwi 61, balangan 40, lodtunduh 36, babakan 33, nyanyi 32, tanah_lot 23,
+buwit 22, pejeng 11, tegallalang 10, payangan 4. (Mengwi fell from 76 to 61 because cards
+titled "Buduk" now file under Pererenan, as §7 says.)
+
+**Rate limit.** Rumah123 answers `429` about once every 25 requests at 1 req/s; the ctx
+backs off 30 s each time. The full index walk took ~11 minutes. The larger cost is
+downstream: `ingestListing` fetches one detail page per in-band card, and with the
+24 h cache that is ~2 500 detail pages a day on this host — roughly an hour with the
+backoffs. If that is too much, the knobs are `MAX_PAGES`, the `rumah` type on the big
+slugs, or a longer detail TTL for portals (not done here: CLAUDE.md sets 24 h).
+
 ## Volume seen
 
 `Sewa Villa di Badung` claims 37 234 listings portal-wide; per target area a page holds 20 and
-the adapter takes at most 3 pages × 2 property types × 17 areas. Nearly all of it is filtered
+the adapter takes at most 3 pages × 2 property types × 17 areas *(superseded 2026-09-26 —
+see "Coverage audit" above)*. Nearly all of it is filtered
 out by the band (most Badung "villa" stock is Canggu/Seminyak nightly rental or far over
 budget) — that is expected and is not a bug.
 

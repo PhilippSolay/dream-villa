@@ -5,12 +5,18 @@
 // 12 cards a page. See adapters/balirealty.md.
 
 import * as cheerio from 'cheerio';
-import { MAX_PAGES, MAX_IMAGES, absUrl, textOf, numberIn } from './_shared.js';
+import { MAX_IMAGES, absUrl, textOf, numberIn } from './_shared.js';
 import { moneyIdr, areaFromText, subAreaFrom, beachHint, termFor } from './_shared.js';
 
 const BASE = 'https://www.balirealty.com';
 const LIST_PATH = '/properties';
 const FILTER = 'filter-contract=RENT&filter-property-type=75';
+
+/**
+ * Safety stop only; the walk ends on the theme's own end markers. The whole rental
+ * list was 6 pages (70 villas) on 2026-09-26 — the shared cap of 10 left little room.
+ */
+export const MAX_PAGES = 20;
 
 /**
  * The index card prints an amount with no period (`data-base-amount`), so the card
