@@ -123,6 +123,22 @@ export function thumbUrl(url) {
   return m ? `/thumbs/${m[1]}/${m[2]}.webp` : url;
 }
 
+/**
+ * Where a photo that failed to load goes next: a cut falls back to the original it was
+ * cut from (`/thumbs/12/1.webp` → `/images/12/1.jpg`); anything else has nowhere to go.
+ * Takes a path or an absolute URL, since `img.src` is always absolute.
+ */
+export function photoFallback(src) {
+  let pathname = src || '';
+  try {
+    pathname = new URL(pathname, 'http://x').pathname;
+  } catch {
+    return null;
+  }
+  const m = /^\/thumbs\/(\d+)\/(\d+)\.webp$/.exec(pathname);
+  return m ? `/images/${m[1]}/${m[2]}.jpg` : null;
+}
+
 export function beachLabel(km) {
   if (km == null) return null;
   const n = Number(km);

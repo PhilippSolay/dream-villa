@@ -4,7 +4,7 @@ import { createStore } from './lib/store.js';
 import { defaultFilters } from './lib/filters.js';
 import { createApi } from './lib/api.js';
 import { createRouter, navigate } from './lib/router.js';
-import { $, html, setHtml, icons, toast } from './lib/ui.js';
+import { $, html, setHtml, icons, toast, photoFallback } from './lib/ui.js';
 import { isSolo, isOwner } from './lib/people.js';
 
 const store = createStore(
@@ -209,6 +209,26 @@ accountMenu.addEventListener('click', (event) => {
   if (button.dataset.account === 'people') navigate('/people');
   else if (button.dataset.account === 'logout') signOut();
 });
+
+// A photo cut that fails to load — cut short in transit and cached broken, or a hiccup
+// mid-cut — falls back to the original photo once; if that fails too it steps aside for
+// the card's empty photo well instead of a broken-image icon. `error` does not bubble,
+// hence the capture phase. Gallery and remote photos are left as they are.
+document.addEventListener(
+  'error',
+  (event) => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    const next = photoFallback(img.getAttribute('src'));
+    if (next) {
+      img.dataset.fellBack = '1';
+      img.src = next;
+    } else if (img.dataset.fellBack) {
+      img.remove();
+    }
+  },
+  true
+);
 
 document.addEventListener('click', (event) => {
   if (!accountMenu.hidden && !event.target.closest('#account-wrap')) toggleAccountMenu(false);

@@ -144,8 +144,12 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
       return reply.redirect(`/images/${id}/${m[1]}.jpg`, 302);
     }
     if (!thumb) return reply.code(404).send({ error: 'not_found' });
+    // The length lets a browser (and Cloudflare) tell a transfer cut short from a whole
+    // picture; without it a cut-off thumb was cached as complete, a month's broken card.
+    const { size } = await fs.promises.stat(thumb);
     return reply
       .header('Cache-Control', 'public, max-age=2592000')
+      .header('Content-Length', size)
       .type('image/webp')
       .send(fs.createReadStream(thumb));
   });
