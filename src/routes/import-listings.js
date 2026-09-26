@@ -48,7 +48,9 @@ const MAX_EMBEDDED_IMAGE_BYTES = 600 * 1024; // decoded, same ceiling as import.
 // the real gap: normaliseListing's row builder always uses detectFeatures(text) for
 // them and never even looks at `src.furnished` etc. This list is exactly bhi.js's
 // ASSERTED set, minus the fields normaliseListing already gets right unassisted.
-const OVERLAY_FIELDS = ['furnished', 'pool', 'garden', 'view'];
+// min_months is the same gap: the row builder only reads it off the text
+// (parseMinMonths), so a portal's own "Minimum Stay 6 months" field was dropped.
+const OVERLAY_FIELDS = ['furnished', 'pool', 'garden', 'view', 'min_months'];
 
 const asIntish = (v) => (v === true ? 1 : v === false ? 0 : v == null ? null : Number(v));
 
