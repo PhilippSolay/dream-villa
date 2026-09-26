@@ -22,6 +22,7 @@ import rumah123, {
   cleanImageUrl,
   applyDetail,
   TARGET_SLUGS,
+  MAX_PAGES,
 } from '../src/scrape/adapters/rumah123.js';
 import { normaliseListing, parsePrice } from '../src/scrape/normalise.js';
 import { inBand } from '../src/scrape/score.js';
@@ -162,6 +163,34 @@ test('list() pages one area, follows rel="next" once and stops', async () => {
   assert.deepEqual(ctx.seen, [first, `${first}?page=2`], 'page 2 is fetched, then the run ends');
 });
 
+test('list() walks past the old 3-page cap until rel="next" runs out', async () => {
+  // Pererenan had 402 villas (21 pages) on 2026-09-26; the old cap of 3 reached 60.
+  const first = searchUrl('badung/pererenan', 'villa');
+  const map = { [first]: { html: INDEX_HTML, status: 200 } };
+  for (let p = 2; p <= 5; p++) map[`${first}?page=${p}`] = { html: INDEX_HTML, status: 200 };
+  const ctx = stubCtx(map);
+
+  for await (const _ of rumah123.list(ctx, { slugs: [{ path: 'badung/pererenan', area: 'pererenan' }], types: ['villa'] })) {
+    /* drain */
+  }
+  assert.equal(ctx.seen.length, 6, 'pages 1–5, then page 6 answers 404 and the walk ends');
+  assert.ok(MAX_PAGES > 60, 'the cap is a safety stop past the biggest slug (Canggu, 60 pages)');
+});
+
+test('the disabled "Next page" arrow on the last page is not a next page', () => {
+  const last = INDEX_HTML.replace(/<a rel="next"[^>]*>/g, '<a class="x" aria-label="Page 2">') +
+    '<a class="text-lightBlack flex text-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="Next page" rel="next"></a>';
+  assert.equal(extractCards(last, { slugArea: 'seseh' }).hasNext, false);
+  assert.equal(extractCards(INDEX_HTML, { slugArea: 'seseh' }).hasNext, true);
+});
+
+test('the Canggu belt is searched: canggu, tibubeneng and umalas slugs', () => {
+  const byPath = Object.fromEntries(TARGET_SLUGS.map((s) => [s.path, s.area]));
+  assert.equal(byPath['badung/canggu'], 'canggu');
+  assert.equal(byPath['badung/tibubeneng'], 'tibubeneng');
+  assert.equal(byPath['badung/umalas'], 'umalas');
+});
+
 // ---------------------------------------------------------------------------
 // Area mapping
 // ---------------------------------------------------------------------------
@@ -189,6 +218,16 @@ test('resolveArea prefers the location string, then the title, then the slug', (
     resolveArea({ location: 'Kuta Selatan, Badung', title: 'Villa near Bingin Beach' }),
     'bingin'
   );
+
+  // The Canggu belt: a banjar in the title beats the desa in the location string.
+  assert.equal(resolveArea({ location: 'Tibubeneng, Badung', title: 'Villa in Berawa', slugArea: 'tibubeneng' }), 'berawa');
+  assert.equal(resolveArea({ location: 'Canggu, Badung', title: 'Villa near Batu Bolong', slugArea: 'canggu' }), 'canggu');
+  assert.equal(resolveArea({ location: 'Canggu, Badung', title: 'Brand new villa Padonan' }), 'padonan');
+  assert.equal(resolveArea({ location: 'Canggu, Badung', title: 'Villa 3BR' }), 'canggu', 'desa via the kecamatan table');
+  assert.equal(resolveArea({ location: 'Umalas, Badung', title: 'Villa' }), 'umalas');
+  assert.equal(resolveArea({ location: 'Pererenan, Badung', title: 'Villa 10 min to Berawa' }), 'pererenan');
+  // SPEC §7: Tumbak Bayuh and Buduk are inland north Pererenan, whatever slug they sit under.
+  assert.equal(resolveArea({ location: 'Canggu, Badung', title: 'Villa rental charming 2 bedroom in Tumbak Bayuh', slugArea: 'canggu' }), 'pererenan');
 
   // The search slug is the fallback when neither string names a village.
   assert.equal(resolveArea({ location: 'Badung', title: 'Villa', slugArea: 'balangan' }), 'balangan');

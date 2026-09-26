@@ -31,9 +31,25 @@ Fixtures in `test/fixtures/balicoconutliving-index.html` / `balicoconutliving-de
 ```
 
 The adapter walks `villa-for-long-term-rental` only, because it already unions both
-terms. The paginator advertises `?page=390`, which is not real; the walk stops at
-`MAX_PAGES = 10`, on a page that links to no page N+1, or on a page that repeats refs
-already seen. Newest listings come first, so 10 pages ≈ the 120 most recent rentals.
+terms. The paginator advertises `?page=390`; those pages are real, but the list is
+ordered **on offer first (newest first), then rented, then sold**. Probed 2026-09-26:
+pages 1–92 carry no `Rented`/`Sold` label, page 93 is the seam (7 of 12 rented), page 94
+onward is all `Rented Until …`, and from ~page 300 all `Sold`.
+
+The walk therefore stops on the **first page whose every card is rented or sold**
+(`GONE_RE = /rented|sold/`), on a page that links to no page N+1, or on a page that
+repeats refs already seen; `MAX_PAGES = 150` is only the safety stop above that (it
+warns if reached). *Superseded 2026-09-26:* the walk used the shared `MAX_PAGES = 10`,
+i.e. the newest 120 villas — 86 in a §7 area — and silently missed the other ~1 000
+on offer.
+
+Coverage on 2026-09-26: **94 index requests, 904 cards in a §7 area (730 in the band)**,
+up from 10 requests / 86 cards. By area: berawa 184, pererenan 160, umalas 154,
+canggu 130, padonan 70, babakan 42, ubud 26, cemagi 26, uluwatu 24, tanah_lot 23,
+ungasan 14, munggu 13, seseh 12, tibubeneng 9, nyanyi 6, mengwi 6, balangan 5. The site
+carries almost nothing further south or in the Center; nothing in Kedungu, Buwit,
+Bingin, Padang Padang or Pandawa. Daily cost is the 94 index pages plus one detail page
+per in-band card (~730) — the detail pages are the bulk.
 A path segment after the index (`…/villa-for-yearly-rental/Pererenan`) is **not** an
 area filter — it returns the unfiltered list.
 
@@ -52,7 +68,7 @@ never an `href` — the adapter parses that attribute.
 | ref + location | `.property-thumb-meta` → `ID V009-4425 \| VILLA - Pererenan`; the location half maps to a canonical SPEC §7 key and the partial states `area` outright (`normaliseListing` honours it) |
 | price | per-term tab panes `#yearly-thumb-<id>` / `#monthly-thumb-<id>` → `.price-icon` (`IDR 360.000.000`, `IDR 35.000.000`). A `#leasehold-thumb-<id>` pane is a **sale** price and is ignored |
 | bed / furnished / land / build | `.icon-thumb[title]` → `Bedroom(s)`, `Furnished status`, `Land Size`, `Building Size`, value in `.icon-text` |
-| status label | `.property-thumb-label .property-label` → `Rented Until October 2026`, `26 Years Lease` — "Rented" sets `gone` |
+| status label | `.property-thumb-label .property-label` → `Rented Until October 2026`, `26 Years Lease`, `Sold` — "Rented" or "Sold" sets `gone` |
 | thumb | `img[src*="/upload/image/property"]`; `/_thumb/` removed gives the full size |
 
 Prices use `.` as the thousands separator (`IDR 360.000.000`) — `normalise.parsePrice`

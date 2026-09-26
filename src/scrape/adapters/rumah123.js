@@ -12,8 +12,15 @@ import { parsePrice, parseMinMonths } from '../normalise.js';
 
 const BASE = 'https://www.rumah123.com';
 
-/** Safety stop per area × type. 20 cards a page; the band throws most of them away. */
-const MAX_PAGES = 3;
+/**
+ * Safety stop per area × type; the walk itself ends where the portal stops linking
+ * `rel="next"`. 20 cards a page, ordered by relevance (not by date), so a cap cuts a
+ * random slice rather than the stale tail. The old cap of 3 reached 60 of the 402
+ * villas under Pererenan, 60 of 372 under Ungasan and 60 of 363 under Ubud
+ * (2026-09-26). Canggu's 1 183 villas (60 pages) is the biggest slug; 80 pages leaves
+ * a third of headroom and warns if it is ever reached.
+ */
+export const MAX_PAGES = 80;
 
 const MAX_IMAGES = 20;
 
@@ -37,6 +44,12 @@ export const TARGET_SLUGS = [
   { path: 'badung/ungasan', area: 'ungasan' },
   { path: 'badung/kutuh', area: 'pandawa' },
   { path: 'badung/balangan', area: 'balangan' },
+  // The Canggu belt (2026-09-26), verified 200 the same day — villa results: canggu
+  // 1 174, umalas 421, tibubeneng 169. `berawa`, `babakan` and `padonan` 404: they are
+  // banjars and turn up under canggu/tibubeneng, where the card title names them.
+  { path: 'badung/canggu', area: 'canggu' },
+  { path: 'badung/tibubeneng', area: 'tibubeneng' },
+  { path: 'badung/umalas', area: 'umalas' },
   { path: 'badung/kuta-selatan', area: null },
   { path: 'tabanan/kediri', area: 'tanah_lot' },
   { path: 'tabanan/tanah-lot', area: 'tanah_lot' },
@@ -67,7 +80,7 @@ const VILLAGE_AREA = [
   [/\bcemagi\b/i, 'cemagi'],
   [/\bmengening\b/i, 'cemagi'],
   [/\bmunggu\b/i, 'munggu'],
-  [/\bperer?enan\b/i, 'pererenan'],
+  [/\bperer?enan\b|tumbak\s*bayuh|\bbuduk\b|tiying\s*tutul/i, 'pererenan'],
   [/\bnyanyi\b/i, 'nyanyi'],
   [/\bkedungu\b/i, 'kedungu'],
   [/\bbelalang\b/i, 'kedungu'],
@@ -85,6 +98,15 @@ const VILLAGE_AREA = [
   [/\bpecatu\b/i, 'uluwatu'],
   [/\buluwatu\b/i, 'uluwatu'],
   [/\bsuluban\b/i, 'uluwatu'],
+  // The Canggu belt's banjars. The desa names themselves (Canggu, Tibubeneng) are NOT
+  // here: a card under `Tibubeneng, Badung` titled "…in Berawa" is in Berawa, so the
+  // desa only answers through the slug or the kecamatan table below.
+  [/\bberawa\b|\bbrawa\b/i, 'berawa'],
+  [/\bbabakan\b/i, 'babakan'],
+  [/\bpadonan\b/i, 'padonan'],
+  [/\bumalas\b/i, 'umalas'],
+  [/\bpelambingan\b|\bumasari\b|\bsemat\b/i, 'tibubeneng'],
+  [/batu\s*bolong|echo\s*beach|kayu\s*tulang|padang\s*linjong|tegal\s*gundul/i, 'canggu'],
   // Center — the desa around Ubud, then Ubud's own banjars. "Mas" only counts beside
   // Ubud or spelled out: on its own it is the honorific (src/areas.js says the same).
   [/tegal+alang|\bkeliki\b|kenderan|\bsebatu\b|\bpujung\b/i, 'tegallalang'],
@@ -102,6 +124,8 @@ const VILLAGE_AREA = [
 const KECAMATAN_AREA = [
   [/\bmengwi\b/i, 'mengwi'],
   [/\bkerambitan\b/i, 'buwit'],
+  [/\btibubeneng\b/i, 'tibubeneng'],
+  [/\bcanggu\b/i, 'canggu'],
   [/\bkediri\b/i, 'tanah_lot'],
   [/tegal+alang/i, 'tegallalang'],
   [/\bpayangan\b/i, 'payangan'],
@@ -344,7 +368,10 @@ export function extractCards(html, { slugArea = null, category = '' } = {}) {
     });
   });
 
-  return { cards: [...seen.values()], hasNext: $('a[rel="next"]').length > 0 };
+  // The last page still renders a "Next page" arrow with rel="next" — disabled, no
+  // href (seen on /sewa/badung/canggu/villa/?page=60, 2026-09-26). Only a live link counts.
+  const hasNext = $('a[rel="next"][href]').filter((_, a) => $(a).attr('aria-disabled') !== 'true').length > 0;
+  return { cards: [...seen.values()], hasNext };
 }
 
 /**
@@ -373,6 +400,9 @@ async function* list(ctx, { slugs = TARGET_SLUGS, types = TYPES, maxPages = MAX_
         }
 
         if (!hasNext) break;
+        if (page === maxPages && ctx.log && ctx.log.warn) {
+          ctx.log.warn(`[rumah123] ${slug.path}/${type}: stopped at MAX_PAGES=${maxPages} with more pages linked`);
+        }
       }
     }
   }

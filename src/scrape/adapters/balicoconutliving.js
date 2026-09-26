@@ -4,13 +4,24 @@
 // robots-disallowed, so this walks the paged index. See adapters/balicoconutliving.md.
 
 import * as cheerio from 'cheerio';
-import { MAX_PAGES, MAX_IMAGES, absUrl, textOf, numberIn } from './_shared.js';
+import { MAX_IMAGES, absUrl, textOf, numberIn } from './_shared.js';
 import { moneyIdr, areaFromText, subAreaFrom, beachHint, termFor } from './_shared.js';
 
 const BASE = 'https://balicoconutliving.com';
 const LIST_PATH = '/property/villa-for-long-term-rental';
 
-const GONE_RE = /\brented\b/i;
+/** "Rented Until October 2026", "Rented", "Sold" — the card's own status label. */
+const GONE_RE = /\b(rented|sold)\b/i;
+
+/**
+ * The index lists every villa still on offer first (newest first), then the rented
+ * ones, then the sold ones. On 2026-09-26 the offered stock ran to page ~94 (~1 100
+ * villas, 12 a page) and the rented tail started on page 95; the paginator claims 390.
+ * The walk stops on the first page whose every card is rented or sold. MAX_PAGES is
+ * only the safety stop above that — it used to be the shared 10, which reached the
+ * newest 120 and silently missed the other ~1 000.
+ */
+export const MAX_PAGES = 150;
 
 const indexUrl = (page) => (page > 1 ? `${BASE}${LIST_PATH}/?page=${page}` : `${BASE}${LIST_PATH}`);
 
@@ -126,17 +137,23 @@ async function* list(ctx) {
     const $ = cheerio.load(res.html);
     if ($('.property-thumb').length === 0) break;
 
+    const cards = cardsFrom(res.html, ctx.config, { all: true });
     let fresh = 0;
-    for (const card of cardsFrom(res.html, ctx.config, { all: true })) {
+    for (const card of cards) {
       if (seen.has(card.ref)) continue;
       seen.add(card.ref);
       fresh++;
       if (card.area) yield card;
     }
     // The paginator advertises a page count far past the real one; the honest end
-    // markers are a page that links to no next page, or one that repeats itself.
+    // markers are a page that links to no next page, one that repeats itself, and —
+    // the one that fires in practice — a page with nothing left on offer.
     if (fresh === 0) break;
+    if (cards.length && cards.every((c) => c.gone)) break;
     if (!$(`a[href*="page=${page + 1}"]`).length) break;
+    if (page === MAX_PAGES && ctx.log && ctx.log.warn) {
+      ctx.log.warn(`[balicoconutliving] stopped at MAX_PAGES=${MAX_PAGES} with offered villas still listed`);
+    }
   }
 }
 

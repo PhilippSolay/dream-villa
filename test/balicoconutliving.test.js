@@ -91,6 +91,59 @@ test('list() walks the long-term index and yields only in-area cards', async () 
   assert.equal(new Set(out.map((c) => c.ref)).size, 11);
 });
 
+/** A minimal index page: `cards` as [ref, location, label], plus a link to page N+1. */
+function synthPage(page, cards) {
+  const body = cards
+    .map(
+      ([ref, loc, label]) => `<div class="property-thumb">
+        <div class="property-thumb-label"><span class="property-label">${label || ''}</span></div>
+        <div class="property-title"><a onclick="openDetail(&quot;\\/bali-villa-monthly-rental\\/X\\/1-${ref}\\/V&quot;)">VILLA ${ref}</a></div>
+        <div class="property-thumb-meta">ID ${ref} | VILLA - ${loc}</div>
+      </div>`
+    )
+    .join('');
+  return `<html><body>${body}<a href="?page=${page + 1}">next</a></body></html>`;
+}
+
+function pagedCtx(pages) {
+  const fetched = [];
+  return {
+    fetched,
+    config: {},
+    log: { warn() {}, info() {} },
+    async fetchHtml(url) {
+      fetched.push(url);
+      const page = Number((/[?&]page=(\d+)/.exec(url) || [])[1] || 1);
+      const html = pages(page);
+      return html ? { html, status: 200 } : { html: null, status: 404 };
+    },
+  };
+}
+
+test('list() walks past page 10 while villas are still on offer', async () => {
+  // 14 pages on offer, then the rented tail — the old shared cap stopped at 10.
+  const ctx = pagedCtx((p) =>
+    p <= 14
+      ? synthPage(p, [[`V001-${p}01`, 'Pererenan'], [`V001-${p}02`, 'Seminyak']])
+      : synthPage(p, [[`V001-${p}01`, 'Pererenan', 'Rented Until October 2026'], [`V001-${p}02`, 'Umalas', 'Sold']])
+  );
+  const out = [];
+  for await (const card of bcl.list(ctx)) out.push(card);
+  // 14 offered Pererenan cards, plus the one rented Pererenan card on the page that ends it.
+  assert.equal(out.filter((c) => !c.gone).length, 14);
+  assert.equal(ctx.fetched.length, 15, 'stops on the first page with nothing on offer');
+});
+
+test('list() stops on the first page where every card is rented or sold', async () => {
+  const ctx = pagedCtx((p) =>
+    synthPage(p, [[`V002-${p}1`, 'Pererenan', p >= 2 ? 'Rented' : ''], [`V002-${p}2`, 'Cemagi', p >= 2 ? 'Sold' : '']])
+  );
+  const out = [];
+  for await (const card of bcl.list(ctx)) out.push(card);
+  assert.equal(ctx.fetched.length, 2);
+  assert.deepEqual(out.map((c) => [c.ref, c.gone]), [['V002-11', false], ['V002-12', false], ['V002-21', true], ['V002-22', true]]);
+});
+
 test('detail() reads the fact list, description and facilities', async () => {
   const d = await bcl.detail(stubCtx(), DETAIL_URL);
   assert.equal(d.source, 'balicoconutliving');

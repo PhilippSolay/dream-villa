@@ -20,8 +20,9 @@ Fixtures in `test/fixtures/balirealty-index.html` / `balirealty-detail.html`.
 ```
 
 `filter-property-type=75` is Villa; `filter-contract=RENT` is the long-term rental
-contract (sales are `SALE`). 6 pages of rentals on 2026-09-18 (~72 listings), well
-inside `MAX_PAGES = 10`. `<ref>` is the trailing number in the slug and equals the
+contract (sales are `SALE`). 6 pages of rentals on 2026-09-18 (~72 listings).
+`MAX_PAGES = 20` (own constant since 2026-09-26, was the shared 10) is a safety stop;
+the walk ends on the theme's own markers (no link to page N+1, or page 1 served again). `<ref>` is the trailing number in the slug and equals the
 "Reference" the detail page prints.
 
 There is also a `filter-location=<term-id>` select (Seseh 201, Cemagi 158, Munggu 199,
@@ -30,6 +31,18 @@ Balangan 149, Pecatu 161, Uluwatu 151, Ungasan 125, Pandawa 202, Kutuh 170,
 Melasti 228, Buduk 237, Beraban 163). The adapter does **not** use it: the whole rental
 list is only 6 pages, so one unfiltered walk plus an area test on the card is cheaper
 than 18 filtered walks, and it survives the ids being renumbered.
+
+### Coverage audit — 2026-09-26
+
+The whole rental list (`filter-contract=RENT`, with or without the villa type) is
+6 pages, **70 villas**; the adapter reads all of it in **6 requests a day**. 48 resolve
+to a §7 area from the card title: canggu 12, berawa 10, pererenan 8, umalas 6, cemagi 3,
+tanah_lot 2, padonan 2, babakan 2, seseh 1, ungasan 1, balangan 1. Of the 22 dropped,
+20 are Seminyak / Petitenget / Jimbaran / Nusa Dua / Renon — correctly out of area — and
+two were target villas whose title named only a banjar or a beach: *"…in Semat…"*
+(Tibubeneng) and *"…Near Lima Beach"* (the detail page's taxonomy says Pererenan).
+Both words are now in `PLACE_WORDS` (`src/areas.js`), so both are read — **50 in area**.
+The per-location filter is still not needed: one walk already sees every rental.
 
 ## Index card
 
