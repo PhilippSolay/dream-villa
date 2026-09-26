@@ -1847,10 +1847,55 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
 .people-team-rename:hover { color: var(--gold); }
 .people-team-head .small { flex: 1 1 auto; }
 .people-team-rename-input { max-width: 260px; }
-.person-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.person-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.person-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; min-width: 0; padding-top: 2px; }
 .person-name { font-weight: 500; color: var(--ink); }
-.person-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 8px; }
-.person-actions .field { flex: 1 1 160px; margin: 0; }
-.person-reset-inline { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
-.person-reset-input { max-width: 260px; }
+.person-entry.is-removed .person-id > :not(.pill),
+.person-entry.is-removed .person-stats { opacity: 0.55; }
+/* The ⋯ button sits flush with the row's top right; its menu drops under it. */
+.person-menu-wrap { position: relative; flex: none; margin: -8px -8px 0 0; }
+.person-menu-wrap .icon-btn { color: var(--muted); }
+.person-menu-wrap .icon-btn[aria-expanded='true'] { background: var(--gold-soft); color: var(--ink); }
+.person-menu-wrap .menu { top: calc(100% + 2px); min-width: 200px; }
+
+/* Yes / Maybe / No tallies: a dot in the verdict's colour, the number, the word. */
+.person-stats { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.person-stat { display: inline-flex; align-items: center; gap: 6px; }
+.person-stat::before { content: ''; width: 8px; height: 8px; border-radius: 999px; }
+.person-stat b { color: var(--ink); font-weight: 500; }
+.person-stat-yes::before { background: var(--ok); }
+.person-stat-maybe::before { background: linear-gradient(180deg, var(--gold-2), var(--gold)); }
+.person-stat-no::before { background: var(--danger); }
 #new-team-name-field[hidden] { display: none; }
+
+/* --- menus and dialogs shared by People (and any later ⋯ menu) ------------- */
+.menu-sep { height: 1px; margin: 4px 8px; background: var(--line); }
+.menu button.menu-danger { color: var(--danger); }
+.menu button.menu-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.btn-danger { background: var(--danger); border-color: transparent; color: #fff; }
+.btn-danger:hover { border-color: transparent; filter: brightness(1.06); }
+.dialog-form { display: grid; gap: 12px; }
+.dialog-form .field { margin: 0; }
+.dialog-form p { margin: 0; }
+.dialog-form [hidden] { display: none; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+/* A dialog is the bottom sheet on a phone; from 720 px it is a centred modal. */
+@media (min-width: 720px) {
+  .sheet.sheet-dialog {
+    top: 50%;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    width: min(440px, calc(100vw - 32px));
+    transform: translate(-50%, -50%);
+    border-radius: var(--radius-xl);
+    border-bottom: 1px solid var(--glass-line);
+    animation: dialog-in 0.24s var(--ease);
+  }
+  .sheet.sheet-dialog::before { display: none; }
+  .sheet.sheet-dialog .sheet-head { padding-top: 14px; }
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}

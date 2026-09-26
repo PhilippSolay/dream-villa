@@ -22,13 +22,27 @@ const TEAM_NAME_MAX = 80;
 const MEMBER_FIELDS = 'id, name, email, role, disabled_at, created_at';
 const PERSON_FIELDS = 'id, name, email, role, team_id, disabled_at, created_at';
 
+/** person id → {yes, maybe, no}: how many of each call they have made, on any listing. */
+function verdictCounts(db) {
+  const out = new Map();
+  for (const { by, verdict, n } of db.prepare('SELECT by, verdict, COUNT(*) AS n FROM verdicts GROUP BY by, verdict').all()) {
+    if (!out.has(by)) out.set(by, { yes: 0, maybe: 0, no: 0 });
+    out.get(by)[verdict] = n;
+  }
+  return out;
+}
+
 /** Every team, home first then by id, each with its members (empty teams included). */
 function teamsWithMembers(db) {
   const teams = db.prepare(`SELECT id, name FROM teams ORDER BY (id != ${HOME_TEAM_ID}), id`).all();
   const members = db.prepare(
     `SELECT ${MEMBER_FIELDS} FROM users WHERE COALESCE(team_id, ${HOME_TEAM_ID}) = ? ORDER BY id`
   );
-  return teams.map((t) => ({ id: t.id, name: t.name, home: t.id === HOME_TEAM_ID, members: members.all(t.id) }));
+  const counts = verdictCounts(db);
+  const withCounts = (m) => ({ ...m, verdicts: counts.get(m.id) || { yes: 0, maybe: 0, no: 0 } });
+  return teams.map((t) => ({
+    id: t.id, name: t.name, home: t.id === HOME_TEAM_ID, members: members.all(t.id).map(withCounts),
+  }));
 }
 
 /** One person, never their password hash. */
