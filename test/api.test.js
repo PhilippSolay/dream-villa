@@ -172,6 +172,43 @@ test('list: X-Total-Count is the full match count, limit/offset page through it'
   assert.equal(filtered.headers['x-total-count'], String(filtered.json().length), 'total follows the filters');
 });
 
+test('prices: every monthly price under the same filters as the list', async (t) => {
+  const { call } = await setup(t);
+  const res = await call({ method: 'GET', url: '/api/properties/prices' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().sort(), [30_000_000, 35_000_000, 40_000_000], 'A, B, F: in_filter, live, not rejected');
+
+  const cemagi = await call({ method: 'GET', url: '/api/properties/prices?area=cemagi' });
+  assert.deepEqual(cemagi.json().sort(), [35_000_000, 40_000_000]);
+
+  const paged = await call({ method: 'GET', url: '/api/properties/prices?limit=1&sort=price' });
+  assert.equal(paged.json().length, 3, 'no paging: a limit or sort is dropped, the histogram sees the whole search');
+});
+
+test('prices: past the list ceiling, the dear end is still counted (histogram regression)', async (t) => {
+  const { db, call } = await setup(t);
+  // 520 cheap listings: a price-sorted page of 500 would hold none of the dear ones.
+  const insert = db.transaction(() => {
+    for (let i = 0; i < 520; i++) {
+      upsertProperty(
+        db,
+        { key: `bulk:${i}`, source: 'bulk', url: `https://bulk.test/${i}`, title: `Bulk ${i}`, area: 'cemagi',
+          bedrooms: 2, price_month_idr: 20_000_000, term: 'monthly', status: 'new', availability: 'available' },
+        { now: '2026-09-10T00:00:00.000Z' }
+      );
+    }
+  });
+  insert();
+  // What Home used to draw from: the list's own search, capped and sorted by price.
+  const page = await call({ method: 'GET', url: '/api/properties?scope=all&sort=price&limit=500' });
+  assert.ok(!page.json().some((r) => r.price_month_idr === 60_000_000), 'the capped page never reaches 60 M');
+
+  const res = await call({ method: 'GET', url: '/api/properties/prices?scope=all' });
+  const prices = res.json();
+  assert.equal(prices.length, 524, '520 bulk + A, B, D, F (C rejected, E gone)');
+  assert.ok(prices.includes(60_000_000), 'the dearest listing is in the histogram');
+});
+
 test('list: sort=size puts the biggest build first, unmeasured last', async (t) => {
   const { call } = await setup(t);
   const res = await call({ method: 'GET', url: '/api/properties?scope=all&status=all&hide_gone=0&sort=size' });

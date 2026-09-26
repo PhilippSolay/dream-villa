@@ -19,7 +19,6 @@ const PRICE_MAX_M = 80;
 const PRICE_STEP_M = 0.5;
 const PRICE_BUCKET_M = 2.5; // one histogram bar per 2.5 M
 const PRICE_BUCKET_COUNT = (PRICE_MAX_M - PRICE_MIN_M) / PRICE_BUCKET_M;
-const HISTOGRAM_LIMIT = 500; // the API's ceiling; enough for the whole market today
 const PAGE_SIZE = 100; // cards per fetch on Home; "Load more" appends the next page
 const BEACH_MAX_KM = 10;
 const LAND_MIN_M2 = 0;
@@ -672,11 +671,11 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
 }
 
 /** Listings per PRICE_BUCKET_M step across the slider's span; prices outside it land in the end buckets. */
-export function priceBuckets(rows) {
+export function priceBuckets(prices) {
   const counts = new Array(PRICE_BUCKET_COUNT).fill(0);
-  for (const r of rows) {
-    if (r.price_month_idr == null) continue;
-    const m = Number(r.price_month_idr) / 1e6;
+  for (const idr of prices) {
+    if (idr == null) continue;
+    const m = Number(idr) / 1e6;
     const i = Math.floor((m - PRICE_MIN_M) / PRICE_BUCKET_M);
     counts[Math.max(0, Math.min(PRICE_BUCKET_COUNT - 1, i))] += 1;
   }
@@ -866,17 +865,21 @@ export async function mountHome(el, ctx) {
     select.value = current;
   }
 
-  // The price histogram shows the same search with the price limits lifted, so it only
-  // needs refetching when something other than the price moved.
+  // The price histogram shows the same search with the price limits lifted, every
+  // listing rather than a page of it, so it only needs refetching when something other
+  // than the price or the sort moved.
   let histogramKey = null;
   async function loadHistogram(filters) {
-    const query = filtersToQuery({ ...filters, min: null, max: null }, { limit: HISTOGRAM_LIMIT });
+    const params = new URLSearchParams(filtersToQuery({ ...filters, min: null, max: null }));
+    params.delete('sort');
+    params.delete('limit');
+    const query = params.toString();
     if (query === histogramKey) return;
     histogramKey = query;
     try {
-      const rows = await api.get(`/api/properties?${query}`);
+      const prices = await api.get(`/api/properties/prices?${query}`);
       if (!alive || query !== histogramKey) return;
-      setHistogram(priceBuckets(rows));
+      setHistogram(priceBuckets(prices));
     } catch {
       /* the bars are a hint, not a result — a failed fetch just leaves the last ones up */
     }
