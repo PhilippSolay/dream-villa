@@ -11,7 +11,7 @@ const BASE = 'https://www.villabalisale.com';
 const LIST_PATH = '/realestate-property/for-rent/villa/all';
 
 /** Rental index slugs that can hold a SPEC §7 area. `bukit` covers Bingin/Balangan/Ungasan. */
-export const TARGET_SLUGS = ['pererenan', 'tabanan', 'uluwatu', 'bukit', 'canggu'];
+export const TARGET_SLUGS = ['pererenan', 'tabanan', 'uluwatu', 'bukit', 'canggu', 'ubud'];
 
 const IMG_PATH = '/uploads/images/property/';
 

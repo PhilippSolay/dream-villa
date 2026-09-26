@@ -23,7 +23,13 @@ export { AREA_GROUPS, AREAS, TARGET_AREAS, BEACHES };
  * comes last — "Pererenan, Canggu" is Pererenan.
  */
 export const PLACE_WORDS = [
-  // Center — the banjars around Ubud are specific; bare "Ubud" waits at the bottom.
+  // Center — the desa around Ubud first, then Ubud's own banjars; bare "Ubud" waits at
+  // the bottom. "Mas" is the Indonesian honorific as often as it is the village
+  // ("hubungi mas Wayan"), so it only counts beside Ubud or spelled out as a place.
+  [/tegal+alang|\bkeliki\b|kenderan|\bsebatu\b|\bpujung\b/i, 'tegallalang'],
+  [/payangan|melinggih|\bbuahan\b|\bkelusa\b|\bbresela\b/i, 'payangan'],
+  [/\bpejeng\b|\bbedulu\b|tampaksiring|goa\s*gajah/i, 'pejeng'],
+  [/lodtunduh|singakerta|\bkemenuh\b|\bmas[,\s]+ubud\b|\bubud[,\s]+mas\b|desa\s+mas\b|banjar\s+mas\b/i, 'lodtunduh'],
   [/nyuh\s*kuning|penestanan|\bsayan\b|campuhan|padang\s*tegal|padangtegal|pengosekan|kedewatan|peliatan|tebesaya/i, 'ubud'],
 
   // West Coast — west to east, villages before the regions that swallow them

@@ -156,6 +156,41 @@ test('008: the Canggu belt joins an untouched target list, a hand-edited one is 
   after.close();
 });
 
+test('010: the desa around Ubud join the list 009 left, a hand-edited one is left alone', () => {
+  const AFTER_009 = [
+    'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit',
+    'mengwi', 'canggu', 'babakan', 'berawa', 'padonan', 'tibubeneng', 'umalas',
+    'bingin', 'padang_padang', 'uluwatu', 'balangan', 'ungasan', 'pandawa', 'ubud',
+  ];
+
+  const stale = openDb(tmpDbPath());
+  stale.prepare('DELETE FROM migrations WHERE name = ?').run('010_ubud_surrounds');
+  setConfig(stale, 'areas', AFTER_009);
+  const file = stale.name;
+  stale.close();
+
+  const migrated = openDb(file);
+  assert.deepEqual(migrated.migrationsApplied, ['010_ubud_surrounds']);
+  const areas = getConfig(migrated).areas;
+  assert.equal(areas.length, 26);
+  for (const a of ['tegallalang', 'payangan', 'pejeng', 'lodtunduh']) {
+    assert.ok(areas.includes(a), `${a} joined the target list`);
+  }
+  for (const a of AFTER_009) assert.ok(areas.includes(a), `${a} is still in it`);
+  migrated.close();
+
+  // A brief someone narrowed by hand survives, Ubud centre included.
+  const chosen = openDb(tmpDbPath());
+  chosen.prepare('DELETE FROM migrations WHERE name = ?').run('010_ubud_surrounds');
+  setConfig(chosen, 'areas', ['ubud', 'pererenan']);
+  const chosenFile = chosen.name;
+  chosen.close();
+
+  const after = openDb(chosenFile);
+  assert.deepEqual(getConfig(after).areas, ['ubud', 'pererenan']);
+  after.close();
+});
+
 test('every area in the default brief is a SPEC §7 area with a group', () => {
   const db = openDb(tmpDbPath());
   for (const id of getConfig(db).areas) {

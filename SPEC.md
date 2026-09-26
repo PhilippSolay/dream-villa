@@ -13,7 +13,7 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 **Hard filters** (fail → `scope = market`, still stored):
 - rooms: `bedrooms >= 1 AND (bedrooms + extra_rooms) >= 2 AND bedrooms <= 3`
 - budget: `20_000_000 <= price_month_idr <= 80_000_000` (yearly normalised ÷ 12; widened from 25–50 M on 2026-09-20)
-- area: in the target list (§7) — anything else is `market` at best. The Canggu belt (Canggu, Babakan, Berawa, Padonan, Tibubeneng, Umalas) and Center (Ubud) joined it on 2026-09-22.
+- area: in the target list (§7) — anything else is `market` at best. The Canggu belt (Canggu, Babakan, Berawa, Padonan, Tibubeneng, Umalas) and Center (Ubud) joined it on 2026-09-22; the desa around Ubud — Tegallalang, Payangan, Pejeng/Bedulu, Lodtunduh/Mas — on 2026-09-26.
 - style: `style != 'balinese_old'`
 - ~~neighbours~~: **soft** since 2026-09-22 — the `construction` keyword is too easy to hit ("brand new construction", "solid construction", a neighbour's build that is already finished), so it no longer excludes. The flag is still raised — by the scraper's text rules, by agent info, and by a viewing with `construction_nearby >= 4` — and any red flag still keeps a villa out of the flagged set (§2 Flag rule below), so a real building site is de-featured rather than hidden.
 - furnishing: any (unfurnished gets `notes` hint "unfurnished — add furnishing budget")
@@ -256,7 +256,11 @@ Regions run north to south — Center, West Coast, South — and so do the areas
 
 | area | label | centroid (lat, lng) | nearest beach point | group |
 |---|---|---|---|---|
+| tegallalang | Tegallalang | -8.436, 115.279 | Berawa Beach -8.6725, 115.14 | center (~35 km inland) |
+| payangan | Payangan | -8.444, 115.223 | Berawa Beach -8.6725, 115.14 | center (~33 km inland) |
 | ubud | Ubud | -8.507, 115.263 | Berawa Beach -8.6725, 115.14 | center (~30 km inland) |
+| pejeng | Pejeng / Bedulu | -8.518, 115.29 | Berawa Beach -8.6725, 115.14 | center (~30 km inland) |
+| lodtunduh | Lodtunduh / Mas | -8.542, 115.264 | Berawa Beach -8.6725, 115.14 | center (~27 km inland) |
 | mengwi | Mengwi | -8.545, 115.17 | Seseh Beach -8.6315, 115.0975 | west_coast (inland ~10 km) |
 | buwit | Buwit | -8.583, 115.1 | Nyanyi Beach -8.6125, 115.0765 | west_coast (inland ~4–5 km) |
 | kedungu | Kedungu | -8.597, 115.064 | Kedungu Beach -8.6005, 115.0605 | west_coast |

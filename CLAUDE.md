@@ -3,7 +3,7 @@
 Private villa-search tracker for Philipp and Abigaïl. One Docker container on the Hostinger VPS behind Traefik. Read `SPEC.md` before touching anything; it is the contract. Read `adapters/bali-home-immo.md` before touching the scraper.
 
 ## What this is
-- A mobile-first web app (two logins) to browse, filter, rate and annotate villa listings in west Bali (Seseh / Cemagi / Pererenan / Tanah Lot area / Buwit / Mengwi) and the Bukit (Bingin / Uluwatu / Ungasan).
+- A mobile-first web app (two logins) to browse, filter, rate and annotate villa listings in three regions (SPEC §7): **Center** (Ubud and the desa around it — Tegallalang, Payangan, Pejeng, Lodtunduh), **West Coast** (Tanah Lot area down through Seseh / Cemagi / Pererenan to the Canggu belt) and **South** (the Bukit: Bingin / Uluwatu / Ungasan).
 - A scraper that runs daily at 06:00 Asia/Makassar inside the same service, pulls listings from agency sites and portals, downloads images, resolves map pins, dedupes, scores, flags.
 - A small GET-only "agent API" that a cloud Claude session reads every morning at 07:00 to write the push notification and leave notes.
 

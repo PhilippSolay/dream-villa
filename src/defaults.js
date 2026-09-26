@@ -29,7 +29,7 @@ export const DEFAULT_CONFIG = {
   // West coast, then the Canggu belt (added 2026-09-22), then the Bukit — west to east,
   // the order the filter drawer shows them in.
   areas: [
-    'ubud',
+    'tegallalang', 'payangan', 'ubud', 'pejeng', 'lodtunduh',
     'mengwi', 'buwit', 'kedungu', 'nyanyi', 'tanah_lot', 'munggu', 'cemagi', 'seseh',
     'pererenan', 'padonan', 'canggu', 'tibubeneng', 'babakan', 'berawa', 'umalas',
     'balangan', 'bingin', 'padang_padang', 'uluwatu', 'ungasan', 'pandawa',

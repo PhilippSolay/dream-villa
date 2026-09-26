@@ -23,9 +23,15 @@ export const AREA_GROUPS = [
 ];
 
 export const AREAS = {
-  // Center — around Ubud. Inland: ~30 km from the nearest beach we track, so the beach
-  // score is 0 by construction rather than by a missing value.
+  // Center — Ubud and the desa around it, north to south. Inland: ~30 km from the
+  // nearest beach we track, so the beach score is 0 by construction rather than by a
+  // missing value. Ubud's own banjars (Penestanan, Sayan, Nyuh Kuning …) stay in
+  // `sub_area`; a neighbouring desa with a market of its own is an area (2026-09-26).
+  tegallalang:   { label: 'Tegallalang',       group: 'center',     centroid: [-8.436, 115.279], beach: { name: 'Berawa Beach',      lat: -8.6725, lng: 115.1400 } },
+  payangan:      { label: 'Payangan',          group: 'center',     centroid: [-8.444, 115.223], beach: { name: 'Berawa Beach',      lat: -8.6725, lng: 115.1400 } },
   ubud:          { label: 'Ubud',              group: 'center',     centroid: [-8.507, 115.263], beach: { name: 'Berawa Beach',      lat: -8.6725, lng: 115.1400 } },
+  pejeng:        { label: 'Pejeng / Bedulu',   group: 'center',     centroid: [-8.518, 115.290], beach: { name: 'Berawa Beach',      lat: -8.6725, lng: 115.1400 } },
+  lodtunduh:     { label: 'Lodtunduh / Mas',   group: 'center',     centroid: [-8.542, 115.264], beach: { name: 'Berawa Beach',      lat: -8.6725, lng: 115.1400 } },
 
   // West Coast — north to south, Tabanan down to the Kerobokan edge.
   mengwi:        { label: 'Mengwi',            group: 'west_coast', centroid: [-8.545, 115.170], beach: { name: 'Seseh Beach',        lat: -8.6315, lng: 115.0975 } },

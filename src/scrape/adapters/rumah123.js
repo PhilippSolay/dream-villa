@@ -43,6 +43,14 @@ export const TARGET_SLUGS = [
   { path: 'tabanan/kedungu', area: 'kedungu' },
   { path: 'tabanan/buwit', area: 'buwit' },
   { path: 'tabanan/kerambitan', area: 'buwit' },
+  // Center (2026-09-26), verified 200 the same day — villa results: ubud 364,
+  // sukawati 17, tegallalang 8, payangan 3, tampaksiring 3. Gianyar's kecamatan are
+  // the §7 areas here; `resolveArea` still lets the card's own desa have the last word.
+  { path: 'gianyar/ubud', area: 'ubud' },
+  { path: 'gianyar/tegallalang', area: 'tegallalang' },
+  { path: 'gianyar/payangan', area: 'payangan' },
+  { path: 'gianyar/tampaksiring', area: 'pejeng' },
+  { path: 'gianyar/sukawati', area: null },
 ];
 
 // ---------------------------------------------------------------------------
@@ -77,6 +85,13 @@ const VILLAGE_AREA = [
   [/\bpecatu\b/i, 'uluwatu'],
   [/\buluwatu\b/i, 'uluwatu'],
   [/\bsuluban\b/i, 'uluwatu'],
+  // Center — the desa around Ubud, then Ubud's own banjars. "Mas" only counts beside
+  // Ubud or spelled out: on its own it is the honorific (src/areas.js says the same).
+  [/tegal+alang|\bkeliki\b|kenderan|\bsebatu\b|\bpujung\b/i, 'tegallalang'],
+  [/payangan|melinggih|\bbuahan\b|\bkelusa\b/i, 'payangan'],
+  [/\bpejeng\b|\bbedulu\b|tampaksiring/i, 'pejeng'],
+  [/lodtunduh|singakerta|\bkemenuh\b|\bmas[,\s]+ubud\b|\bubud[,\s]+mas\b|desa\s+mas\b/i, 'lodtunduh'],
+  [/nyuh\s*kuning|penestanan|\bsayan\b|campuhan|padang\s*tegal|pengosekan|kedewatan|peliatan/i, 'ubud'],
 ];
 
 /**
@@ -88,6 +103,10 @@ const KECAMATAN_AREA = [
   [/\bmengwi\b/i, 'mengwi'],
   [/\bkerambitan\b/i, 'buwit'],
   [/\bkediri\b/i, 'tanah_lot'],
+  [/tegal+alang/i, 'tegallalang'],
+  [/\bpayangan\b/i, 'payangan'],
+  [/tampaksiring/i, 'pejeng'],
+  [/\bubud\b/i, 'ubud'],
 ];
 
 function firstMatch(table, text) {

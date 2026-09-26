@@ -266,9 +266,21 @@ const CANGGU_BELT = [
  */
 const PROXIMITY_BEFORE = /\b(?:to|from|mins?|minutes?|drive|near|close to|dekat|walk|walking distance)\b[\s\W]{0,12}$/i;
 
+/**
+ * True when the pattern occurs at least once with no proximity phrase running into it.
+ * Every occurrence is tried, not just the first: "near Goa Gajah, Bedulu" names Bedulu
+ * plainly, and the first hit being a boast must not bury the second. (The Facebook
+ * importer's `areaFromKeywords` has always walked them all; this now agrees with it.)
+ */
 function namedNotNear(text, re) {
-  const m = re.exec(text);
-  return !!m && !PROXIMITY_BEFORE.test(text.slice(0, m.index));
+  const s = String(text || '');
+  const scan = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  let m;
+  while ((m = scan.exec(s))) {
+    if (!PROXIMITY_BEFORE.test(s.slice(0, m.index))) return true;
+    if (scan.lastIndex === m.index) scan.lastIndex += 1; // zero-length match guard
+  }
+  return false;
 }
 
 /**
@@ -353,7 +365,16 @@ export function mapArea({ location = '', title = '', category = '' } = {}) {
 
     if (head === 'berawa') return out('berawa', sub);
     if (head === 'umalas') return out('umalas', sub);
-    if (head === 'ubud') return out('ubud', sub); // incl. Nyuh Kuning, Penestanan, Sayan
+
+    if (head === 'ubud') {
+      // One BHI location for the whole region, no sub-areas: a neighbouring desa can
+      // only be named in the title (Lodtunduh, Pejeng, Tegallalang …). Anything the
+      // title names outside Center is ignored — a listing filed under Ubud is in Ubud,
+      // whatever else the copy boasts about being close to.
+      const byTitle = areaFromTitle(title_);
+      const village = byTitle && AREAS[byTitle.area]?.group === 'center' ? byTitle.area : null;
+      return out(village || 'ubud', sub); // Ubud's own banjars stay in sub_area
+    }
 
     if (head === 'uluwatu') {
       if (/bingin/.test(subL)) return out('bingin', sub);

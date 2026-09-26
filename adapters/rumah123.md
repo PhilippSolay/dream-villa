@@ -25,6 +25,10 @@ follow the stricter `*` group.)
   Pagination `?page=n`, `n` from 2; page 1 has no parameter. The next page is linked as
   `<a rel="next" href="…?page=2">`; absence of `rel="next"` is the end.
 - 20 cards per page (sometimes fewer, e.g. `tabanan/kerambitan` had 3).
+- **Verified 200 (2026-09-26), Center:** `gianyar/`: `ubud` (364 villa results),
+  `sukawati` (17), `tegallalang` (8), `payangan` (3), `tampaksiring` (3). Gianyar's
+  kecamatan are the §7 areas; `tampaksiring` files under `pejeng`, `sukawati` has no
+  default (it also holds Batuan and Celuk) and waits for the card's own desa.
 - **Verified 200 (2026-09-18):** `badung/`: `seseh`, `cemagi`, `munggu`, `pererenan`, `mengwi`,
   `nyanyi`, `pecatu`, `uluwatu`, `ungasan`, `kutuh`, `balangan`, `kuta-selatan`.
   `tabanan/`: `kediri`, `tanah-lot`, `kedungu`, `buwit`, `kerambitan`.

@@ -253,6 +253,31 @@ export const MIGRATIONS = [
       db.prepare("UPDATE config SET value = ? WHERE key = 'areas'").run(JSON.stringify([...BEFORE, 'ubud']));
     },
   },
+  // The desa around Ubud — Tegallalang, Payangan, Pejeng, Lodtunduh/Mas — joined the
+  // brief on 2026-09-26 ("activate ubud and surrounding areas"). Same guard as 008/009:
+  // only the list 009 left behind is widened, so a brief someone narrowed by hand stays.
+  {
+    name: '010_ubud_surrounds',
+    up: (db) => {
+      const BEFORE = [
+        'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit',
+        'mengwi', 'canggu', 'babakan', 'berawa', 'padonan', 'tibubeneng', 'umalas',
+        'bingin', 'padang_padang', 'uluwatu', 'balangan', 'ungasan', 'pandawa', 'ubud',
+      ];
+      const ADDED = ['tegallalang', 'payangan', 'pejeng', 'lodtunduh'];
+      const row = db.prepare("SELECT value FROM config WHERE key = 'areas'").get();
+      if (!row) return;
+      let stored;
+      try {
+        stored = JSON.parse(row.value);
+      } catch {
+        return;
+      }
+      if (!Array.isArray(stored) || stored.length !== BEFORE.length) return;
+      if (!BEFORE.every((a) => stored.includes(a))) return;
+      db.prepare("UPDATE config SET value = ? WHERE key = 'areas'").run(JSON.stringify([...stored, ...ADDED]));
+    },
+  },
 ];
 
 function runMigrations(db) {

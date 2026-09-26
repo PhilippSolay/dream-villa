@@ -34,7 +34,8 @@ The adapter id stays `kibarer` (SPEC §6) and `base` is villabalisale.com.
 
 Rental area slugs offered: `amed bukit canggu lombok lovina nusa-islands pererenan
 sanur seminyak tabanan ubud umalas uluwatu`. The adapter walks the five that can hold
-a SPEC §7 area: **`pererenan tabanan uluwatu bukit canggu`** (`TARGET_SLUGS`).
+a SPEC §7 area: **`pererenan tabanan uluwatu bukit canggu ubud`** (`TARGET_SLUGS`);
+`ubud` joined on 2026-09-26 with the Center region (≥ 9 pages, 10 cards each).
 Observed page counts 2026-09-18: pererenan 15, tabanan 7, uluwatu 4, bukit 9, canggu 46
 — capped at `MAX_PAGES = 10`.
 

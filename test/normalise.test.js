@@ -729,3 +729,44 @@ test('mapArea — Ubud, and the west coast still outranks it', () => {
   assert.equal(mapArea({ location: '', title: 'Villa in Pererenan with Ubud vibes' }).area, 'pererenan');
   assert.equal(mapArea({ location: '', title: 'Canggu villa, 40 minutes to Ubud' }).area, 'canggu');
 });
+
+// ---------------------------------------------------------------------------
+// The desa around Ubud (2026-09-26). Bali Home Immo files the whole region under one
+// flat "Ubud" location with no sub-areas, so only the title can name the neighbour.
+// ---------------------------------------------------------------------------
+
+test('mapArea — a Center desa in the title wins over the bare Ubud location', () => {
+  const rows = [
+    ['3 Bedroom Villa for Rent in Lodtunduh Ubud', 'lodtunduh'],
+    ['2 BEDROOMS VILLA FOR RENT IN MAS UBUD', 'lodtunduh'],
+    ['Brand New Villa with Jungle View in Tegallalang', 'tegallalang'],
+    ['Riverside villa in Payangan', 'payangan'],
+    ['Villa with rice field view in Pejeng', 'pejeng'],
+    ['Charming villa near Goa Gajah, Bedulu', 'pejeng'],
+  ];
+  for (const [title, area] of rows) {
+    assert.equal(mapArea({ location: 'Ubud', title }).area, area, title);
+    assert.equal(mapArea({ location: '', title }).area, area, `${title} (no location)`);
+  }
+  // Ubud's own banjars stay Ubud, and the banjar itself rides along in sub_area.
+  assert.equal(mapArea({ location: 'Ubud', title: 'Villa in Penestanan' }).area, 'ubud');
+  assert.equal(mapArea({ location: 'Ubud - Nyuh Kuning', title: 'Villa' }).sub_area, 'Nyuh Kuning');
+});
+
+test('mapArea — a proximity boast does not bury a plain mention later in the title', () => {
+  // "near Goa Gajah" is a boast; "Bedulu" right after it is the address.
+  assert.equal(mapArea({ location: '', title: 'Villa near Goa Gajah, Bedulu' }).area, 'pejeng');
+  assert.equal(mapArea({ location: '', title: 'Villa 5 min to Berawa, in Babakan' }).area, 'babakan');
+  // With nothing but the boast, it stays a boast.
+  assert.equal(mapArea({ location: '', title: 'Villa near Goa Gajah' }).area, 'other');
+});
+
+test('mapArea — a listing filed under Ubud never leaves Center for a name in its copy', () => {
+  assert.equal(mapArea({ location: 'Ubud', title: 'Villa 40 minutes from Canggu' }).area, 'ubud');
+  assert.equal(mapArea({ location: 'Ubud', title: 'Villa with a Seseh-style joglo' }).area, 'ubud');
+});
+
+test('mapArea — a bare "mas" is the honorific, not the village', () => {
+  assert.equal(mapArea({ location: '', title: 'Villa for rent, contact mas Wayan' }).area, 'other');
+  assert.equal(mapArea({ location: '', title: 'Villa in Desa Mas' }).area, 'lodtunduh');
+});

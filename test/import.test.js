@@ -522,6 +522,41 @@ test('area: Cepaka maps to tanah_lot', async (t) => {
   assert.equal(row.area, 'tanah_lot');
 });
 
+test('area: the desa around Ubud each land in their own area', async (t) => {
+  const { db, call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'ubud-group',
+      posts: [
+        post({ post_id: 'c1', text: 'Villa for rent in Tegallalang, jungle view. IDR 30.000.000/month.' }),
+        post({ post_id: 'c2', text: 'Villa for rent in Payangan by the river. IDR 35.000.000/month.' }),
+        post({ post_id: 'c3', text: 'For rent: 3 bedroom villa in Pejeng. IDR 28.000.000/month.' }),
+        post({ post_id: 'c4', text: 'Villa for rent in Lodtunduh, rice fields. IDR 32.000.000/month.' }),
+        post({ post_id: 'c5', text: 'Villa for rent in Penestanan, Ubud. IDR 40.000.000/month.' }),
+      ],
+    },
+  });
+  const rows = res.json().ids.map((id) => db.prepare('SELECT * FROM properties WHERE id = ?').get(id));
+  assert.deepEqual(rows.map((r) => r.area), ['tegallalang', 'payangan', 'pejeng', 'lodtunduh', 'ubud']);
+});
+
+test('area: a bare "mas" is the honorific, not the village next to Ubud', async (t) => {
+  const { db, call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'bali-group',
+      posts: [
+        post({ post_id: 'm1', text: 'Villa for rent, hubungi mas Wayan. IDR 30.000.000/month.' }),
+        post({ post_id: 'm2', text: 'Villa for rent in Mas, Ubud. IDR 30.000.000/month.' }),
+      ],
+    },
+  });
+  const rows = res.json().ids.map((id) => db.prepare('SELECT * FROM properties WHERE id = ?').get(id));
+  assert.deepEqual(rows.map((r) => r.area), ['other', 'lodtunduh']);
+});
+
 // ---------------------------------------------------------------------------
 // Title fix: strip repost-header noise and trailing junk.
 // ---------------------------------------------------------------------------
