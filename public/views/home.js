@@ -461,6 +461,10 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
   const buildMinEl = $('[data-role="build-min"]', panel);
   const buildMaxEl = $('[data-role="build-max"]', panel);
 
+  // Each region's selection count at the last paint, so a region opens only when a
+  // selection first appears in it — never again on the repaint after every other filter.
+  const regionCounts = new Map();
+
   /** Paint the panel from the filter state (never rebuilt — a drag keeps its grip). */
   function sync(f) {
     for (const input of $$('input[type="checkbox"][data-filter]', panel)) {
@@ -523,8 +527,9 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       !(f.status || []).includes('rejected') && !(f.status || []).includes('all');
     $('[data-role="in-filter"]', panel).checked = f.scope === 'in_filter';
     $('[data-role="area-hint"]', panel).textContent = areaHint(f.area || [], areas);
-    // Each region carries its own tally, and opens itself when it has one — a selection
-    // must never hide behind a collapsed summary.
+    // Each region carries its own tally, and opens itself when a selection first lands in
+    // it (on load, or from All / Reset) so it never starts hidden. Once you fold it, it
+    // stays folded: the tally on the header still says what is chosen inside.
     for (const r of regions) {
       const el = $(`.filter-region[data-region="${r.id}"]`, panel);
       if (!el) continue;
@@ -532,7 +537,8 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       const count = $('[data-region-count]', el);
       count.textContent = `${n}`;
       count.hidden = n === 0;
-      if (n > 0) el.open = true;
+      if (n > 0 && !regionCounts.get(r.id)) el.open = true;
+      regionCounts.set(r.id, n);
     }
     paintRanges();
   }
