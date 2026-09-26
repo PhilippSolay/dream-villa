@@ -114,21 +114,24 @@ function normalise(entry) {
   };
 }
 
+/** One registry adapter as a fresh, enabled `kind: 'scraper'` entry. */
+function registryEntry(id, now) {
+  return normalise({
+    id,
+    kind: 'scraper',
+    name: registry[id].name || id,
+    url: registry[id].base || null,
+    enabled: true,
+    notes: null,
+    created_by: 'system',
+    created_at: now,
+    updated_at: now,
+  });
+}
+
 /** The registry, in run order, then the skipped sites — all of them `kind: 'scraper'`. */
 export function seedList(now = nowIso()) {
-  const fromRegistry = ADAPTER_IDS.map((id) =>
-    normalise({
-      id,
-      kind: 'scraper',
-      name: registry[id].name || id,
-      url: registry[id].base || null,
-      enabled: true,
-      notes: null,
-      created_by: 'system',
-      created_at: now,
-      updated_at: now,
-    })
-  );
+  const fromRegistry = ADAPTER_IDS.map((id) => registryEntry(id, now));
   const skipped = SKIPPED_SCRAPERS.map((s) =>
     normalise({ ...s, kind: 'scraper', enabled: false, created_by: 'system', created_at: now, updated_at: now })
   );
@@ -146,13 +149,31 @@ function readRaw(db) {
   }
 }
 
-/** Every source, seeding `config.sources` on the first read. Archived entries included. */
+/**
+ * Every source, seeding `config.sources` on the first read. Archived entries included.
+ *
+ * An adapter added to the registry after the first seed would otherwise never reach the
+ * Agent page (the stored array is the list), so any registry id missing from it is
+ * appended — enabled, `created_by: 'system'` — and persisted. Existing entries are
+ * written back exactly as they were stored.
+ */
 export function listSources(db) {
   const stored = readRaw(db);
-  if (stored) return stored.map(normalise);
-  const seeded = seedList();
-  setConfig(db, 'sources', seeded);
-  return seeded;
+  if (!stored) {
+    const seeded = seedList();
+    setConfig(db, 'sources', seeded);
+    return seeded;
+  }
+
+  const list = stored.map(normalise);
+  const have = new Set(list.map((s) => s.id));
+  const missing = ADAPTER_IDS.filter((id) => !have.has(id));
+  if (!missing.length) return list;
+
+  const now = nowIso();
+  const added = missing.map((id) => registryEntry(id, now));
+  setConfig(db, 'sources', [...stored, ...added]);
+  return [...list, ...added];
 }
 
 export function getSource(db, id) {

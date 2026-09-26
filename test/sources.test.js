@@ -106,6 +106,38 @@ test('listSources seeds every adapter plus the six skipped sites on first read',
   assert.equal(getConfig(db).sources.length, ids.length);
 });
 
+test('listSources appends a registry adapter the stored list predates, and leaves the rest alone', (t) => {
+  const db = tmpDb(t);
+  // A list seeded before Uma di Bali joined the registry (2026-09-26), then edited by a person.
+  const newest = 'umadibali';
+  const older = listSources(db)
+    .filter((s) => s.id !== newest)
+    .map((s) => (s.id === 'kibarer' ? { ...s, enabled: false, notes: 'paused by Philipp', updated_at: '2026-09-20T00:00:00.000Z' } : s));
+  older.push({ id: 'wayan', kind: 'agent', name: 'Wayan', url: null, enabled: true, notes: null, contact_id: null,
+    archived: false, created_by: 'Philipp', created_at: '2026-09-19T00:00:00.000Z', updated_at: '2026-09-19T00:00:00.000Z' });
+  setConfig(db, 'sources', older);
+
+  const sources = listSources(db);
+  assert.equal(sources.length, older.length + 1);
+  assert.deepEqual(sources.slice(0, older.length), older, 'existing entries come back untouched, in order');
+
+  const added = sources[sources.length - 1];
+  assert.equal(added.id, newest);
+  assert.equal(added.kind, 'scraper');
+  assert.equal(added.name, 'Uma di Bali Properties');
+  assert.equal(added.url, 'https://umadibali.com');
+  assert.equal(added.enabled, true);
+  assert.equal(added.created_by, 'system');
+  assert.ok(added.created_at);
+
+  // Persisted once: the stored array now holds it, and a second read adds nothing.
+  assert.deepEqual(getConfig(db).sources.map((s) => s.id), sources.map((s) => s.id));
+  assert.deepEqual(listSources(db).map((s) => s.id), sources.map((s) => s.id));
+  assert.equal(getSource(db, 'kibarer').enabled, false);
+  assert.equal(getSource(db, 'kibarer').notes, 'paused by Philipp');
+  assert.equal(disabledSourceIds(db).has(newest), false);
+});
+
 test('slugify — a non-scraper id is its name', () => {
   assert.equal(slugify('Bali Rentals Canggu'), 'bali-rentals-canggu');
   assert.equal(slugify('  Abigaïl’s WA group! '), 'abigail-s-wa-group');
