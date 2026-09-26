@@ -228,7 +228,7 @@ export default {
 **Adapters to build, in order**
 1. `bhi` — Bali Home Immo. Proven index extractor and URL scheme in `adapters/bali-home-immo.md`. Detail page: inspect once with Claude Code (curl works from your machine); expected: gallery `img[src*="/images/properties/"]`, description block, a feature list, a Google Maps iframe or `data-lat/lng`, a `wa.me` link. Do not guess selectors — fetch a page and look.
 2. `kibarer`, `balirealty`, `exotiq`, `balicoconutliving`, `balivillahub` — agencies; check each has a long-term rental section for Canggu-west / Tabanan / Bukit. Some are JS-rendered → `PLAYWRIGHT=1`.
-3. `olx` (olx.co.id, "sewa villa" in Badung/Tabanan), `rumah123`, `lamudi`, `99co` — portals; Indonesian-language; price often "juta/bulan" or "/tahun".
+3. `olx` (olx.co.id, "sewa villa" in Badung/Tabanan), `rumah123`, `lamudi`, `99co` — portals; Indonesian-language; price often "juta/bulan" or "/tahun". *Added 2026-09-24:* `livuma` (livuma.com) — a listing portal with no crawlable index; walks `sitemap.xml` and reads each page's JSON-LD `RealEstateListing` (`adapters/livuma.md`). Runs after `balicoconutliving`, before `rumah123`.
 4. `fbmarketplace` — only if reachable without login; otherwise skip (groups are covered by Philipp's Chrome sessions and the phase-5 WhatsApp reader).
 5. `inbox` — generic: for any URL in `inbox`, try the matching adapter, else a generic extractor (OpenGraph + JSON-LD `RealEstateListing`/`Product` + regex for `IDR|Rp|juta`, `bedroom|kamar`, `m2|are`). Always store `raw`.
 
