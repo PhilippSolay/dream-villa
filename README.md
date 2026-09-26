@@ -52,6 +52,7 @@ Working adapters, in run order (`src/scrape/adapters/index.js`):
 | `kibarer` | Kibarer Property (villabalisale.com — the real domain, not kibarer.com) | server-rendered Laravel |
 | `balirealty` | Bali Realty | WordPress + Realia theme, server-rendered |
 | `balicoconutliving` | Bali Coconut Living | server-rendered index, JS only on the search form |
+| `umadibali` | Uma di Bali Properties | WordPress, server-rendered; walks the §7 locations by URL, skips the rented archive |
 | `rumah123` | Rumah123 (portal) | Next.js app-router but fully server-rendered HTML |
 
 Skipped — no adapter, see `adapters/<id>.md` for the evidence:
