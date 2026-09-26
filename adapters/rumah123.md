@@ -261,10 +261,15 @@ titled "Buduk" now file under Pererenan, as §7 says.)
 
 **Rate limit.** Rumah123 answers `429` about once every 25 requests at 1 req/s; the ctx
 backs off 30 s each time. The full index walk took ~11 minutes. The larger cost is
-downstream: `ingestListing` fetches one detail page per in-band card, and with the
-24 h cache that is ~2 500 detail pages a day on this host — roughly an hour with the
-backoffs. If that is too much, the knobs are `MAX_PAGES`, the `rumah` type on the big
-slugs, or a longer detail TTL for portals (not done here: CLAUDE.md sets 24 h).
+downstream: `ingestListing` fetches one detail page per in-band card, and with the old
+24 h cache that was ~2 500 detail pages a day on this host — roughly an hour with the
+backoffs. Since 2026-09-26 the shared rule (`src/scrape/ingest.js` `detailPlan`,
+CLAUDE.md) caches a known listing's detail page for 7 days, refreshes it on the
+listing's own weekday, and refetches it the same day when the card's price, bedrooms or
+title differs from the stored row; new refs are fetched at once. Steady state is roughly
+a seventh of the known listings plus new ones and price changes, ~400–500 detail pages
+a day (≈ 15–20 min with the backoffs). The card has no rented marker: "Sudah disewa" is
+read off the detail page, so on a cached day it can surface up to a week late.
 
 ## Volume seen
 

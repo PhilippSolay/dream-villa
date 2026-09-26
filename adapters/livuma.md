@@ -120,5 +120,8 @@ currency always travel in `raw.offers`.
 ## Politeness
 
 `ctx.fetchHtml`: 1 req/s per host, browser UA, 429/403 back-off, 24 h cache for the
-sitemap and 7 days for detail pages (busted by `lastmod`). `_blazor`, `/api/`, and the
+sitemap and 7 days for detail pages (busted by `lastmod`). Livuma was the model for the
+shared rule every adapter now follows (`src/scrape/ingest.js` `detailPlan`): the
+ingest-side `detail()` call of a known listing also refreshes on the listing's own
+weekday, and reuses the page `list()` already read this run. `_blazor`, `/api/`, and the
 landing pages' "Load More" are never requested.

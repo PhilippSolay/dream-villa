@@ -118,3 +118,9 @@ and record `price_currency` / `price_original` in `raw`.
 
 `ctx.fetchHtml` gives 1 req/s per host, 24 h HTML cache, browser UA, 429/403 back-off.
 `/property/search` is never requested.
+
+Detail pages of listings already stored are cached for 7 days (shared rule,
+`src/scrape/ingest.js` `detailPlan`): refreshed on each listing's own weekday, refetched
+the same day when the card's price, bedrooms, title or "Rented" label differs from the
+stored row, and a new ref is fetched at once. The card owns those facts over a cached
+detail. That takes the daily ~730 detail fetches down to roughly 110–130.

@@ -203,7 +203,11 @@ cache. So detail pages are cached for **7 days** (`DETAIL_TTL_HOURS`): price, te
 availability are on the card, which is re-read every morning, and a detail page served
 from cache has those fields dropped so the card's stand. After the first (cold) run a
 day costs the index walk plus the new and week-old detail pages. Recheck passes
-`force: true` and always reads a fresh page.
+`force: true` and always reads a fresh page. Since 2026-09-26 this is the shared rule
+for every adapter (`src/scrape/ingest.js` `detailPlan`): on top of it a known listing
+refreshes on its own weekday, and a card whose price, status, bedrooms or title differs
+from the stored row refetches the page the same day. The adapter's own drop of the
+volatile fields on a cached page stays (it agrees with the shared one).
 
 ## Politeness
 

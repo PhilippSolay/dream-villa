@@ -104,3 +104,8 @@ rather than a wrong one.
 ## Politeness
 
 `ctx.fetchHtml` gives 1 req/s per host, 24 h HTML cache, browser UA, 429/403 back-off.
+Detail pages of listings already stored are cached for 7 days (shared rule,
+`src/scrape/ingest.js` `detailPlan`): refreshed on each listing's own weekday, refetched
+the same day when the card's price, bedrooms or title moves, new refs fetched at once.
+The overview's Status (Rented/Sold) is only on the detail page, so on a cached day it can
+surface up to a week late.
