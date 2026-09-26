@@ -5,7 +5,7 @@ import { AREAS } from '../areas.js';
 import { DEFAULT_WEIGHTS, WEIGHT_KEYS } from '../defaults.js';
 import { rescoreAll, startRun, finishRun } from '../scrape/store.js';
 import { badRequest, notFound, safeJson, str, strictSchemas } from './_common.js';
-import { sameTeamSql } from '../teams.js';
+import { isOwner, sameTeamSql } from '../teams.js';
 import {
   SOURCE_KINDS, sourcesWithStats, getSource, upsertSource, setSourceEnabled,
   noteWithSource,
@@ -155,9 +155,13 @@ export default async function adminRoutes(app, opts) {
     properties: { limit: { type: 'integer', minimum: 1, maximum: 200 } },
   };
 
-  app.get('/api/runs', { ...ownerAuth, schema: { querystring: limitSchema } }, async (request) => {
+  // Everyone's Home says "Updated 06:12", so friends get the when; what a run found and
+  // changed (weight edits by name, notes, errors) is the owners' (SPEC §17).
+  app.get('/api/runs', { ...auth, schema: { querystring: limitSchema } }, async (request) => {
     const limit = request.query.limit ?? 14;
-    return db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT ?').all(limit).map(parseRun);
+    const runs = db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT ?').all(limit).map(parseRun);
+    if (isOwner(request.user)) return runs;
+    return runs.map(({ id, kind, started_at, finished_at }) => ({ id, kind, started_at, finished_at }));
   });
 
   // The agent's private notes (SPEC §17) — owners only.

@@ -136,7 +136,6 @@ const OWNER_ONLY_ROUTES = [
   ['PATCH', '/api/config', { flag_threshold: 70 }],
   ['POST', '/api/scrape', {}],
   ['POST', '/api/inbox', { url: 'https://example.test/member-guard' }],
-  ['GET', '/api/runs', undefined],
   ['GET', '/api/notes', undefined],
   ['GET', '/api/inbox', undefined],
   ['GET', '/api/sources', undefined],
@@ -162,6 +161,19 @@ test('member: 403 owners_only on every owner-only admin/duplicates/import route'
     assert.equal(res.statusCode, 403, `${method} ${url} should 403 for a member`);
     assert.deepEqual(res.json(), { error: 'owners_only' }, `${method} ${url}`);
   }
+});
+
+test("member: /api/runs says when the last run was, not what it found or changed", async (t) => {
+  const { db, marinaCall, philippCall } = await setup(t);
+  db.prepare(
+    `INSERT INTO runs (started_at, finished_at, kind, notes, weight_changes, errors)
+     VALUES ('2026-09-26T06:00:00.000Z', '2026-09-26T06:12:00.000Z', 'learn', '["edited by Philipp"]', '[]', '[]')`
+  ).run();
+  const res = await marinaCall({ method: 'GET', url: '/api/runs?limit=1' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(Object.keys(res.json()[0]).sort(), ['finished_at', 'id', 'kind', 'started_at']);
+  const full = (await philippCall({ method: 'GET', url: '/api/runs?limit=1' })).json()[0];
+  assert.ok('notes' in full, 'owners still get the whole run');
 });
 
 test('the admin bearer token (user 1, an owner) still passes the owner guard', async (t) => {
