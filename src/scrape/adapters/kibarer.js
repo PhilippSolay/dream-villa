@@ -4,14 +4,40 @@
 // `?page=N`. See adapters/kibarer.md.
 
 import * as cheerio from 'cheerio';
-import { MAX_PAGES, MAX_IMAGES, absUrl, textOf, numberIn, areToM2 } from './_shared.js';
+import { MAX_IMAGES, absUrl, textOf, numberIn, areToM2 } from './_shared.js';
 import { moneyIdr, areaFromText, subAreaFrom, beachHint, termFor } from './_shared.js';
 
 const BASE = 'https://www.villabalisale.com';
 const LIST_PATH = '/realestate-property/for-rent/villa/all';
 
-/** Rental index slugs that can hold a SPEC §7 area. `bukit` covers Bingin/Balangan/Ungasan. */
-export const TARGET_SLUGS = ['pererenan', 'tabanan', 'uluwatu', 'bukit', 'canggu', 'ubud'];
+/**
+ * Rental index slugs that can hold a SPEC §7 area, west to east like `defaults.js`
+ * `areas`. `ubud` also carries the Center desa (Tegallalang, Payangan, Pejeng,
+ * Lodtunduh have no slug of their own). `tabanan` and `bukit` are broad regions kept
+ * alongside their villages' own slugs — the site's per-village index is not a strict
+ * subset of the regional one, and `list()` dedupes by ref across slugs either way.
+ * `buwit` returned zero listings on 2026-09-26 but is a valid index (kept for when
+ * one appears). Probed 2026-09-26 (curl, browser UA, 1 req/s): see adapters/kibarer.md
+ * for the observed page count per slug.
+ */
+export const TARGET_SLUGS = [
+  // Center
+  'ubud',
+  // West Coast
+  'mengwi', 'buwit', 'kedungu', 'nyanyi', 'tanah-lot', 'tabanan',
+  'munggu', 'cemagi', 'seseh', 'pererenan', 'padonan', 'canggu',
+  'tibubeneng', 'babakan', 'berawa', 'umalas',
+  // South (the Bukit)
+  'bukit', 'balangan', 'bingin', 'padang-padang', 'uluwatu', 'ungasan', 'pandawa',
+];
+
+/**
+ * Kibarer-specific page cap — the shared `_shared.MAX_PAGES` (10) is too low for
+ * this site's biggest indexes (`canggu` ran 45–46 pages, `berawa`/`umalas` 16–17 on
+ * 2026-09-26). 50 is a safety ceiling only: `list()` still stops earlier on the
+ * paginator's own last page or a page with nothing new.
+ */
+const KIBARER_MAX_PAGES = 50;
 
 const IMG_PATH = '/uploads/images/property/';
 
@@ -142,7 +168,7 @@ async function* list(ctx, { areas = TARGET_SLUGS } = {}) {
   const seen = new Set();
   for (const slug of areas) {
     let lastPage = null;
-    for (let page = 1; page <= MAX_PAGES; page++) {
+    for (let page = 1; page <= KIBARER_MAX_PAGES; page++) {
       const res = await ctx.fetchHtml(indexUrl(slug, page), { ttlHours: 24 });
       if (!res || !res.html) break;
 
