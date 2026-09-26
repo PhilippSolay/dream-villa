@@ -147,3 +147,11 @@ target and non-target villages alike, and a card with no §7 area is never yield
 
 One request per second per host and a 24 h HTML cache come from `ctx.fetchHtml`
 (`src/scrape/fetch.js`). Browser UA, no cookies, no login.
+
+Detail pages of listings already stored are cached for 7 days (the shared rule in
+`src/scrape/ingest.js` `detailPlan`, CLAUDE.md): refreshed on each listing's own weekday,
+refetched the same day when the card's price, bedrooms or title differs from the stored
+row, and a new ref is fetched at once. The index card owns price, title and bedrooms over
+a cached detail. Note the card carries no rented/sold marker here — "Rented out" is only
+read off the detail page, so on a cached day it can surface up to a week late (the row
+still goes `unlisted` after 3 days off the index).
