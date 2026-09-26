@@ -17,8 +17,8 @@
 // where dedupe.js would have merged them by itself.
 
 import { haversineKm } from '../areas.js';
-import { diceTrigram, sameComplexDifferentUnit } from './dedupe.js';
-import { sharedImages } from './image-hash.js';
+import { diceProfiles, refParts, trigramProfile } from './dedupe.js';
+import { countSharedImages, imageKeys } from './image-hash.js';
 
 /** Points per signal. They add up; the total is capped at 1. */
 export const SIGNALS = {
@@ -180,6 +180,30 @@ export function forgetContext(db) {
 // Scoring
 // ---------------------------------------------------------------------------
 
+// The per-listing half of the work, done once per listing and context instead of once per
+// pair: the title's trigrams, the description's opening, the photo hashes as integers.
+// allCandidates scores every same-bedroom pair within ±15 % — hundreds of thousands on
+// 6 000 listings — and redoing this per pair took minutes (2026-09-26: Market and Agent
+// held the server long enough for the health check to fail and Traefik to drop it).
+const featureCache = new WeakMap(); // ctx → WeakMap(row → features)
+
+function featuresOf(row, ctx) {
+  let byRow = featureCache.get(ctx);
+  if (!byRow) featureCache.set(ctx, (byRow = new WeakMap()));
+  let f = byRow.get(row);
+  if (!f) {
+    const images = ctx.images?.get(row.id);
+    f = {
+      title: trigramProfile(row.title),
+      ref: refParts(row.ref),
+      descPrefix: normText(row.description).slice(0, DESC_PREFIX),
+      images: images ? imageKeys(images) : null,
+    };
+    byRow.set(row, f);
+  }
+  return f;
+}
+
 /**
  * Score one pair, 0–1, with the reasons that got it there.
  * Returns null when the pair can never be a duplicate (different bedrooms, same row,
@@ -187,74 +211,105 @@ export function forgetContext(db) {
  * RF9183B are neighbours, not copies).
  */
 export function scorePair(a, b, ctx = {}) {
+  return scoreAtLeast(a, b, ctx, -Infinity);
+}
+
+// A perfect title is worth this much; the rounding below can lift a sum by half a point.
+const TITLE_MAX = SIGNALS.title80;
+const ROUNDING = 0.0005;
+
+/**
+ * scorePair for the pairwise passes: null as soon as the pair cannot reach `minScore`.
+ * Every other signal is a comparison or two, so the title similarity — the one that
+ * costs — is skipped when even a perfect title could not lift the pair over the bar,
+ * and the reason strings are only written for a pair that makes it. The sum runs in
+ * scorePair's original order, so the rounded score is the same to the last digit.
+ */
+function scoreAtLeast(a, b, ctx, minScore) {
   if (!a || !b || a.id === b.id) return null;
   if (a.bedrooms == null || b.bedrooms == null || a.bedrooms !== b.bedrooms) return null;
   if (a.availability === 'gone' || b.availability === 'gone') return null;
-  if (ctx.dismissed?.has(pairKey(a.id, b.id))) return null;
-  if (sameComplexDifferentUnit(a, b)) return null;
+  if (ctx.dismissed?.size && ctx.dismissed.has(pairKey(a.id, b.id))) return null;
+  const fa = featuresOf(a, ctx);
+  const fb = featuresOf(b, ctx);
+  // sameComplexDifferentUnit, on refs parsed once per listing.
+  if (a.source && a.source === b.source && fa.ref && fb.ref && fa.ref.stem === fb.ref.stem && fa.ref.suffix !== fb.ref.suffix) {
+    return null;
+  }
 
-  let score = 0;
-  const reasons = [];
-  const add = (points, reason) => {
-    score += points;
-    reasons.push(reason);
-  };
-
-  if (a.area && a.area === b.area) add(SIGNALS.area, `same area ${a.area}`);
+  const sameArea = Boolean(a.area && a.area === b.area);
 
   const pa = a.price_month_idr;
   const pb = b.price_month_idr;
+  let pricePoints = 0;
   if (pa != null && pb != null) {
     const max = Math.max(Math.abs(pa), Math.abs(pb));
     const gap = max ? Math.abs(pa - pb) / max : 1;
-    const label = pa === pb ? `same price ${priceM(pa)}` : `price ${priceM(pa)} vs ${priceM(pb)}`;
-    if (gap <= 0.05) add(SIGNALS.price5, label);
-    else if (gap <= 0.1) add(SIGNALS.price10, label);
+    if (gap <= 0.05) pricePoints = SIGNALS.price5;
+    else if (gap <= 0.1) pricePoints = SIGNALS.price10;
   }
 
+  let contact = null;
   const ca = ctx.contacts?.get(a.id);
   const cb = ctx.contacts?.get(b.id);
   if (ca && cb) {
     for (const [key, label] of ca) {
       if (cb.has(key)) {
-        add(SIGNALS.contact, `same ${label}`);
+        contact = label;
         break;
       }
     }
   }
 
-  const ia = ctx.images?.get(a.id);
-  const ib = ctx.images?.get(b.id);
-  if (ia && ib) {
-    const shared = sharedImages(ia, ib).count;
-    if (shared) {
-      add(
-        SIGNALS.image + (shared >= 2 ? SIGNALS.image2 : 0),
-        shared === 1 ? 'photo shared' : `${shared} photos shared`
-      );
-    }
-  }
-
-  const sim = diceTrigram(a.title, b.title);
-  if (sim >= TITLE_HIGH) add(SIGNALS.title80, `title ${sim.toFixed(2)} similar`);
-  else if (sim >= TITLE_LOW) add(SIGNALS.title60, `title ${sim.toFixed(2)} similar`);
-
-  const da = normText(a.description).slice(0, DESC_PREFIX);
-  const dbb = normText(b.description).slice(0, DESC_PREFIX);
-  if (da && da === dbb) add(SIGNALS.description, 'same description opening');
-
-  if (a.land_m2 != null && a.land_m2 === b.land_m2) add(SIGNALS.land, `same land ${a.land_m2} m2`);
-  if (a.build_m2 != null && a.build_m2 === b.build_m2) add(SIGNALS.build, `same build ${a.build_m2} m2`);
-
+  const shared = fa.images && fb.images ? countSharedImages(fa.images, fb.images) : 0;
+  const imagePoints = shared ? SIGNALS.image + (shared >= 2 ? SIGNALS.image2 : 0) : 0;
+  const sameDescription = Boolean(fa.descPrefix && fa.descPrefix === fb.descPrefix);
+  const sameLand = a.land_m2 != null && a.land_m2 === b.land_m2;
+  const sameBuild = a.build_m2 != null && a.build_m2 === b.build_m2;
+  let metres = null;
   if (a.lat != null && a.lng != null && b.lat != null && b.lng != null) {
-    const metres = haversineKm(a.lat, a.lng, b.lat, b.lng) * 1000;
-    if (metres <= PIN_METRES) add(SIGNALS.pin, `pins ${Math.round(metres)} m apart`);
+    metres = haversineKm(a.lat, a.lng, b.lat, b.lng) * 1000;
   }
+  const pin = metres != null && metres <= PIN_METRES;
+  const poster = Boolean(a.poster_url && a.poster_url === b.poster_url);
 
-  if (a.poster_url && a.poster_url === b.poster_url) add(SIGNALS.poster, 'same Facebook poster');
+  const withoutTitle =
+    (sameArea ? SIGNALS.area : 0) + pricePoints + (contact ? SIGNALS.contact : 0) + imagePoints +
+    (sameDescription ? SIGNALS.description : 0) + (sameLand ? SIGNALS.land : 0) +
+    (sameBuild ? SIGNALS.build : 0) + (pin ? SIGNALS.pin : 0) + (poster ? SIGNALS.poster : 0);
+  if (withoutTitle + TITLE_MAX + ROUNDING < minScore) return null;
 
-  if (!reasons.length) return null;
-  return { score: Math.min(1, Math.round(score * 1000) / 1000), reasons };
+  const sim = diceProfiles(fa.title, fb.title);
+  const titlePoints = sim >= TITLE_HIGH ? SIGNALS.title80 : sim >= TITLE_LOW ? SIGNALS.title60 : 0;
+
+  // The original order of addition (adding 0 changes nothing in floating point).
+  let score = 0;
+  if (sameArea) score += SIGNALS.area;
+  score += pricePoints;
+  if (contact) score += SIGNALS.contact;
+  score += imagePoints;
+  score += titlePoints;
+  if (sameDescription) score += SIGNALS.description;
+  if (sameLand) score += SIGNALS.land;
+  if (sameBuild) score += SIGNALS.build;
+  if (pin) score += SIGNALS.pin;
+  if (poster) score += SIGNALS.poster;
+  if (score === 0) return null; // no signal at all — every SIGNALS value is positive
+  const rounded = Math.min(1, Math.round(score * 1000) / 1000);
+  if (rounded < minScore) return null;
+
+  const reasons = [];
+  if (sameArea) reasons.push(`same area ${a.area}`);
+  if (pricePoints) reasons.push(pa === pb ? `same price ${priceM(pa)}` : `price ${priceM(pa)} vs ${priceM(pb)}`);
+  if (contact) reasons.push(`same ${contact}`);
+  if (shared) reasons.push(shared === 1 ? 'photo shared' : `${shared} photos shared`);
+  if (titlePoints) reasons.push(`title ${sim.toFixed(2)} similar`);
+  if (sameDescription) reasons.push('same description opening');
+  if (sameLand) reasons.push(`same land ${a.land_m2} m2`);
+  if (sameBuild) reasons.push(`same build ${a.build_m2} m2`);
+  if (pin) reasons.push(`pins ${Math.round(metres)} m apart`);
+  if (poster) reasons.push('same Facebook poster');
+  return { score: rounded, reasons };
 }
 
 // ---------------------------------------------------------------------------
@@ -303,8 +358,8 @@ export function candidatesFor(db, id, { limit = 10, minScore = 0.5, ctx = null }
   const bucket = bucketsByBedrooms(context.rows).get(row.bedrooms) || [];
   const out = [];
   for (const other of plausible(row, bucket)) {
-    const scored = scorePair(row, other, context);
-    if (!scored || scored.score < minScore) continue;
+    const scored = scoreAtLeast(row, other, context, minScore);
+    if (!scored) continue;
     out.push({ a: row.id, b: other.id, score: scored.score, reasons: scored.reasons });
   }
   out.sort((x, y) => y.score - x.score || x.b - y.b);
@@ -317,17 +372,31 @@ export function candidatesFor(db, id, { limit = 10, minScore = 0.5, ctx = null }
  */
 export function allCandidates(db, { limit = 200, minScore = 0.5, ctx = null } = {}) {
   const context = ctx || loadContext(db);
+  // One full pass per context: Agent (0.6) and Market (0.6) and a second visit within
+  // the cached context's life all read the same list. A list scored at a lower bar
+  // answers a higher one by filtering; the pass itself only runs once.
+  const lists = pairLists.get(context) || [];
+  let found = lists.find((l) => l.minScore <= minScore);
+  if (!found) {
+    found = { minScore, pairs: scoreAllPairs(context, minScore) };
+    lists.push(found);
+    pairLists.set(context, lists);
+  }
+  const pairs = found.minScore === minScore ? found.pairs : found.pairs.filter((p) => p.score >= minScore);
+  return pairs.slice(0, limit);
+}
+
+const pairLists = new WeakMap(); // context → [{minScore, pairs}], each list complete and sorted
+
+// Each bucket pairs row i only with rows after it, so every pair is met exactly once.
+function scoreAllPairs(context, minScore) {
   const out = [];
-  const seen = new Set();
 
   for (const bucket of bucketsByBedrooms(context.rows).values()) {
     for (let i = 0; i < bucket.length; i++) {
       for (const other of plausible(bucket[i], bucket, i + 1)) {
-        const key = pairKey(bucket[i].id, other.id);
-        if (seen.has(key)) continue;
-        const scored = scorePair(bucket[i], other, context);
-        if (!scored || scored.score < minScore) continue;
-        seen.add(key);
+        const scored = scoreAtLeast(bucket[i], other, context, minScore);
+        if (!scored) continue;
         const [a, b] = bucket[i].id < other.id ? [bucket[i].id, other.id] : [other.id, bucket[i].id];
         out.push({ a, b, score: scored.score, reasons: scored.reasons });
       }
@@ -335,7 +404,7 @@ export function allCandidates(db, { limit = 200, minScore = 0.5, ctx = null } = 
   }
 
   out.sort((x, y) => y.score - x.score || x.a - y.a || x.b - y.b);
-  return out.slice(0, limit);
+  return out;
 }
 
 export default { candidatesFor, allCandidates, scorePair, loadContext, cachedContext, forgetContext, SIGNALS };

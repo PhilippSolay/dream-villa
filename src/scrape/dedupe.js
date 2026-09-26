@@ -91,6 +91,45 @@ export function diceTrigram(a, b) {
   return (2 * shared) / (ga.length + gb.length);
 }
 
+// normText leaves only a–z, 0–9 and the space: 37 symbols, so a trigram is one integer.
+const SYMBOL = (ch) => (ch === ' ' ? 36 : ch <= '9' ? ch.charCodeAt(0) - 48 : ch.charCodeAt(0) - 87);
+function gramCode(g) {
+  if (g.length === 3) return SYMBOL(g[0]) * 1369 + SYMBOL(g[1]) * 37 + SYMBOL(g[2]);
+  // trigrams() hands back a one- or two-letter string whole; keep those clear of the rest.
+  return 50653 + (g.length === 1 ? SYMBOL(g[0]) : 37 + SYMBOL(g[0]) * 37 + SYMBOL(g[1]));
+}
+
+/** A title normalised and cut into its trigrams once, sorted as integers, for diceProfiles. */
+export function trigramProfile(text) {
+  const norm = normText(text);
+  const codes = Int32Array.from(trigrams(norm), gramCode).sort();
+  return { norm, n: codes.length, codes };
+}
+
+/**
+ * diceTrigram on two trigramProfile()s — the same number: walking two sorted lists counts
+ * each trigram as often as both titles have it, the multiset intersection diceTrigram takes.
+ */
+export function diceProfiles(a, b) {
+  if (!a.norm || !b.norm) return 0;
+  if (a.norm === b.norm) return 1;
+  if (!a.n || !b.n) return 0;
+  const x = a.codes;
+  const y = b.codes;
+  let i = 0;
+  let j = 0;
+  let shared = 0;
+  while (i < x.length && j < y.length) {
+    if (x[i] === y[j]) {
+      shared++;
+      i++;
+      j++;
+    } else if (x[i] < y[j]) i++;
+    else j++;
+  }
+  return (2 * shared) / (a.n + b.n);
+}
+
 // ---------------------------------------------------------------------------
 // Candidate rules
 // ---------------------------------------------------------------------------
