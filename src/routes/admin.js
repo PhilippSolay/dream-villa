@@ -5,6 +5,7 @@ import { AREAS } from '../areas.js';
 import { DEFAULT_WEIGHTS, WEIGHT_KEYS } from '../defaults.js';
 import { rescoreAll, startRun, finishRun } from '../scrape/store.js';
 import { badRequest, notFound, safeJson, str, strictSchemas } from './_common.js';
+import { isOwner, sameTeamSql } from '../teams.js';
 import {
   SOURCE_KINDS, sourcesWithStats, getSource, upsertSource, setSourceEnabled,
   noteWithSource,
@@ -78,11 +79,15 @@ export default async function adminRoutes(app, opts) {
   const runScrape = opts.runScrape || (async (args) => (await import('../scrape/index.js')).runScrape(args));
   // onRequest: auth must answer before schema validation (see properties.js).
   const auth = { onRequest: app.requireUser };
+  // SPEC §17: the scraper/brief/agent controls are the owners' — a friend's tap never
+  // runs the scraper, edits the brief or reads the agent's private notes.
+  const ownerAuth = { onRequest: app.requireOwner };
 
   strictSchemas(app);
 
   // --- areas ---------------------------------------------------------------
-  // SPEC §7 as data, so the UI never hard-codes labels, groups or beach points.
+  // SPEC §7 as data, so the UI never hard-codes labels, groups or beach points. Shared
+  // (everyone signed in reads it — the filter panel needs it too).
   app.get('/api/areas', auth, async () => ({
     areas: Object.entries(AREAS).map(([id, a]) => ({
       id, label: a.label, group: a.group, centroid: a.centroid, beach: a.beach,
@@ -90,12 +95,13 @@ export default async function adminRoutes(app, opts) {
   }));
 
   // --- config --------------------------------------------------------------
+  // GET stays open (read-only, shared brief); PATCH edits it — owners only.
   app.get('/api/config', auth, async () => publicConfig(db));
 
   app.patch(
     '/api/config',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         body: {
           type: 'object', additionalProperties: false, minProperties: 1,
@@ -149,12 +155,17 @@ export default async function adminRoutes(app, opts) {
     properties: { limit: { type: 'integer', minimum: 1, maximum: 200 } },
   };
 
+  // Everyone's Home says "Updated 06:12", so friends get the when; what a run found and
+  // changed (weight edits by name, notes, errors) is the owners' (SPEC §17).
   app.get('/api/runs', { ...auth, schema: { querystring: limitSchema } }, async (request) => {
     const limit = request.query.limit ?? 14;
-    return db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT ?').all(limit).map(parseRun);
+    const runs = db.prepare('SELECT * FROM runs ORDER BY id DESC LIMIT ?').all(limit).map(parseRun);
+    if (isOwner(request.user)) return runs;
+    return runs.map(({ id, kind, started_at, finished_at }) => ({ id, kind, started_at, finished_at }));
   });
 
-  app.get('/api/notes', { ...auth, schema: { querystring: limitSchema } }, async (request) => {
+  // The agent's private notes (SPEC §17) — owners only.
+  app.get('/api/notes', { ...ownerAuth, schema: { querystring: limitSchema } }, async (request) => {
     const limit = request.query.limit ?? 14;
     return db.prepare('SELECT * FROM agent_notes ORDER BY id DESC LIMIT ?').all(limit);
   });
@@ -163,7 +174,7 @@ export default async function adminRoutes(app, opts) {
   app.post(
     '/api/scrape',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         body: {
           type: ['object', 'null'], additionalProperties: false,
@@ -188,11 +199,13 @@ export default async function adminRoutes(app, opts) {
     }
   );
 
-  // --- inbox ---------------------------------------------------------------
+  // --- inbox -----------------------------------------------------------------
+  // Adding/reading candidate URLs is scraper intake — SPEC §17 lists "inbox writes" as
+  // owner-only explicitly; the read stays with everyone signed in (below).
   app.post(
     '/api/inbox',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         body: {
           type: 'object', additionalProperties: false, required: ['url'],
@@ -221,10 +234,12 @@ export default async function adminRoutes(app, opts) {
     }
   );
 
+  // The inbox and the intake channels are the owners' agent desk (who pasted what, notes
+  // on agencies and groups); only the Agent page reads them, and friends do not have it.
   app.get(
     '/api/inbox',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         querystring: {
           type: 'object', additionalProperties: false,
@@ -260,7 +275,7 @@ export default async function adminRoutes(app, opts) {
   app.get(
     '/api/sources',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         querystring: {
           type: 'object', additionalProperties: false,
@@ -274,7 +289,7 @@ export default async function adminRoutes(app, opts) {
   app.post(
     '/api/sources',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         body: {
           type: 'object', additionalProperties: false, required: ['kind'],
@@ -294,7 +309,7 @@ export default async function adminRoutes(app, opts) {
   app.patch(
     '/api/sources/:id',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         params: { type: 'object', required: ['id'], properties: { id: { type: 'string', maxLength: 60 } } },
         body: {
@@ -321,11 +336,13 @@ export default async function adminRoutes(app, opts) {
     }
   );
 
-  // --- feedback ------------------------------------------------------------
+  // --- feedback --------------------------------------------------------------
+  // Marking feedback applied is part of the learning loop (src/scrape/learn.js reads
+  // only home-team feedback anyway) — an owner action.
   app.post(
     '/api/feedback/:id/applied',
     {
-      ...auth,
+      ...ownerAuth,
       schema: {
         params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
         body: {
@@ -336,7 +353,8 @@ export default async function adminRoutes(app, opts) {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const row = db.prepare('SELECT * FROM feedback WHERE id = ?').get(id);
+      // Only the caller's team's feedback: another team's note is not there to read or mark.
+      const row = db.prepare(`SELECT * FROM feedback WHERE id = ? AND ${sameTeamSql(request.user)}`).get(id);
       if (!row) return notFound(reply);
       db.prepare('UPDATE feedback SET applied = 1, applied_note = ? WHERE id = ?').run(request.body.note, id);
       return db.prepare('SELECT * FROM feedback WHERE id = ?').get(id);

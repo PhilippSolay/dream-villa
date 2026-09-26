@@ -12,6 +12,10 @@ function tmpDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'villa-learn-'));
   const file = path.join(dir, 'villa.db');
   const db = openDb(file);
+  // SPEC §17: learn.js now mines only home-team feedback/viewings (sameTeamSql resolves
+  // `by` against a real `users` row); this suite's `by` defaults to 1, with no team_id
+  // set, which COALESCE reads as the home team.
+  db.prepare("INSERT INTO users (id, email, name, password_hash) VALUES (1, 'learn-test@example.com', 'Test User', 'x')").run();
   return { db, dir };
 }
 

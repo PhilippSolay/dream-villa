@@ -12,6 +12,14 @@ import { fetch } from 'undici';
 import { nowIso, getConfig, setConfig } from '../db.js';
 import { rescoreAll } from './store.js';
 import { WEIGHT_KEYS } from '../defaults.js';
+import { sameTeamSql } from '../teams.js';
+
+// SPEC §17: a friend's feedback/viewing must never nudge the owners' weights or add a
+// red flag on their behalf — only home-team rows are mined. `sameTeamSql(null, …)`
+// reads "no user" as the home team (teams.js's teamIdOf), same trick as agent.js. Both
+// `feedback` and `viewings` have their own unaliased `by` column, so one predicate serves
+// either query.
+const HOME_TEAM_BY_SQL = sameTeamSql(null, 'by');
 
 const WEIGHT_KEY_SET = new Set(WEIGHT_KEYS);
 const WEIGHT_CAP = 20;
@@ -173,7 +181,7 @@ export async function runLearn(db, { now = nowIso(), log = console } = {}) {
   let anyChange = false;
 
   // 1. Feedback -----------------------------------------------------------
-  const feedbackRows = db.prepare('SELECT * FROM feedback WHERE applied = 0').all();
+  const feedbackRows = db.prepare(`SELECT * FROM feedback WHERE applied = 0 AND ${HOME_TEAM_BY_SQL}`).all();
   const updateFeedback = db.prepare('UPDATE feedback SET applied = 1, applied_note = ? WHERE id = ?');
 
   for (const row of feedbackRows) {
@@ -211,7 +219,9 @@ export async function runLearn(db, { now = nowIso(), log = console } = {}) {
 
   // 2. Viewings -------------------------------------------------------------
   const lastViewingId = Number(config.learn_last_viewing_id || 0);
-  const viewingRows = db.prepare('SELECT * FROM viewings WHERE id > ? ORDER BY id ASC').all(lastViewingId);
+  const viewingRows = db
+    .prepare(`SELECT * FROM viewings WHERE id > ? AND ${HOME_TEAM_BY_SQL} ORDER BY id ASC`)
+    .all(lastViewingId);
   let maxViewingId = lastViewingId;
 
   for (const v of viewingRows) {

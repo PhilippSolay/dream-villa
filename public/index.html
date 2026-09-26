@@ -48,7 +48,10 @@
       <div class="nav-top">
         <div class="nav-tools">
           <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch theme"></button>
-          <button type="button" class="user-btn" id="user-btn" aria-label="Account">·</button>
+          <div class="account-wrap" id="account-wrap">
+            <button type="button" class="user-btn" id="user-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Account">·</button>
+            <div class="menu account-menu" id="account-menu" role="menu" hidden></div>
+          </div>
         </div>
       </div>
       <div class="tabbar" id="tabbar">

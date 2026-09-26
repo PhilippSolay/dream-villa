@@ -156,7 +156,7 @@ test('008: the Canggu belt joins an untouched target list, a hand-edited one is 
   after.close();
 });
 
-test('010: the desa around Ubud join the list 009 left, a hand-edited one is left alone', () => {
+test('011: the desa around Ubud join the list 009 left, a hand-edited one is left alone', () => {
   const AFTER_009 = [
     'seseh', 'cemagi', 'munggu', 'pererenan', 'nyanyi', 'kedungu', 'tanah_lot', 'buwit',
     'mengwi', 'canggu', 'babakan', 'berawa', 'padonan', 'tibubeneng', 'umalas',
@@ -164,13 +164,13 @@ test('010: the desa around Ubud join the list 009 left, a hand-edited one is lef
   ];
 
   const stale = openDb(tmpDbPath());
-  stale.prepare('DELETE FROM migrations WHERE name = ?').run('010_ubud_surrounds');
+  stale.prepare('DELETE FROM migrations WHERE name = ?').run('011_ubud_surrounds');
   setConfig(stale, 'areas', AFTER_009);
   const file = stale.name;
   stale.close();
 
   const migrated = openDb(file);
-  assert.deepEqual(migrated.migrationsApplied, ['010_ubud_surrounds']);
+  assert.deepEqual(migrated.migrationsApplied, ['011_ubud_surrounds']);
   const areas = getConfig(migrated).areas;
   assert.equal(areas.length, 26);
   for (const a of ['tegallalang', 'payangan', 'pejeng', 'lodtunduh']) {
@@ -181,7 +181,7 @@ test('010: the desa around Ubud join the list 009 left, a hand-edited one is lef
 
   // A brief someone narrowed by hand survives, Ubud centre included.
   const chosen = openDb(tmpDbPath());
-  chosen.prepare('DELETE FROM migrations WHERE name = ?').run('010_ubud_surrounds');
+  chosen.prepare('DELETE FROM migrations WHERE name = ?').run('011_ubud_surrounds');
   setConfig(chosen, 'areas', ['ubud', 'pererenan']);
   const chosenFile = chosen.name;
   chosen.close();

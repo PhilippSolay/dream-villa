@@ -52,7 +52,8 @@ function ordered(a, b) {
 export default async function duplicatesRoutes(app, opts) {
   const { db } = opts;
   // onRequest, not preHandler: an anonymous caller must get the 401, not a schema 400.
-  const auth = { onRequest: app.requireUser };
+  // SPEC §17: merging/dismissing duplicates edits shared listing facts — owners only.
+  const auth = { onRequest: app.requireOwner };
 
   strictSchemas(app);
 

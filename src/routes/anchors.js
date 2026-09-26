@@ -1,7 +1,9 @@
 // Anchors (SPEC §14): the two people's own places — a gym, a school, a co-working — with a
 // distance on every listing and a "within X km of" filter. GET/POST/DELETE /api/anchors.
+// Places belong to a team (SPEC §17): a team sees, filters by and deletes only its own.
 
 import { nowIso } from '../db.js';
+import { sameTeamSql } from '../teams.js';
 import { notFound, badRequest, strictSchemas, withByName } from './_common.js';
 
 const EARTH_KM = 6371;
@@ -38,9 +40,12 @@ export function parseLocation(input) {
   return null;
 }
 
-/** Every anchor, oldest first, with the creator's name. */
-export function listAnchors(db) {
-  return withByName(db, db.prepare('SELECT * FROM anchors ORDER BY id').all());
+/**
+ * The caller's team's anchors, oldest first, with the creator's name. No user (a script)
+ * reads as the home team, like everywhere else in teams.js.
+ */
+export function listAnchors(db, user) {
+  return withByName(db, db.prepare(`SELECT * FROM anchors WHERE ${sameTeamSql(user)} ORDER BY id`).all());
 }
 
 /** Distances from one listing to every anchor, rounded to 0.1 km; null when the listing has no pin. */
@@ -58,7 +63,7 @@ export default async function anchorsRoutes(app, opts) {
   const auth = { onRequest: app.requireUser };
   strictSchemas(app);
 
-  app.get('/api/anchors', auth, async () => listAnchors(db));
+  app.get('/api/anchors', auth, async (request) => listAnchors(db, request.user));
 
   app.post(
     '/api/anchors',
@@ -93,7 +98,10 @@ export default async function anchorsRoutes(app, opts) {
     '/api/anchors/:id',
     { ...auth, schema: { params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
     async (request, reply) => {
-      const info = db.prepare('DELETE FROM anchors WHERE id = ?').run(request.params.id);
+      // Another team's place reads as missing, not forbidden: its existence is not ours to know.
+      const info = db
+        .prepare(`DELETE FROM anchors WHERE id = ? AND ${sameTeamSql(request.user)}`)
+        .run(request.params.id);
       if (!info.changes) return notFound(reply);
       return { ok: true };
     }

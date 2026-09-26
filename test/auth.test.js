@@ -95,7 +95,7 @@ test('http: health, login, session, bearer token, logout', async (t) => {
     payload: { email: ENV.USER1_EMAIL, password: ENV.USER1_PASSWORD },
   });
   assert.equal(good.statusCode, 200);
-  assert.deepEqual(good.json().user, { id: 1, email: ENV.USER1_EMAIL, name: 'Philipp' });
+  assert.deepEqual(good.json().user, { id: 1, email: ENV.USER1_EMAIL, name: 'Philipp', team_id: 1, role: 'owner' });
   const session = good.cookies.find((c) => c.name === SESSION_COOKIE);
   assert.ok(session, 'login sets the session cookie');
   assert.equal(session.httpOnly, true);

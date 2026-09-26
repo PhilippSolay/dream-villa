@@ -21,6 +21,10 @@ async function parse(res) {
 }
 
 function messageFrom(body, res) {
+  // SPEC §17: a member's write to an owner-only control 403s `owners_only` — the UI is
+  // supposed to hide those controls, but a stale role or a direct API hit still lands
+  // here, and "owners_only" read as an error message means nothing to a friend.
+  if (res.status === 403 && body?.error === 'owners_only') return 'Only the owners can change that';
   if (body && typeof body === 'object') return body.detail || body.error || res.statusText;
   if (typeof body === 'string' && body) return body.slice(0, 200);
   return res.statusText || `HTTP ${res.status}`;
