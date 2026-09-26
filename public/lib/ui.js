@@ -90,6 +90,8 @@ export const icons = {
   map: () => svg('<path d="M3.5 5.6 7.5 4l5 1.8 4-1.6v10.2l-4 1.6-5-1.8-4 1.6Z"/><path d="M7.5 4v12.2M12.5 5.8V18"/>'),
   chart: () => svg('<path d="M3.5 16.5h13"/><path d="M6 13.5V9M10 13.5V5M14 13.5v-5"/>'),
   robot: () => svg('<rect x="4" y="7" width="12" height="8" rx="2.4"/><path d="M10 4v3"/><circle cx="7.8" cy="11" r=".9"/><circle cx="12.2" cy="11" r=".9"/>'),
+  // An ID card: the People page, where the owners manage who has an account.
+  idcard: () => svg('<rect x="2.8" y="4.5" width="14.4" height="11" rx="2"/><circle cx="7.4" cy="8.9" r="1.7"/><path d="M4.9 13.2c.4-1.3 1.3-2 2.5-2s2.1.7 2.5 2"/><path d="M11.8 8.6h3M11.8 11.4h3"/>'),
   archive: () => svg('<rect x="3.2" y="3.8" width="13.6" height="3.4" rx="1.1"/><path d="M4.6 7.2v7.9a1.4 1.4 0 0 0 1.4 1.4h8a1.4 1.4 0 0 0 1.4-1.4V7.2"/><path d="M8.2 10.3h3.6"/>'),
 };
 

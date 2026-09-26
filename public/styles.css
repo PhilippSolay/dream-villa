@@ -340,7 +340,7 @@ small, .small { font-size: 13px; }
 .tab[aria-current='page']::before { opacity: 1; transform: none; }
 .tab[aria-current='page'] .icon { transform: translateY(-1px); }
 .tab:active .icon { transform: scale(0.9); }
-/* Six tabs on a 360 px phone leaves ~53 px each — the label has to give a little. */
+/* An owner has seven tabs: ~49 px each on a 360 px phone — the label has to give a little. */
 @media (max-width: 400px) {
   .tab { font-size: 9.5px; letter-spacing: 0; gap: 2px; }
 }

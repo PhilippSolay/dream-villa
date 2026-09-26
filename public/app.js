@@ -43,6 +43,8 @@ const TABS = [
   { route: 'market', href: '#/market', label: 'Market', icon: icons.chart },
   { route: 'gone', href: '#/gone', label: 'Gone', icon: icons.archive },
   { route: 'agent', href: '#/agent', label: 'Agent', icon: icons.robot, hide: (s) => !isOwner(s) },
+  // The owners' mini CMS — also in the account menu, but a tab is one tap from anywhere.
+  { route: 'people', href: '#/people', label: 'People', icon: icons.idcard, hide: (s) => !isOwner(s) },
 ];
 
 /** Only the hidden flag, cheap enough to run on every store change (a filter tweak on
