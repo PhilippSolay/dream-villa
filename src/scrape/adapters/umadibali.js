@@ -533,10 +533,20 @@ export function detailFrom(html, url, config = {}, { now = new Date() } = {}) {
   };
 }
 
-async function detail(ctx, url) {
-  const res = await ctx.fetchHtml(url, { ttlHours: 24 });
+// Price, term and availability are on the card, which the index walk re-reads every
+// morning; what the detail page adds — gallery, facts, pin — hardly moves. A week-old
+// copy of it is enough, and it keeps ~330 detail fetches (~20 min) out of every daily
+// run. A cached page's volatile fields are dropped, so the card's fresh ones stand
+// (ingestDetail merges the detail over the card with nulls stripped).
+export const DETAIL_TTL_HOURS = 24 * 7;
+const VOLATILE = ['price_month_idr', 'price_year_idr', 'term', 'available_from', 'gone'];
+
+async function detail(ctx, url, { force = false } = {}) {
+  const res = await ctx.fetchHtml(url, { ttlHours: DETAIL_TTL_HOURS, force });
   if (!res || res.status === 404 || res.status === 410 || !res.html) return null;
-  return detailFrom(res.html, url, ctx.config, { now: todayOf(ctx) });
+  const d = detailFrom(res.html, url, ctx.config, { now: todayOf(ctx) });
+  if (!d || !res.fromCache) return d;
+  return { ...d, ...Object.fromEntries(VOLATILE.map((k) => [k, null])) };
 }
 
 /** Facts the page states outright beat normaliseListing's keyword guesses. */

@@ -197,10 +197,13 @@ live (Tanah Lot, Munggu, Cemagi, Seseh, Nyanyi, Buduk) carried six different pin
 
 ## Cost
 
-The index walk is ~68 pages. The expensive part is the shared ingest path, which fetches
-the detail page of every in-band card on every run (24 h cache, as for every adapter):
-~330 pages at 3–5 s each is **~20–25 min a day for this source alone**. Worth deciding
-across adapters (a longer detail TTL for rows whose card is unchanged) rather than here.
+The index walk is ~68 pages. The shared ingest path fetches the detail page of every
+in-band card on every run: ~330 pages at 3–5 s each, **~20–25 min** with the usual 24 h
+cache. So detail pages are cached for **7 days** (`DETAIL_TTL_HOURS`): price, term and
+availability are on the card, which is re-read every morning, and a detail page served
+from cache has those fields dropped so the card's stand. After the first (cold) run a
+day costs the index walk plus the new and week-old detail pages. Recheck passes
+`force: true` and always reads a fresh page.
 
 ## Politeness
 

@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import uma, {
   cardsFrom, detailFrom, applyDetail, lastPageOf, parseCode, availDateFrom, statusFrom, searchUrl,
-  LOCATIONS, PER_PAGE, UPCOMING_MONTHS,
+  LOCATIONS, PER_PAGE, UPCOMING_MONTHS, DETAIL_TTL_HOURS,
 } from '../src/scrape/adapters/umadibali.js';
 import { normaliseListing } from '../src/scrape/normalise.js';
 import { inBand } from '../src/scrape/score.js';
@@ -350,6 +350,31 @@ test('detail() reads "Avail <date>" in the code line, and a rented marker when t
 test('detail() returns null for a 404 and for a page that is not a listing', async () => {
   assert.equal(await uma.detail(stubCtx(), 'https://umadibali.com/villa/nope/'), null);
   assert.equal(detailFrom('<html><body>nothing</body></html>', DETAIL_URL), null);
+});
+
+test('detail() keeps a week-old page but lets the card own price and availability', async () => {
+  const calls = [];
+  const ctxWith = (fromCache) => ({
+    ...stubCtx(),
+    async fetchHtml(url, opts) {
+      calls.push(opts);
+      return { html: detailHtml, status: 200, fromCache };
+    },
+  });
+
+  const fresh = await uma.detail(ctxWith(false), DETAIL_URL);
+  assert.ok(fresh.price_month_idr || fresh.price_year_idr, 'a fresh page carries its price');
+  assert.equal(calls[0].ttlHours, DETAIL_TTL_HOURS);
+  assert.equal(calls[0].force, false);
+
+  const cached = await uma.detail(ctxWith(true), DETAIL_URL);
+  for (const k of ['price_month_idr', 'price_year_idr', 'term', 'available_from', 'gone']) assert.equal(cached[k], null, k);
+  assert.equal(cached.bedrooms, fresh.bedrooms);
+  assert.deepEqual(cached.images, fresh.images);
+  assert.equal(cached.lat, fresh.lat);
+
+  await uma.detail(ctxWith(false), DETAIL_URL, { force: true });
+  assert.equal(calls[2].force, true);
 });
 
 // ---------------------------------------------------------------------------
