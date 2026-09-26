@@ -11,6 +11,7 @@ import { filtersToQuery } from '../lib/filters.js';
 import { verdictPairHtml, verdictControlHtml, bindVerdicts, initialOf, verdictOf } from '../lib/verdicts.js';
 import { STAGES, isStage, loadStageIds, nextStage } from '../lib/flow.js';
 import { valueBadgesHtml } from '../lib/value.js';
+import { isOwner, isSolo } from '../lib/people.js';
 
 // Prev/next pager: property rows fetched ahead of need, keyed by id. Module-scoped so
 // it survives the remount that happens when navigating from one listing to the next
@@ -87,9 +88,11 @@ export async function mountDetail(el, ctx) {
   /** The first scan: photos, then read, then tap a status. Lives above the tabs, so it
       is reachable from every tab. */
   function statusRow() {
-    // The pressed button carries the initial of whoever set it (SPEC: everything attributed).
+    // The pressed button carries the initial of whoever set it (SPEC: everything attributed)
+    // — except on a solo team, where it is always the viewer's own initial and says nothing.
+    const solo = isSolo(store.get());
     const who = (status) =>
-      p.status === status && p.status_by_name
+      !solo && p.status === status && p.status_by_name
         ? html`<span class="who who-set" title="Set by ${p.status_by_name}" aria-label="set by ${p.status_by_name}">${initialOf(p.status_by_name)}</span>`
         : '';
     const button = (status, label, extra = '') => html`<button type="button"
@@ -494,13 +497,15 @@ export async function mountDetail(el, ctx) {
               aria-selected="${String(tab === key)}">${label}</button>`
           )}
         </div>
-        <div id="tab-panel">${PANELS[tab](p, areas)}</div>
+        <div id="tab-panel">${PANELS[tab](p, areas, { isOwner: isOwner(store.get()) })}</div>
         ${flowBar()}
       </div>`
     );
 
     fillPriceBand();
-    fillDuplicates();
+    // Merging is the owners' (SPEC §17: every /api/duplicates* route is owners_only) —
+    // a member never fetches the candidates, so the block just stays hidden.
+    if (isOwner(store.get())) fillDuplicates();
     mountMiniMap();
 
     const strip = $('#gallery', el);
@@ -824,16 +829,22 @@ export async function mountDetail(el, ctx) {
         await api.patch(`/api/properties/${id}`, { red_flags: [...new Set([...(p.red_flags || []), slug])] });
         await afterWrite('Red flag added');
       } else if (form.id === 'form-facts') {
-        const beach = fieldValue(form, 'beach_km');
-        await api.patch(`/api/properties/${id}`, {
-          living_open: form.elements.living_open.checked ? 1 : 0,
-          airy: form.elements.airy.checked ? 1 : 0,
-          workspace: form.elements.workspace.checked ? 1 : 0,
-          extra_rooms: Number(form.elements.extra_rooms.value || 0),
-          style: fieldValue(form, 'style'),
-          beach_km: beach == null ? null : Number(beach),
-          notes: fieldValue(form, 'notes'),
-        });
+        // A member's reduced form has only `notes` — see detail-panels.js factsSection.
+        // Sending just what the form actually has keeps this PATCH inside notes/assessed,
+        // the two fields SPEC §17 lets a member touch; the fact fields never even build.
+        const payload = { notes: fieldValue(form, 'notes') };
+        if (form.elements.living_open) {
+          const beach = fieldValue(form, 'beach_km');
+          Object.assign(payload, {
+            living_open: form.elements.living_open.checked ? 1 : 0,
+            airy: form.elements.airy.checked ? 1 : 0,
+            workspace: form.elements.workspace.checked ? 1 : 0,
+            extra_rooms: Number(form.elements.extra_rooms.value || 0),
+            style: fieldValue(form, 'style'),
+            beach_km: beach == null ? null : Number(beach),
+          });
+        }
+        await api.patch(`/api/properties/${id}`, payload);
         await afterWrite('Facts saved');
       }
     } catch (err) {

@@ -191,7 +191,26 @@ function listingPanel(p, areas) {
   </div>`;
 }
 
-function contactPanel(p) {
+/** Responsiveness as five stars: a button per star for the owners (PATCH /api/contacts/:id
+    is owners_only, SPEC §17), a plain read-out for a member — everyone reads the address
+    book, only the owners rate it. */
+function responsivenessStars(c, canEdit) {
+  const filled = (n) => ((c.responsiveness || 0) >= n ? 1 : 0);
+  if (!canEdit) {
+    return html`<span class="stars" role="img" aria-label="Responsiveness ${c.responsiveness || 0} of 5">
+      ${[1, 2, 3, 4, 5].map((n) => html`<span data-on="${filled(n)}">★</span>`)}
+    </span>`;
+  }
+  return html`<span class="stars" data-contact="${c.id}" role="group" aria-label="Responsiveness for ${c.name || 'contact'}">
+    ${[1, 2, 3, 4, 5].map(
+      (n) => html`<button type="button" data-action="stars" data-contact="${c.id}" value="${n}"
+        data-on="${filled(n)}" aria-label="${n} of 5">★</button>`
+    )}
+  </span>`;
+}
+
+function contactPanel(p, areas, ctx = {}) {
+  const canEdit = Boolean(ctx.isOwner);
   const template = TEMPLATES.find((t) => t.key === 'A');
   const message = encodeURIComponent(fill(template.body, p));
   return html`<div class="panel">
@@ -215,33 +234,30 @@ function contactPanel(p) {
               </div>
               <div class="entry-head" style="margin-top:6px">
                 <span>Responsiveness</span>
-                <span class="stars" data-contact="${c.id}" role="group" aria-label="Responsiveness for ${c.name || 'contact'}">
-                  ${[1, 2, 3, 4, 5].map(
-                    (n) => html`<button type="button" data-action="stars" data-contact="${c.id}" value="${n}"
-                      data-on="${(c.responsiveness || 0) >= n ? 1 : 0}" aria-label="${n} of 5">★</button>`
-                  )}
-                </span>
+                ${responsivenessStars(c, canEdit)}
               </div>
               ${c.notes ? html`<p class="small muted">${c.notes}</p>` : ''}
             </div>`
           )
-        : html`<p class="empty">No contact yet — add the agent or owner below.</p>`}
+        : html`<p class="empty">No contact yet${canEdit ? ' — add the agent or owner below.' : '.'}</p>`}
     </section>
 
-    <section class="block">
-      <h3>Add contact</h3>
-      <form id="form-contact">
-        <label class="field"><span class="label">Name</span><input type="text" name="name" /></label>
-        <label class="field"><span class="label">Role</span>
-          <select name="role"><option value="">—</option><option value="owner">Owner</option>
-            <option value="agent">Agent</option><option value="agency">Agency</option></select></label>
-        <label class="field"><span class="label">Phone</span><input type="text" name="phone" inputmode="tel" /></label>
-        <label class="field"><span class="label">WhatsApp</span><input type="text" name="whatsapp" inputmode="tel" /></label>
-        <label class="field"><span class="label">Agency</span><input type="text" name="agency" /></label>
-        <label class="field"><span class="label">Notes</span><textarea name="notes"></textarea></label>
-        <button class="btn btn-primary" type="submit">Save contact</button>
-      </form>
-    </section>
+    ${canEdit
+      ? html`<section class="block">
+          <h3>Add contact</h3>
+          <form id="form-contact">
+            <label class="field"><span class="label">Name</span><input type="text" name="name" /></label>
+            <label class="field"><span class="label">Role</span>
+              <select name="role"><option value="">—</option><option value="owner">Owner</option>
+                <option value="agent">Agent</option><option value="agency">Agency</option></select></label>
+            <label class="field"><span class="label">Phone</span><input type="text" name="phone" inputmode="tel" /></label>
+            <label class="field"><span class="label">WhatsApp</span><input type="text" name="whatsapp" inputmode="tel" /></label>
+            <label class="field"><span class="label">Agency</span><input type="text" name="agency" /></label>
+            <label class="field"><span class="label">Notes</span><textarea name="notes"></textarea></label>
+            <button class="btn btn-primary" type="submit">Save contact</button>
+          </form>
+        </section>`
+      : ''}
   </div>`;
 }
 
@@ -349,7 +365,73 @@ function viewingPanel(p) {
   </div>`;
 }
 
-function ratingsPanel(p) {
+/** Red flags are a listing fact (SPEC §17): everyone reads them, only the owners toggle
+    them — PATCH /api/properties/:id 403s a member for any field but notes/assessed. A
+    member gets the same flags as plain read-outs, and no "add your own" form. */
+function redFlagsSection(p, canEdit) {
+  const flags = p.red_flags || [];
+  if (!canEdit) {
+    return html`<section class="block">
+      <h3>Red flags</h3>
+      ${flags.length
+        ? html`<div class="chips">${flags.map((f) => html`<span class="chip" aria-pressed="true">${redFlagLabel(f)}</span>`)}</div>`
+        : html`<p class="small muted">None flagged.</p>`}
+    </section>`;
+  }
+  return html`<section class="block">
+    <h3>Red flags</h3>
+    <div class="chips">
+      ${FIXED_RED_FLAGS.map(
+        (f) => html`<button type="button" class="chip" data-action="flag" data-flag="${f}"
+          aria-pressed="${String(flags.includes(f))}">${redFlagLabel(f)}</button>`
+      )}
+      ${flags.filter((f) => !FIXED_RED_FLAGS.includes(f)).map(
+        (f) => html`<button type="button" class="chip" data-action="flag" data-flag="${f}" aria-pressed="true">${redFlagLabel(f)}</button>`
+      )}
+    </div>
+    <form id="form-flag" style="margin-top:10px;display:flex;gap:8px">
+      <input type="text" name="flag" placeholder="Add your own flag" />
+      <button class="btn btn-sm" type="submit">Add</button>
+    </form>
+  </section>`;
+}
+
+/** "What we know" (the owners) shrinks to "Notes" (a member): the same `form-facts`, just
+    without the fact fields — detail.js's submit handler only builds the ones present. */
+function factsSection(p, canEdit) {
+  if (!canEdit) {
+    return html`<section class="block">
+      <h3>Notes</h3>
+      <form id="form-facts">
+        <label class="field"><span class="label">Notes</span><textarea name="notes">${p.notes || ''}</textarea></label>
+        <button class="btn btn-primary" type="submit">Save notes</button>
+      </form>
+    </section>`;
+  }
+  return html`<section class="block">
+    <h3>What we know</h3>
+    <form id="form-facts">
+      <div class="filter-cols">
+        <label class="check"><input type="checkbox" name="living_open" ${p.living_open === 1 ? raw('checked') : ''} /><span>Open living</span></label>
+        <label class="check"><input type="checkbox" name="airy" ${p.airy === 1 ? raw('checked') : ''} /><span>Airy / light</span></label>
+        <label class="check"><input type="checkbox" name="workspace" ${p.workspace === 1 ? raw('checked') : ''} /><span>Workspace</span></label>
+      </div>
+      <label class="field"><span class="label">Extra rooms</span>
+        <input type="number" name="extra_rooms" min="0" max="20" value="${p.extra_rooms ?? 0}" /></label>
+      <label class="field"><span class="label">Style</span>
+        <select name="style"><option value="">—</option>
+          ${STYLES.map((s) => html`<option value="${s}" ${p.style === s ? raw('selected') : ''}>${s.replace('_', ' ')}</option>`)}
+        </select></label>
+      <label class="field"><span class="label">Beach distance (km)</span>
+        <input type="number" name="beach_km" min="0" max="50" step="0.1" value="${p.beach_km ?? ''}" /></label>
+      <label class="field"><span class="label">Notes</span><textarea name="notes">${p.notes || ''}</textarea></label>
+      <button class="btn btn-primary" type="submit">Save facts</button>
+    </form>
+  </section>`;
+}
+
+function ratingsPanel(p, areas, ctx = {}) {
+  const canEdit = Boolean(ctx.isOwner);
   const latest = new Map();
   for (const r of [...p.ratings].reverse()) latest.set(r.feature, r);
 
@@ -380,43 +462,9 @@ function ratingsPanel(p) {
       </p>
     </section>
 
-    <section class="block">
-      <h3>Red flags</h3>
-      <div class="chips">
-        ${FIXED_RED_FLAGS.map(
-          (f) => html`<button type="button" class="chip" data-action="flag" data-flag="${f}"
-            aria-pressed="${String((p.red_flags || []).includes(f))}">${redFlagLabel(f)}</button>`
-        )}
-        ${(p.red_flags || []).filter((f) => !FIXED_RED_FLAGS.includes(f)).map(
-          (f) => html`<button type="button" class="chip" data-action="flag" data-flag="${f}" aria-pressed="true">${redFlagLabel(f)}</button>`
-        )}
-      </div>
-      <form id="form-flag" style="margin-top:10px;display:flex;gap:8px">
-        <input type="text" name="flag" placeholder="Add your own flag" />
-        <button class="btn btn-sm" type="submit">Add</button>
-      </form>
-    </section>
+    ${redFlagsSection(p, canEdit)}
 
-    <section class="block">
-      <h3>What we know</h3>
-      <form id="form-facts">
-        <div class="filter-cols">
-          <label class="check"><input type="checkbox" name="living_open" ${p.living_open === 1 ? raw('checked') : ''} /><span>Open living</span></label>
-          <label class="check"><input type="checkbox" name="airy" ${p.airy === 1 ? raw('checked') : ''} /><span>Airy / light</span></label>
-          <label class="check"><input type="checkbox" name="workspace" ${p.workspace === 1 ? raw('checked') : ''} /><span>Workspace</span></label>
-        </div>
-        <label class="field"><span class="label">Extra rooms</span>
-          <input type="number" name="extra_rooms" min="0" max="20" value="${p.extra_rooms ?? 0}" /></label>
-        <label class="field"><span class="label">Style</span>
-          <select name="style"><option value="">—</option>
-            ${STYLES.map((s) => html`<option value="${s}" ${p.style === s ? raw('selected') : ''}>${s.replace('_', ' ')}</option>`)}
-          </select></label>
-        <label class="field"><span class="label">Beach distance (km)</span>
-          <input type="number" name="beach_km" min="0" max="50" step="0.1" value="${p.beach_km ?? ''}" /></label>
-        <label class="field"><span class="label">Notes</span><textarea name="notes">${p.notes || ''}</textarea></label>
-        <button class="btn btn-primary" type="submit">Save facts</button>
-      </form>
-    </section>
+    ${factsSection(p, canEdit)}
 
     <section class="block">
       <h3>Feedback</h3>

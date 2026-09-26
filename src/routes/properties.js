@@ -1,6 +1,11 @@
 // SPEC §4 "Properties" and "Contacts". Every route needs a logged-in user; every row a
 // person creates carries `by` and `created_at` (CLAUDE.md). All SQL is built from column
 // whitelists with bound parameters only — no user string ever reaches the statement text.
+//
+// Teams (SPEC §17): every read goes through `listingsSql()`, so a row carries the caller's
+// team's status, notes, assessed and flag; verdicts, visits, ratings, feedback, agent info
+// and places come from teammates only. Listing facts are the owners' to edit, and only the
+// home team's taps may touch the `properties` row (red flags, removal stamp, rescore).
 
 import crypto from 'node:crypto';
 import multipart from '@fastify/multipart';
@@ -17,6 +22,7 @@ import {
   notFound, placeholders, readMultipart, rescoreOne, safeJson, saveImage, str, strictSchemas, userNames, withByName,
 } from './_common.js';
 import { listAnchors, anchorDistances } from './anchors.js';
+import { getListing, isHome, isOwner, listingsSql, sameTeamSql, TEAM_FIELDS, writeListingState } from '../teams.js';
 
 const MAX_FILES = 10;
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -76,6 +82,9 @@ const PATCH_FIELDS = [
   'extra_rooms', 'living_open', 'airy', 'workspace', 'style',
   'beach_km', 'lat', 'lng', 'notes', 'assessed', 'red_flags',
 ];
+
+/** The PATCH fields that are the team's own (SPEC §17); every other one is a shared fact. */
+const TEAM_PATCH_FIELDS = PATCH_FIELDS.filter((f) => TEAM_FIELDS.includes(f));
 
 /** Columns the PATCH handler may ever write (the above plus what lat/lng/beach derive). */
 const PATCH_WRITABLE = new Set([
@@ -155,8 +164,11 @@ export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagre
 /** `my_verdict=`: the caller's own call, or 'none' for listings they have not called. */
 export const MY_VERDICT_FILTERS = [...PERSON_VERDICTS, 'none'];
 
-/** property_id → [{by, by_name, verdict, updated_at}] for the rows about to be returned. */
-function verdictsByProperty(db, ids) {
+/**
+ * property_id → [{by, by_name, verdict, updated_at}] for the rows about to be returned —
+ * the caller's teammates' calls only; another team's Yes is none of this team's business.
+ */
+function verdictsByProperty(db, ids, user) {
   const out = new Map();
   if (!ids.length) return out;
   const rows = withByName(
@@ -164,7 +176,7 @@ function verdictsByProperty(db, ids) {
     db
       .prepare(
         `SELECT property_id, by, verdict, updated_at FROM verdicts
-          WHERE property_id IN (${placeholders(ids)}) ORDER BY by`
+          WHERE property_id IN (${placeholders(ids)}) AND ${sameTeamSql(user)} ORDER BY by`
       )
       .all(...ids)
   );
@@ -185,7 +197,11 @@ function median(values) {
   return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
 }
 
-/** area → median monthly price per m² of house, over live listings that have both figures. */
+/**
+ * area → median monthly price per m² of house, over live listings that have both figures.
+ * A market number over shared facts (price, size, availability), so it reads the plain
+ * `properties` table and comes out the same for every team.
+ */
 function areaMediansPerM2(db) {
   const rows = db
     .prepare(
@@ -240,12 +256,16 @@ function anchorWhere(anchor, km) {
   };
 }
 
-/** Adds the derived, person-facing fields to every row: verdicts, who set the status, value, anchors. */
-function withShared(db, rows) {
-  const verdicts = verdictsByProperty(db, rows.map((r) => r.id));
+/**
+ * Adds the derived, person-facing fields to every row: verdicts, who set the status, value,
+ * anchors. Verdicts and anchors are the caller's team's; `status_by` already is (the rows
+ * come through `listingsSql`).
+ */
+function withShared(db, rows, user) {
+  const verdicts = verdictsByProperty(db, rows.map((r) => r.id), user);
   const names = userNames(db);
   const medians = areaMediansPerM2(db);
-  const anchors = listAnchors(db);
+  const anchors = listAnchors(db, user);
   return rows.map((r) => ({
     ...r,
     verdicts: verdicts.get(r.id) || [],
@@ -255,10 +275,16 @@ function withShared(db, rows) {
   }));
 }
 
-/** WHERE clause for `verdict=` — "mine" is the caller's call, "other" anyone else's. */
-function verdictWhere(filter, userId) {
+/**
+ * WHERE clause for `verdict=` — "mine" is the caller's call, "other" the latest call of a
+ * teammate. Never someone on another team (SPEC §17): `unvoted` means nobody on my team
+ * has called it, and a team of one is never waiting on anybody.
+ */
+function verdictWhere(filter, user) {
+  const userId = user.id;
   const mine = '(SELECT verdict FROM verdicts WHERE property_id = properties.id AND by = ?)';
-  const other = '(SELECT verdict FROM verdicts WHERE property_id = properties.id AND by != ? ORDER BY updated_at DESC LIMIT 1)';
+  const other = `(SELECT verdict FROM verdicts WHERE property_id = properties.id AND by != ?
+                     AND ${sameTeamSql(user, 'verdicts.by')} ORDER BY updated_at DESC LIMIT 1)`;
   const sql = {
     match: `${mine} = 'yes' AND ${other} = 'yes'`,
     // A No from the caller closes the matter; the other person is not waited on for it.
@@ -283,9 +309,10 @@ function myVerdictWhere(filter, userId) {
   return { sql: `(${mine} = ?)`, params: [userId, filter] };
 }
 
-function rowPayload(db, id) {
-  const row = getProperty(db, id);
-  return row ? withShared(db, [publicRow(row)])[0] : null;
+/** One listing as the caller's team sees it, shaped like a list row. */
+function rowPayload(db, id, user) {
+  const row = getListing(db, user, id);
+  return row ? withShared(db, [publicRow(row)], user)[0] : null;
 }
 
 /** '' → null, 'a,b' → ['a','b']. */
@@ -519,8 +546,16 @@ function buildListWhere(query) {
   return { where, params, removed };
 }
 
+/**
+ * A contact as the caller may see it. Who to call is a shared fact; what the owners
+ * wrote about the agent (notes, how responsive they were) is theirs (SPEC §17).
+ */
+function contactFor(user, contact) {
+  return isOwner(user) ? contact : { ...contact, notes: null, responsiveness: null };
+}
+
 /** property_id → contacts[] for the page of rows we are about to return. */
-function contactsByProperty(db, ids) {
+function contactsByProperty(db, ids, user) {
   const out = new Map();
   if (!ids.length) return out;
   const rows = db
@@ -534,18 +569,22 @@ function contactsByProperty(db, ids) {
   for (const r of rows) {
     const { property_id: pid, ...contact } = r;
     if (!out.has(pid)) out.set(pid, []);
-    out.get(pid).push(contact);
+    out.get(pid).push(contactFor(user, contact));
   }
   return out;
 }
 
-function countsByProperty(db, ids) {
+/** property_id → how many visits, ratings and feedback notes the caller's team left. */
+function countsByProperty(db, ids, user) {
   const out = new Map();
   if (!ids.length) return out;
   for (const id of ids) out.set(id, { viewings: 0, ratings: 0, feedback: 0 });
   for (const table of ['viewings', 'ratings', 'feedback']) {
     const rows = db
-      .prepare(`SELECT property_id, COUNT(*) AS n FROM ${table} WHERE property_id IN (${placeholders(ids)}) GROUP BY property_id`)
+      .prepare(
+        `SELECT property_id, COUNT(*) AS n FROM ${table}
+          WHERE property_id IN (${placeholders(ids)}) AND ${sameTeamSql(user)} GROUP BY property_id`
+      )
       .all(...ids);
     for (const r of rows) if (out.has(r.property_id)) out.get(r.property_id)[table] = r.n;
   }
@@ -572,20 +611,24 @@ function stampPersonRemoval(db, id, before, next, now) {
 }
 
 /**
- * The journey (SPEC §15): a Yes from either person shortlists a new listing; taking a
- * Yes back returns it to `new` when no Yes is left. Nothing else moves the status from
+ * The journey (SPEC §15): a Yes from anyone on the team shortlists a new listing for the
+ * team; taking a Yes back returns it to `new` when no teammate's Yes is left. Another
+ * team's Yes counts for nothing here (SPEC §17). Nothing else moves the status from
  * here — a No is a personal call, Reject and Gone stay taps in the pipeline row.
  */
-function syncShortlist(db, id, userId, before, after) {
-  const row = db.prepare('SELECT status FROM properties WHERE id = ?').get(id);
+function syncShortlist(db, user, id, before, after) {
+  const row = getListing(db, user, id);
   if (!row) return;
-  const yesCount = db.prepare("SELECT COUNT(*) AS n FROM verdicts WHERE property_id = ? AND verdict = 'yes'").get(id).n;
+  const yesCount = db
+    .prepare(`SELECT COUNT(*) AS n FROM verdicts WHERE property_id = ? AND verdict = 'yes' AND ${sameTeamSql(user)}`)
+    .get(id).n;
   let next = null;
   if (after === 'yes' && row.status === 'new') next = 'shortlist';
   else if (before === 'yes' && after !== 'yes' && row.status === 'shortlist' && yesCount === 0) next = 'new';
   if (!next) return;
-  db.prepare('UPDATE properties SET status = ?, status_by = ?, status_at = ? WHERE id = ?').run(next, userId, nowIso(), id);
-  rescoreOne(db, id);
+  writeListingState(db, user, id, { status: next, status_by: user.id, status_at: nowIso() });
+  // The home team's status feeds the stored flag; any other team's flag is the overlay's.
+  if (isHome(user)) rescoreOne(db, id);
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +641,8 @@ export default async function propertiesRoutes(app, opts) {
   // `onRequest`, not `preHandler`: schema validation runs before preHandler, so an
   // anonymous caller would otherwise get a 400 describing the body before the 401.
   const auth = { onRequest: app.requireUser };
+  // Adding listings, photos and contacts writes shared facts: the owners' (SPEC §17).
+  const ownerOnly = { onRequest: app.requireOwner };
 
   strictSchemas(app);
 
@@ -618,7 +663,7 @@ export default async function propertiesRoutes(app, opts) {
     const removedSecondary = query.removed === 'show' ? `CASE WHEN ${REMOVED_SQL} THEN 1 ELSE 0 END, ` : '';
     const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
     if (query.verdict) {
-      const v = verdictWhere(query.verdict, request.user.id);
+      const v = verdictWhere(query.verdict, request.user);
       built.where.push(v.sql);
       built.params.push(...v.params);
     }
@@ -629,25 +674,29 @@ export default async function propertiesRoutes(app, opts) {
     }
     if (query.anchor !== undefined) {
       if (query.anchor_km === undefined) return badRequest(reply, 'anchor needs anchor_km');
-      const anchor = db.prepare('SELECT * FROM anchors WHERE id = ?').get(query.anchor);
+      // Another team's place is not there to filter by: the same 404 as an id that never was.
+      const anchor = db.prepare(`SELECT * FROM anchors WHERE id = ? AND ${sameTeamSql(request.user)}`).get(query.anchor);
       if (!anchor) return notFound(reply);
       const a = anchorWhere(anchor, query.anchor_km);
       built.where.push(a.sql);
       built.params.push(...a.params);
     }
     const whereSql = built.where.length ? `WHERE ${built.where.join(' AND ')}` : '';
+    // Aliased `properties`, so every fragment above (and `properties.id` in the verdict
+    // subqueries) reads the caller's team's status, assessed and flag.
+    const from = `${listingsSql(db, request.user)} AS properties`;
 
     const rows = db
-      .prepare(`SELECT * FROM properties ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
+      .prepare(`SELECT * FROM ${from} ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
       .all(...built.params, limit, offset);
     // The body stays a plain array (map, flow and detail all consume it as one); the
     // full match count rides in a header so Home can say "200 of 323" and page on.
-    const total = db.prepare(`SELECT COUNT(*) AS n FROM properties ${whereSql}`).get(...built.params).n;
+    const total = db.prepare(`SELECT COUNT(*) AS n FROM ${from} ${whereSql}`).get(...built.params).n;
     reply.header('X-Total-Count', String(total));
 
     const ids = rows.map((r) => r.id);
-    const contacts = contactsByProperty(db, ids);
-    const counts = countsByProperty(db, ids);
+    const contacts = contactsByProperty(db, ids, request.user);
+    const counts = countsByProperty(db, ids, request.user);
 
     return withShared(
       db,
@@ -655,7 +704,8 @@ export default async function propertiesRoutes(app, opts) {
         ...publicRow(row),
         contacts: contacts.get(row.id) || [],
         counts: counts.get(row.id) || { viewings: 0, ratings: 0, feedback: 0 },
-      }))
+      })),
+      request.user
     );
   });
 
@@ -665,29 +715,33 @@ export default async function propertiesRoutes(app, opts) {
     { ...auth, schema: { params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
     async (request, reply) => {
       const { id } = request.params;
-      const row = getProperty(db, id);
+      const { user } = request;
+      const row = getListing(db, user, id);
       if (!row) return notFound(reply);
 
       const parsed = parseRow(row);
+      // Agent info, visits, ratings and feedback are the team's; contacts are shared facts.
+      const team = sameTeamSql(user);
       const contacts = db
         .prepare(
           `SELECT c.* FROM property_contacts pc JOIN contacts c ON c.id = pc.contact_id
             WHERE pc.property_id = ? ORDER BY c.id`
         )
-        .all(id);
+        .all(id)
+        .map((c) => contactFor(user, c));
 
       const agentInfo = withByName(
         db,
-        db.prepare('SELECT * FROM agent_info WHERE property_id = ? ORDER BY date DESC, id DESC').all(id)
+        db.prepare(`SELECT * FROM agent_info WHERE property_id = ? AND ${team} ORDER BY date DESC, id DESC`).all(id)
       ).map((r) => ({ ...r, included: safeJson(r.included) }));
 
       const viewings = withByName(
         db,
-        db.prepare('SELECT * FROM viewings WHERE property_id = ? ORDER BY date DESC, id DESC').all(id)
+        db.prepare(`SELECT * FROM viewings WHERE property_id = ? AND ${team} ORDER BY date DESC, id DESC`).all(id)
       ).map((r) => ({ ...r, photos: jsonArray(r.photos), photo_urls: jsonArray(r.photos).map((f) => `/images/${f}`) }));
 
-      const ratings = withByName(db, db.prepare('SELECT * FROM ratings WHERE property_id = ? ORDER BY id DESC').all(id));
-      const feedback = withByName(db, db.prepare('SELECT * FROM feedback WHERE property_id = ? ORDER BY id DESC').all(id));
+      const ratings = withByName(db, db.prepare(`SELECT * FROM ratings WHERE property_id = ? AND ${team} ORDER BY id DESC`).all(id));
+      const feedback = withByName(db, db.prepare(`SELECT * FROM feedback WHERE property_id = ? AND ${team} ORDER BY id DESC`).all(id));
 
       const imageUrlList = imageUrls(parsed);
       const galleryTotal = Array.isArray(parsed.images) ? parsed.images.length : 0;
@@ -708,7 +762,7 @@ export default async function propertiesRoutes(app, opts) {
           ratings,
           feedback,
         },
-      ])[0];
+      ], user)[0];
     }
   );
 
@@ -758,7 +812,7 @@ export default async function propertiesRoutes(app, opts) {
     },
   };
 
-  app.post('/api/properties', { ...auth, schema: { body: createSchema } }, async (request, reply) => {
+  app.post('/api/properties', { ...ownerOnly, schema: { body: createSchema } }, async (request, reply) => {
     const body = request.body;
     const url = body.url.trim();
 
@@ -787,7 +841,7 @@ export default async function propertiesRoutes(app, opts) {
     // finishRow = placePins + scoreRow, the same shaping every scraped row gets.
     const finished = finishRow(row, config);
     const res = upsertProperty(db, finished, { now: nowIso() });
-    return { ...rowPayload(db, res.id), action: res.action };
+    return { ...rowPayload(db, res.id, request.user), action: res.action };
   });
 
   // --- patch --------------------------------------------------------------
@@ -815,13 +869,19 @@ export default async function propertiesRoutes(app, opts) {
     { ...auth, schema: { body: patchSchema, params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
     async (request, reply) => {
       const { id } = request.params;
+      const { user } = request;
+      const body = request.body;
+      // SPEC §17: notes and assessed are the team's own; every other field is a listing
+      // fact, the owners' to correct. A member's PATCH carrying one writes nothing at all.
+      const facts = Object.keys(body).filter((k) => !TEAM_PATCH_FIELDS.includes(k));
+      if (facts.length && !isOwner(user)) return reply.code(403).send({ error: 'owners_only' });
+
       const row = getProperty(db, id);
       if (!row) return notFound(reply);
 
-      const body = request.body;
       const sets = {};
       for (const field of PATCH_FIELDS) {
-        if (!(field in body)) continue;
+        if (!(field in body) || TEAM_PATCH_FIELDS.includes(field)) continue;
         sets[field] = field === 'red_flags' ? JSON.stringify([...new Set(body.red_flags)]) : body[field];
       }
 
@@ -848,13 +908,19 @@ export default async function propertiesRoutes(app, opts) {
       }
 
       const cols = Object.keys(sets).filter((c) => PATCH_WRITABLE.has(c));
-      if (cols.length) {
-        db.prepare(`UPDATE properties SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-          .run(...cols.map((c) => sets[c]), id);
-      }
+      const teamFields = Object.fromEntries(TEAM_PATCH_FIELDS.filter((f) => f in body).map((f) => [f, body[f]]));
+      db.transaction(() => {
+        if (cols.length) {
+          db.prepare(`UPDATE properties SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+            .run(...cols.map((c) => sets[c]), id);
+        }
+        writeListingState(db, user, id, teamFields);
+        // Facts move the score for everyone. The home team's pipeline feeds the stored
+        // flag too; another team's notes and assessed touch nothing on `properties`.
+        if (cols.length || isHome(user)) rescoreOne(db, id);
+      })();
 
-      rescoreOne(db, id);
-      return rowPayload(db, id);
+      return rowPayload(db, id, user);
     }
   );
 
@@ -873,14 +939,19 @@ export default async function propertiesRoutes(app, opts) {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const before = getProperty(db, id);
+      const { user } = request;
+      const before = getListing(db, user, id);
       if (!before) return notFound(reply);
       const now = nowIso();
-      db.prepare('UPDATE properties SET status = ?, status_by = ?, status_at = ? WHERE id = ?')
-        .run(request.body.status, request.user.id, now, id);
-      stampPersonRemoval(db, id, before, request.body.status, now);
-      rescoreOne(db, id);
-      return rowPayload(db, id);
+      writeListingState(db, user, id, { status: request.body.status, status_by: user.id, status_at: now });
+      // Only the home team's Gone is a removal on the shared row (a listing the owners
+      // were told is taken reads gone for everyone); another team's Gone is its own, and
+      // the overlay derives its removal date and flag without touching `properties`.
+      if (isHome(user)) {
+        stampPersonRemoval(db, id, before, request.body.status, now);
+        rescoreOne(db, id);
+      }
+      return rowPayload(db, id, user);
     }
   );
 
@@ -912,8 +983,8 @@ export default async function propertiesRoutes(app, opts) {
            ON CONFLICT(property_id, by) DO UPDATE SET verdict = excluded.verdict, updated_at = excluded.updated_at`
         ).run(id, request.user.id, verdict, nowIso(), nowIso());
       }
-      syncShortlist(db, id, request.user.id, before, verdict);
-      return rowPayload(db, id);
+      syncShortlist(db, request.user, id, before, verdict);
+      return rowPayload(db, id, request.user);
     }
   );
 
@@ -944,10 +1015,14 @@ export default async function propertiesRoutes(app, opts) {
         .run(id, request.user.id, feature, score, str(request.body.comment), nowIso());
 
       // SPEC §2: quiet or privacy ≤ 2 is a red flag, which also drops the villa's flag.
-      if ((feature === 'quiet' || feature === 'privacy') && score <= 2) {
-        addRedFlags(db, id, [`${feature}_low`]);
-      } else {
-        rescoreOne(db, id);
+      // Red flags live on the shared row, so only the home team's rating sets one
+      // (SPEC §17); another team's rating is its own row and nothing more.
+      if (isHome(request.user)) {
+        if ((feature === 'quiet' || feature === 'privacy') && score <= 2) {
+          addRedFlags(db, id, [`${feature}_low`]);
+        } else {
+          rescoreOne(db, id);
+        }
       }
 
       const rating = db.prepare('SELECT * FROM ratings WHERE id = ?').get(Number(info.lastInsertRowid));
@@ -1022,10 +1097,13 @@ export default async function propertiesRoutes(app, opts) {
           str(b.neighbours), str(b.planned_builds), str(b.water_power), str(b.other), nowIso()
         );
 
-      if (mentionsConstruction([b.neighbours, b.planned_builds], getConfig(db))) {
-        addRedFlags(db, id, ['construction']);
-      } else {
-        rescoreOne(db, id);
+      // The construction flag is a red flag on the shared row: the home team's to raise.
+      if (isHome(request.user)) {
+        if (mentionsConstruction([b.neighbours, b.planned_builds], getConfig(db))) {
+          addRedFlags(db, id, ['construction']);
+        } else {
+          rescoreOne(db, id);
+        }
       }
 
       const row = db.prepare('SELECT * FROM agent_info WHERE id = ?').get(Number(info.lastInsertRowid));
@@ -1112,18 +1190,22 @@ export default async function propertiesRoutes(app, opts) {
     }
     if (photos.length) db.prepare('UPDATE viewings SET photos = ? WHERE id = ?').run(JSON.stringify(photos), viewingId);
 
-    // SPEC §5: a visit sets `assessed` (partly → done when a verdict is given). Never
-    // downgrades a row already marked done — a later note-only visit is not a regression.
-    const current = getProperty(db, id);
+    // SPEC §5: a visit sets the team's `assessed` (partly → done when a verdict is given).
+    // Never downgrades a row already marked done — a later note-only visit is not a regression.
+    const current = getListing(db, request.user, id);
     const assessed = v.verdict ? 'done' : current.assessed === 'done' ? 'done' : 'partly';
-    db.prepare('UPDATE properties SET assessed = ? WHERE id = ?').run(assessed, id);
+    writeListingState(db, request.user, id, { assessed });
 
-    const flags = [];
-    if (v.quiet != null && v.quiet <= 2) flags.push('quiet_low');
-    if (v.privacy != null && v.privacy <= 2) flags.push('privacy_low');
-    if (v.construction_nearby != null && v.construction_nearby >= 4) flags.push('construction');
-    if (flags.length) addRedFlags(db, id, flags);
-    else rescoreOne(db, id);
+    // What the visit found goes onto the shared row as red flags — the home team's visits
+    // only (SPEC §17). A friend's quiet 1 is on their visit, not on the owners' list.
+    if (isHome(request.user)) {
+      const flags = [];
+      if (v.quiet != null && v.quiet <= 2) flags.push('quiet_low');
+      if (v.privacy != null && v.privacy <= 2) flags.push('privacy_low');
+      if (v.construction_nearby != null && v.construction_nearby >= 4) flags.push('construction');
+      if (flags.length) addRedFlags(db, id, flags);
+      else rescoreOne(db, id);
+    }
 
     const row = db.prepare('SELECT * FROM viewings WHERE id = ?').get(viewingId);
     const shaped = withByName(db, [row])[0];
@@ -1138,7 +1220,7 @@ export default async function propertiesRoutes(app, opts) {
   app.post(
     '/api/properties/:id/contacts',
     {
-      ...auth,
+      ...ownerOnly,
       schema: {
         params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
         body: {
@@ -1180,7 +1262,7 @@ export default async function propertiesRoutes(app, opts) {
   );
 
   // --- image upload --------------------------------------------------------
-  app.post('/api/properties/:id/images', auth, async (request, reply) => {
+  app.post('/api/properties/:id/images', ownerOnly, async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) return badRequest(reply, 'id must be an integer');
     const row = getProperty(db, id);
@@ -1216,7 +1298,9 @@ export default async function propertiesRoutes(app, opts) {
   });
 
   // --- contacts ------------------------------------------------------------
-  app.get('/api/contacts', auth, async () => {
+  // Everyone reads the address book (who to call about a villa is a fact); only the
+  // owners edit it.
+  app.get('/api/contacts', auth, async (request) => {
     const contacts = db.prepare('SELECT * FROM contacts ORDER BY id').all();
     if (!contacts.length) return [];
     const links = db
@@ -1231,13 +1315,13 @@ export default async function propertiesRoutes(app, opts) {
       if (!byContact.has(l.contact_id)) byContact.set(l.contact_id, []);
       byContact.get(l.contact_id).push({ id: l.id, title: l.title });
     }
-    return contacts.map((c) => ({ ...c, properties: byContact.get(c.id) || [] }));
+    return contacts.map((c) => ({ ...contactFor(request.user, c), properties: byContact.get(c.id) || [] }));
   });
 
   app.patch(
     '/api/contacts/:id',
     {
-      ...auth,
+      ...ownerOnly,
       schema: {
         params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] },
         body: {

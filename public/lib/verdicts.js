@@ -42,7 +42,9 @@ export function firstName(user) {
   return String(user?.name || '').trim().split(/\s+/)[0] || '';
 }
 
-/** Both people as small discs coloured by their call, plus "Match" when both said yes. */
+/** Both people as small discs coloured by their call, plus "Match" when both said yes.
+    A solo team (`users` holds only the viewer) shows just their own capsule and never a
+    Match pill — a match takes two. */
 export function verdictPairHtml(p, { user, users = [] } = {}) {
   const people = users.length ? users : user ? [user] : [];
   return html`<span class="verdict-pair" aria-label="Calls">
@@ -51,7 +53,7 @@ export function verdictPairHtml(p, { user, users = [] } = {}) {
       const label = v ? VERDICT_LABELS[v] : 'no call yet';
       return html`<span class="who who-${v || 'none'}" title="${u.name}: ${label}" aria-label="${u.name}: ${label}">${initialOf(u.name)}</span>`;
     })}
-    ${isMatch(p) ? html`<span class="pill pill-match">Match</span>` : ''}
+    ${people.length > 1 && isMatch(p) ? html`<span class="pill pill-match">Match</span>` : ''}
   </span>`;
 }
 

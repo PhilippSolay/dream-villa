@@ -8,6 +8,13 @@ import { nowIso, getConfig, setConfig } from '../db.js';
 import { WEIGHT_KEYS, ACTIVE_STATUSES } from '../defaults.js';
 import { parseRow, rescoreAll, countsSummary } from '../scrape/store.js';
 import { reasonsFor } from '../scrape/score.js';
+import { sameTeamSql } from '../teams.js';
+
+// This API has no `request.user` (token auth, not a session) — `sameTeamSql(null, …)`
+// reads that as "no user" and falls back to the home team (teams.js's teamIdOf), which
+// is exactly right here: the owners' morning agent, home team only.
+const HOME_FEEDBACK_SQL = sameTeamSql(null, 'f.by');
+const HOME_VIEWING_SQL = sameTeamSql(null, 'v.by');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_RATE_LIMIT = 60;
@@ -269,6 +276,8 @@ export default async function agentRoutes(app, { db, env = process.env, rateLimi
       changes.push({ id: row.id, ref: row.ref, title: row.title, what: 'status', to: row.status, by_name: row.by_name || null });
     }
 
+    // SPEC §17: a friend's feedback/viewing must never reach the owners' agent — home
+    // team only, same as everything else this digest reads off `properties`.
     const feedback = db
       .prepare(
         `SELECT f.id AS id, f.property_id AS property_id, p.title AS title, u.name AS by_name,
@@ -276,7 +285,7 @@ export default async function agentRoutes(app, { db, env = process.env, rateLimi
          FROM feedback f
          LEFT JOIN properties p ON p.id = f.property_id
          LEFT JOIN users u ON u.id = f.by
-         WHERE f.created_at > ?
+         WHERE f.created_at > ? AND ${HOME_FEEDBACK_SQL}
          ORDER BY f.created_at DESC`
       )
       .all(since);
@@ -288,7 +297,7 @@ export default async function agentRoutes(app, { db, env = process.env, rateLimi
          FROM viewings v
          LEFT JOIN properties p ON p.id = v.property_id
          LEFT JOIN users u ON u.id = v.by
-         WHERE v.created_at > ?
+         WHERE v.created_at > ? AND ${HOME_VIEWING_SQL}
          ORDER BY v.created_at DESC`
       )
       .all(since);
@@ -405,7 +414,8 @@ export default async function agentRoutes(app, { db, env = process.env, rateLimi
     if (!Number.isInteger(id) || id <= 0) {
       return sendText(reply, 400, { error: 'invalid_id' });
     }
-    const existing = db.prepare('SELECT id FROM feedback WHERE id = ?').get(id);
+    // The owners' agent marks the home team's feedback only (SPEC §17).
+    const existing = db.prepare(`SELECT id FROM feedback WHERE id = ? AND ${sameTeamSql(null)}`).get(id);
     if (!existing) {
       return sendText(reply, 404, { error: 'not_found' });
     }

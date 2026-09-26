@@ -5,6 +5,7 @@ import { getConfig } from '../db.js';
 import { DEFAULT_CONFIG, ACTIVE_STATUSES } from '../defaults.js';
 import { countsSummary } from '../scrape/store.js';
 import { placeholders } from './_common.js';
+import { listingsSql } from '../teams.js';
 
 /**
  * Nearest-rank percentiles: the p-th percentile is the value at ceil(p/100 × n).
@@ -45,9 +46,12 @@ function groupBy(rows, keyOf) {
 export default async function marketRoutes(app, opts) {
   const { db } = opts;
 
-  app.get('/api/market', { onRequest: app.requireUser }, async () => {
+  app.get('/api/market', { onRequest: app.requireUser }, async (request) => {
     const config = getConfig(db);
     const band = config.band || DEFAULT_CONFIG.band;
+    // SPEC §17: price statistics are shared facts (read straight off `properties`); the
+    // caller's own shortlist below is per-team, so it reads through the overlay.
+    const listingsExpr = listingsSql(db, request.user, config);
 
     const rows = db
       .prepare(
@@ -101,7 +105,7 @@ export default async function marketRoutes(app, opts) {
     const areaMedian = new Map(by_area.map((a) => [a.area, a.median]));
     const shortlist = db
       .prepare(
-        `SELECT id, ref, title, area, price_month_idr FROM properties
+        `SELECT id, ref, title, area, price_month_idr FROM ${listingsExpr} AS properties
           WHERE status IN (${placeholders(ACTIVE_STATUSES)})
             AND (availability IS NULL OR availability != 'gone')
           ORDER BY id`
@@ -125,7 +129,10 @@ export default async function marketRoutes(app, opts) {
     });
 
     const summary = countsSummary(db);
-    const shortlistCount = db.prepare("SELECT COUNT(*) AS n FROM properties WHERE status = 'shortlist'").get().n;
+    const shortlistCount = db.prepare(`SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE status = 'shortlist'`).get().n;
+    // Featured depends on the team's own Reject / Gone (SPEC §17), so it is counted
+    // through the overlay rather than taken from the shared summary.
+    const flaggedCount = db.prepare(`SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE flagged = 1`).get().n;
 
     return {
       band: { price_min: band.price_min, price_max: band.price_max },
@@ -136,7 +143,7 @@ export default async function marketRoutes(app, opts) {
       counts: {
         in_filter: summary.in_filter,
         market: summary.market,
-        flagged: summary.flagged,
+        flagged: flaggedCount,
         shortlist: shortlistCount,
         gone: summary.gone,
       },

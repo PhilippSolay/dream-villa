@@ -253,6 +253,35 @@ export const MIGRATIONS = [
       db.prepare("UPDATE config SET value = ? WHERE key = 'areas'").run(JSON.stringify([...BEFORE, 'ubud']));
     },
   },
+  // Friends join on 2026-09-26 (SPEC §17). People now sit in teams: a team shares its
+  // verdicts, pipeline, notes, visits and places; nothing crosses to another team.
+  // Team 1 is the home team (the two owners) and keeps its pipeline on the `properties`
+  // columns, so the scraper and every existing query stay as they were; any other team's
+  // pipeline lives in `team_listings`. Everyone who exists today is an owner of team 1.
+  {
+    name: '010_teams',
+    up: (db) => {
+      db.exec(`CREATE TABLE IF NOT EXISTS teams (
+        id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS team_listings (
+        team_id INTEGER NOT NULL, property_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'new', status_by INTEGER, status_at TEXT,
+        notes TEXT, assessed TEXT NOT NULL DEFAULT 'not_yet',
+        PRIMARY KEY (team_id, property_id)
+      );`);
+      addColumn(db, 'users', 'team_id', 'INTEGER');
+      addColumn(db, 'users', 'role', "TEXT NOT NULL DEFAULT 'member'");
+      addColumn(db, 'users', 'disabled_at', 'TEXT');
+      // Session cookies issued before this moment are void (password reset, disable).
+      addColumn(db, 'users', 'session_epoch', 'TEXT');
+      const names = db.prepare('SELECT name FROM users ORDER BY id').all().map((u) => u.name);
+      if (!names.length) return; // a fresh database: seedUsers creates the home team
+      db.prepare('INSERT OR IGNORE INTO teams (id, name, created_at) VALUES (1, ?, ?)').run(names.join(' & '), nowIso());
+      db.exec("UPDATE users SET team_id = 1, role = 'owner' WHERE team_id IS NULL");
+    },
+  },
 ];
 
 function runMigrations(db) {

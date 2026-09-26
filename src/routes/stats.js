@@ -16,6 +16,7 @@ import { getConfig, nowIso } from '../db.js';
 import { STATUSES, DEFAULT_CONFIG } from '../defaults.js';
 import { percentiles } from './market.js';
 import { userNames } from './_common.js';
+import { listingsSql, sameTeamSql, teamMemberIds } from '../teams.js';
 
 const MAKASSAR_OFFSET_MS = 8 * 60 * 60 * 1000; // Asia/Makassar = UTC+8, no DST.
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -146,14 +147,22 @@ export default async function statsRoutes(app, { db, env = process.env }) {
   const querystring = { type: 'object', additionalProperties: false, properties: { days: { type: 'integer', minimum: 1, maximum: 365 } } };
 
   app.get('/api/stats', { ...auth, schema: { querystring } }, async (request) => {
+    const user = request.user;
     const days = request.query.days ?? 30;
     const today = todayMakassar();
     const windowStart = new Date(Date.now() - days * DAY_MS).toISOString();
+    // Team 17: `status`/`flagged`/`assessed` are per-team (listingsSql overlays them for
+    // anyone off the home team); everything else on `properties` is a shared scraper fact.
+    const listingsExpr = listingsSql(db, user);
 
     // pipeline
-    const byStatus = new Map(db.prepare('SELECT status, COUNT(*) AS n FROM properties GROUP BY status').all().map((r) => [r.status, r.n]));
+    const byStatus = new Map(
+      db.prepare(`SELECT status, COUNT(*) AS n FROM ${listingsExpr} AS properties GROUP BY status`).all().map((r) => [r.status, r.n])
+    );
     // One `gone` bucket: the scraper's detection (availability) and the person-set status.
-    const goneCount = db.prepare("SELECT COUNT(*) AS n FROM properties WHERE availability = 'gone' OR status = 'gone'").get().n;
+    const goneCount = db
+      .prepare(`SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE availability = 'gone' OR status = 'gone'`)
+      .get().n;
     const pipeline = [
       ...STATUSES.filter((status) => status !== 'gone').map((status) => ({ status, n: byStatus.get(status) || 0 })),
       { status: 'gone', n: goneCount },
@@ -182,14 +191,14 @@ export default async function statsRoutes(app, { db, env = process.env }) {
     );
     const daily = fillDays(days, today, { new: newByDate, gone: goneByDate, price_changes: priceByDate, runs: runsByDate, seen: seenByDate });
 
-    // by_source
+    // by_source — `flagged` is per-team (the overlay), the rest are shared scraper facts.
     const sourceCounts = db
       .prepare(
         `SELECT source, COUNT(*) AS listings,
                 SUM(CASE WHEN scope = 'in_filter' THEN 1 ELSE 0 END) AS in_filter,
                 SUM(CASE WHEN flagged = 1 THEN 1 ELSE 0 END) AS flagged,
                 SUM(CASE WHEN availability = 'gone' THEN 1 ELSE 0 END) AS gone
-           FROM properties GROUP BY source ORDER BY listings DESC`
+           FROM ${listingsExpr} AS properties GROUP BY source ORDER BY listings DESC`
       )
       .all();
     const pricesBySource = new Map();
@@ -210,17 +219,28 @@ export default async function statsRoutes(app, { db, env = process.env }) {
         `SELECT area, COUNT(*) AS listings,
                 SUM(CASE WHEN scope = 'in_filter' THEN 1 ELSE 0 END) AS in_filter,
                 SUM(CASE WHEN flagged = 1 THEN 1 ELSE 0 END) AS flagged
-           FROM properties GROUP BY area ORDER BY listings DESC`
+           FROM ${listingsExpr} AS properties GROUP BY area ORDER BY listings DESC`
       )
       .all();
+    // "Viewed" is activity (SPEC §17: a viewing is visible to its own team only), so it
+    // is scoped the same way ratings/feedback below are — nobody's visit inflates
+    // another team's numbers.
     const viewedByArea = new Map(
       db
-        .prepare('SELECT p.area AS area, COUNT(DISTINCT p.id) AS n FROM properties p JOIN viewings v ON v.property_id = p.id GROUP BY p.area')
+        .prepare(
+          `SELECT p.area AS area, COUNT(DISTINCT p.id) AS n
+             FROM ${listingsExpr} AS p JOIN viewings v ON v.property_id = p.id
+            WHERE ${sameTeamSql(user, 'v.by')}
+            GROUP BY p.area`
+        )
         .all()
         .map((r) => [r.area, r.n])
     );
     const shortlistedByArea = new Map(
-      db.prepare("SELECT area, COUNT(*) AS n FROM properties WHERE status = 'shortlist' GROUP BY area").all().map((r) => [r.area, r.n])
+      db
+        .prepare(`SELECT area, COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE status = 'shortlist' GROUP BY area`)
+        .all()
+        .map((r) => [r.area, r.n])
     );
     const by_area = areaCounts.map((r) => ({
       area: r.area, listings: r.listings, in_filter: r.in_filter, flagged: r.flagged,
@@ -234,21 +254,27 @@ export default async function statsRoutes(app, { db, env = process.env }) {
     const fit_histogram = bucketiseFit(inFilterRows.map((r) => r.fit_score));
     const beach_histogram = bucketiseBeach(inFilterRows.map((r) => r.beach_km));
 
-    // activity
-    const countSince = (table) => db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE created_at >= ?`).get(windowStart).n;
+    // activity — a team's own ratings/viewings/feedback/agent_info only (sameTeamSql on
+    // `by`); another team's taps never move Philipp's numbers, and his never move theirs.
+    const teamFilter = sameTeamSql(user, 'by');
+    const countSince = (table) =>
+      db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE created_at >= ? AND ${teamFilter}`).get(windowStart).n;
     const names = userNames(db);
     const byUser = new Map();
     const ensure = (id) => {
       if (!byUser.has(id)) byUser.set(id, { name: names.get(id) || `user ${id}`, ratings: 0, viewings: 0, feedback: 0 });
       return byUser.get(id);
     };
-    for (const r of db.prepare('SELECT by, COUNT(*) AS n FROM ratings WHERE created_at >= ? GROUP BY by').all(windowStart)) ensure(r.by).ratings = r.n;
-    for (const r of db.prepare('SELECT by, COUNT(*) AS n FROM viewings WHERE created_at >= ? GROUP BY by').all(windowStart)) ensure(r.by).viewings = r.n;
-    for (const r of db.prepare('SELECT by, COUNT(*) AS n FROM feedback WHERE created_at >= ? GROUP BY by').all(windowStart)) ensure(r.by).feedback = r.n;
-    const userIds = db.prepare('SELECT id FROM users ORDER BY id').all().map((u) => u.id);
+    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM ratings WHERE created_at >= ? AND ${teamFilter} GROUP BY by`).all(windowStart))
+      ensure(r.by).ratings = r.n;
+    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM viewings WHERE created_at >= ? AND ${teamFilter} GROUP BY by`).all(windowStart))
+      ensure(r.by).viewings = r.n;
+    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM feedback WHERE created_at >= ? AND ${teamFilter} GROUP BY by`).all(windowStart))
+      ensure(r.by).feedback = r.n;
+    const userIds = teamMemberIds(db, user);
     const by_user = [...userIds, ...byUser.keys()].filter((id, i, arr) => arr.indexOf(id) === i).map(ensure);
     const avg_ratings = db
-      .prepare('SELECT feature, AVG(score) AS avg, COUNT(*) AS n FROM ratings GROUP BY feature')
+      .prepare(`SELECT feature, AVG(score) AS avg, COUNT(*) AS n FROM ratings WHERE ${teamFilter} GROUP BY feature`)
       .all()
       .map((r) => ({ feature: r.feature, avg: Math.round(r.avg * 10) / 10, n: r.n }));
 

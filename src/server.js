@@ -8,6 +8,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { registerAuth } from './auth.js';
 import { nowIso } from './db.js';
+import { sameTeamSql } from './teams.js';
 import propertiesRoutes from './routes/properties.js';
 import marketRoutes from './routes/market.js';
 import marketMetricsRoutes from './routes/market-metrics.js';
@@ -18,6 +19,7 @@ import importRoutes from './routes/import.js';
 import importListingsRoutes from './routes/import-listings.js';
 import duplicatesRoutes from './routes/duplicates.js';
 import anchorsRoutes from './routes/anchors.js';
+import peopleRoutes from './routes/people.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -91,6 +93,38 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
     maxAge: '365d',
     immutable: true,
   });
+  // A viewing's photos are the team's, like the viewing itself (SPEC §17) — the listing's
+  // own photos came off a public page and stay public. Saved as `<property>/v<viewing>-<n>.jpg`
+  // (routes/properties.js); matched on the decoded, normalised path the static server
+  // will actually open, so an encoded `%76` or a `./` cannot walk around the check.
+  const viewingPhoto = (url) => {
+    let p;
+    try {
+      p = path.posix.normalize(decodeURIComponent(String(url).split('?')[0]));
+    } catch {
+      return null;
+    }
+    if (!p.startsWith('/images/')) return null;
+    const base = path.posix.basename(p);
+    const m = /^v(\d+)-/i.exec(base);
+    if (!m) return null;
+    return { viewingId: Number(m[1]), propertyId: Number(path.posix.basename(path.posix.dirname(p))) };
+  };
+  app.addHook('onRequest', async (request, reply) => {
+    const photo = viewingPhoto(request.url);
+    if (!photo) return;
+    const user = app.resolveUser(request);
+    const seen = user && Number.isInteger(photo.propertyId) && db
+      .prepare(`SELECT 1 FROM viewings WHERE id = ? AND property_id = ? AND ${sameTeamSql(user)}`)
+      .get(photo.viewingId, photo.propertyId);
+    // 404, not 401/403: another team's visit is not there to be told about.
+    if (!seen) return reply.code(404).send({ error: 'not_found' });
+  });
+  // …and never cached where the next caller could be served it without that check.
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (viewingPhoto(request.url)) reply.header('Cache-Control', 'private, no-store');
+    return payload;
+  });
   await app.register(fastifyStatic, { root: imagesDir, prefix: '/images/', decorateReply: false, maxAge: '30d' });
 
   app.get('/healthz', async (request, reply) => {
@@ -115,6 +149,7 @@ export async function buildServer({ db, env = process.env, logger = false } = {}
   await app.register(importListingsRoutes, { db, env });
   await app.register(duplicatesRoutes, { db, env });
   await app.register(anchorsRoutes, { db, env });
+  await app.register(peopleRoutes, { db, env });
 
   return app;
 }

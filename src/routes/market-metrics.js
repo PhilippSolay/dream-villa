@@ -31,6 +31,7 @@ import { DEFAULT_CONFIG } from '../defaults.js';
 import { percentiles } from './market.js';
 import { TARGET_AREAS } from '../areas.js';
 import { allCandidates } from '../scrape/duplicates.js';
+import { listingsSql } from '../teams.js';
 
 const MAKASSAR_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
@@ -646,7 +647,11 @@ export default async function marketMetricsRoutes(app, opts) {
     const nowMs = Date.parse(now);
     const today = makassarDay(now);
 
-    const allRows = db.prepare(`SELECT ${SELECT_COLUMNS} FROM properties`).all().map((row) => {
+    // SELECT_COLUMNS reads `notes`/`flagged` (SPEC §17: per-team overlaid fields) alongside
+    // plain scraper facts, so the whole read goes through listingsSql — a no-op for the
+    // home team (it resolves to `properties` itself), the caller's own overlay otherwise.
+    const listingsExpr = listingsSql(db, request.user, config);
+    const allRows = db.prepare(`SELECT ${SELECT_COLUMNS} FROM ${listingsExpr} AS properties`).all().map((row) => {
       const raw = safeJson(row.raw);
       return { ...row, merged_into: raw && !Array.isArray(raw) ? (raw.merged_into ?? null) : null };
     });

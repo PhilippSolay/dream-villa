@@ -475,7 +475,9 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
 export default async function importRoutes(app, opts) {
   const { db, env = process.env } = opts;
   const imagesDir = imagesDirFor(env);
-  const auth = { onRequest: app.requireUser };
+  // SPEC §17: importing writes listing facts for everyone — owners only. The bearer
+  // ADMIN_TOKEN still works: it resolves to user 1, an owner of the home team.
+  const auth = { onRequest: app.requireOwner };
 
   strictSchemas(app);
 

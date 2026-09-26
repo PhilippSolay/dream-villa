@@ -3,7 +3,7 @@
 Private villa-search tracker for Philipp and Abigaïl. One Docker container on the Hostinger VPS behind Traefik. Read `SPEC.md` before touching anything; it is the contract. Read `adapters/bali-home-immo.md` before touching the scraper.
 
 ## What this is
-- A mobile-first web app (two logins) to browse, filter, rate and annotate villa listings in west Bali (Seseh / Cemagi / Pererenan / Tanah Lot area / Buwit / Mengwi) and the Bukit (Bingin / Uluwatu / Ungasan).
+- A mobile-first web app (two owners, plus friends in their own teams) to browse, filter, rate and annotate villa listings in west Bali (Seseh / Cemagi / Pererenan / Tanah Lot area / Buwit / Mengwi) and the Bukit (Bingin / Uluwatu / Ungasan).
 - A scraper that runs daily at 06:00 Asia/Makassar inside the same service, pulls listings from agency sites and portals, downloads images, resolves map pins, dedupes, scores, flags.
 - A small GET-only "agent API" that a cloud Claude session reads every morning at 07:00 to write the push notification and leave notes.
 
@@ -34,4 +34,5 @@ Private villa-search tracker for Philipp and Abigaïl. One Docker container on t
 - Respect source sites: one request per second per host, normal browser UA, cache HTML for 24 h in `data/cache/`, back off on 429/403.
 
 ## People
-- Philipp (owner, `USER1_*` env) and Abigaïl (`USER2_*` env). Both are admins in the app; there are no other roles.
+- Philipp (`USER1_*` env) and Abigaïl (`USER2_*` env) are the two owners and the home team (team 1). Friends are `member`s in their own teams, added from the People page (`#/people`), never via env. SPEC §17 is the contract: verdicts per person; pipeline, notes, visits and places per team; listing facts shared; the brief and all admin owner-only.
+- A new route that shows listings to a person reads through `listingsSql(db, request.user)`; a new person-created table is read with `sameTeamSql`; a new write to shared state is `app.requireOwner`.

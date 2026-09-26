@@ -10,6 +10,7 @@ import {
 } from '../lib/ui.js';
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
+import { isSolo } from '../lib/people.js';
 // SPEC §7 regions, north to south — the one copy, shared with the server.
 import { AREA_GROUPS } from '../lib/areas.js';
 
@@ -195,7 +196,7 @@ function areaHint(selected, areas) {
   return selected.map((id) => areas.find((a) => a.id === id)?.label || id).join(', ');
 }
 
-function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = [], onAnchorAdd, onAnchorRemove }) {
+function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = [], onAnchorAdd, onAnchorRemove, solo = false }) {
   const panel = document.createElement('form');
   panel.className = 'filters';
   panel.setAttribute('novalidate', '');
@@ -337,14 +338,16 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       </details>
     </div>
 
-    <div class="filter-group">
-      <span class="label">Shared</span>
-      <div class="chips" data-role="verdict">
-        ${verdictFilterOptions(otherName).map(
-          ([value, label]) => html`<button type="button" class="chip" data-verdict-filter="${value}" aria-pressed="false">${label}</button>`
-        )}
-      </div>
-    </div>
+    ${solo
+      ? ''
+      : html`<div class="filter-group">
+          <span class="label">Shared</span>
+          <div class="chips" data-role="verdict">
+            ${verdictFilterOptions(otherName).map(
+              ([value, label]) => html`<button type="button" class="chip" data-verdict-filter="${value}" aria-pressed="false">${label}</button>`
+            )}
+          </div>
+        </div>`}
 
     <div class="filter-group">
       <span class="label">Status</span>
@@ -757,6 +760,7 @@ export async function mountHome(el, ctx) {
     areas,
     sources: [...knownSources],
     otherName: firstName(other),
+    solo: isSolo(store.get()),
     anchors,
     onAnchorAdd: async (name, location, done) => {
       try {
