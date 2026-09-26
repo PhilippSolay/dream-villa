@@ -42,7 +42,8 @@ const TABS = [
   { route: 'map', href: '#/map', label: 'Map', icon: icons.map },
   { route: 'market', href: '#/market', label: 'Market', icon: icons.chart },
   { route: 'gone', href: '#/gone', label: 'Gone', icon: icons.archive },
-  { route: 'agent', href: '#/agent', label: 'Agent', icon: icons.robot, hide: (s) => !isOwner(s) },
+  // Everyone sees the Agent page; a member gets it read-only (views/agent.js, SPEC §17).
+  { route: 'agent', href: '#/agent', label: 'Agent', icon: icons.robot },
   // The owners' mini CMS — also in the account menu, but a tab is one tap from anywhere.
   { route: 'people', href: '#/people', label: 'People', icon: icons.idcard, hide: (s) => !isOwner(s) },
 ];
@@ -153,10 +154,10 @@ const router = createRouter({
         navigate('/login', { replace: true });
         return () => {};
       }
-      // SPEC §17: the Agent page and People are the owners'; Shared needs a teammate to
-      // share with. A friend who lands here anyway (a stale link, a typed hash) is bounced
-      // home rather than shown a page that has nothing — or the wrong things — for them.
-      if (state.user && ((name === 'agent' && !isOwner(state)) || (name === 'people' && !isOwner(state)) || (name === 'shared' && isSolo(state)))) {
+      // SPEC §17: People is the owners'; Shared needs a teammate to share with. A friend
+      // who lands here anyway (a stale link, a typed hash) is bounced home rather than
+      // shown a page that has nothing — or the wrong things — for them.
+      if (state.user && ((name === 'people' && !isOwner(state)) || (name === 'shared' && isSolo(state)))) {
         navigate('/', { replace: true });
         return () => {};
       }

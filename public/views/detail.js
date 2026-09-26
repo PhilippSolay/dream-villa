@@ -503,7 +503,8 @@ export async function mountDetail(el, ctx) {
     );
 
     fillPriceBand();
-    // Merging is the owners' (SPEC §17: every /api/duplicates* route is owners_only) —
+    // Merging is the owners' (SPEC §17: the per-listing candidates and every duplicate
+    // write are owners_only; only the Agent page's list is read-only for friends) —
     // a member never fetches the candidates, so the block just stays hidden.
     if (isOwner(store.get())) fillDuplicates();
     mountMiniMap();

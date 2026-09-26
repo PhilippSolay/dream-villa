@@ -1,10 +1,13 @@
 // #/agent — sources, runs, notes, weights, flag threshold, what the learner changed,
 // inbox, scrape. SPEC §5 "Agent"; the Sources section is the intake settings
-// (config.sources, see src/sources.js).
+// (config.sources, see src/sources.js). SPEC §17: a member sees it read-only — no
+// forms, toggles or buttons, and not the agent's notes or the learner's reasons, which
+// quote the home team's feedback.
 
 import {
   $, $$, html, setHtml, icons, toast, makassarDate, makassarTime, dayLabel, durationLabel, priceLabel, thumbUrl,
 } from '../lib/ui.js';
+import { isOwner } from '../lib/people.js';
 
 const WEIGHT_LABELS = {
   living_open: 'Open living room',
@@ -69,7 +72,7 @@ function statsLine(source) {
   return parts.join(' · ');
 }
 
-function sourceRow(source) {
+function sourceRow(source, canEdit) {
   const manual = source.kind !== 'scraper';
   const title = source.url
     ? html`<a href="${source.url}" target="_blank" rel="noopener">${source.name}</a>`
@@ -81,27 +84,29 @@ function sourceRow(source) {
         <span class="pill">${KIND_PILLS[source.kind] || source.kind}</span>
       </div>
       <p class="small mono muted source-stats">${statsLine(source)}</p>
-      <button type="button" class="source-note${source.notes ? '' : ' is-empty'}" data-note="${source.id}"
-        aria-label="Edit the note on ${source.name}">${source.notes || 'Add a note'}</button>
-      ${manual
+      ${canEdit
+        ? html`<button type="button" class="source-note${source.notes ? '' : ' is-empty'}" data-note="${source.id}"
+            aria-label="Edit the note on ${source.name}">${source.notes || 'Add a note'}</button>`
+        : source.notes ? html`<p class="small muted source-stats">${source.notes}</p>` : ''}
+      ${manual && canEdit
         ? html`<button type="button" class="btn btn-sm source-add-url" data-add-url="${source.id}">
             ${icons.plus()} Add URL from this source</button>`
         : ''}
     </div>
     <label class="switch" title="${source.enabled ? 'Enabled' : 'Disabled'}">
       <input type="checkbox" role="switch" data-toggle="${source.id}" ${source.enabled ? 'checked' : ''}
-        aria-label="${source.name} enabled" />
+        ${canEdit ? '' : 'disabled'} aria-label="${source.name} enabled" />
       <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
     </label>
   </div>`;
 }
 
-function sourcesList(sources) {
+function sourcesList(sources, canEdit) {
   if (!sources.length) return html`<p class="empty">No sources yet.</p>`;
   return KIND_ORDER.filter((kind) => sources.some((s) => s.kind === kind)).map(
     (kind) => html`<div class="source-group">
       <h4 class="source-group-head">${KIND_GROUPS[kind]}</h4>
-      ${sources.filter((s) => s.kind === kind).map(sourceRow)}
+      ${sources.filter((s) => s.kind === kind).map((s) => sourceRow(s, canEdit))}
     </div>`
   );
 }
@@ -129,7 +134,7 @@ function runsTable(runs) {
             <td class="mono">${r.seen ?? '—'}</td><td class="mono">${r.new ?? '—'}</td>
             <td class="mono">${r.updated ?? '—'}</td><td class="mono">${r.gone ?? '—'}</td>
             <td class="mono">${r.flagged ?? '—'}</td>
-            <td class="mono">${Array.isArray(r.errors) ? r.errors.length : r.errors ? 1 : 0}</td>
+            <td class="mono">${!('errors' in r) ? '—' : Array.isArray(r.errors) ? r.errors.length : r.errors ? 1 : 0}</td>
           </tr>`
         )}
       </tbody>
@@ -191,7 +196,7 @@ function dupSide(o, side) {
   </div>`;
 }
 
-function dupPair(pair) {
+function dupPair(pair, canEdit) {
   const pct = Math.round(pair.score * 100);
   return html`<div class="dup-pair" data-a="${pair.a.id}" data-b="${pair.b.id}">
     <div class="dup-score">
@@ -202,21 +207,38 @@ function dupPair(pair) {
     </div>
     <div class="dup-sides">${dupSide(pair.a, 'a')}${dupSide(pair.b, 'b')}</div>
     <p class="small muted">${pair.reasons.join(' · ')}</p>
-    <div class="dup-actions">
-      <button type="button" class="btn btn-sm" data-pair-action="keep-a">Keep left</button>
-      <button type="button" class="btn btn-sm" data-pair-action="keep-b">Keep right</button>
-      <button type="button" class="btn btn-sm btn-ghost" data-pair-action="dismiss">Not duplicates</button>
-    </div>
+    ${canEdit
+      ? html`<div class="dup-actions">
+          <button type="button" class="btn btn-sm" data-pair-action="keep-a">Keep left</button>
+          <button type="button" class="btn btn-sm" data-pair-action="keep-b">Keep right</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-pair-action="dismiss">Not duplicates</button>
+        </div>`
+      : ''}
   </div>`;
 }
 
-function duplicatesList(pairs) {
+function duplicatesList(pairs, canEdit) {
   if (!pairs.length) return html`<p class="empty">Nothing that looks like a double listing.</p>`;
-  return pairs.map(dupPair);
+  return pairs.map((pair) => dupPair(pair, canEdit));
+}
+
+/** A member's weights: the same rows as the form, values only. */
+function weightsReadOnly(weights, threshold) {
+  const row = (label, value) => html`<div class="weight-row">
+    <span class="label"><span>${label}</span><span class="mono">${value}</span></span>
+  </div>`;
+  return html`<div class="weights">
+    ${Object.keys(WEIGHT_LABELS)
+      .filter((k) => k in weights)
+      .map((key) => row(WEIGHT_LABELS[key], weights[key]))}
+    ${row('Flag threshold (0–100)', threshold)}
+  </div>`;
 }
 
 export async function mountAgent(el, ctx) {
   const { api } = ctx;
+  // Members read the page and change nothing; the API refuses their writes as well.
+  const owner = isOwner(ctx.store.get());
   let alive = true;
 
   setHtml(el, html`<p class="loading">Loading the agent desk…</p>`);
@@ -231,7 +253,7 @@ export async function mountAgent(el, ctx) {
   try {
     [runs, notes, config, inbox, sources, contacts, duplicates] = await Promise.all([
       api.get('/api/runs?limit=14'),
-      api.get('/api/notes?limit=14'),
+      owner ? api.get('/api/notes?limit=14') : [],
       api.get('/api/config'),
       api.get('/api/inbox?status=pending'),
       api.get('/api/sources').then((r) => r.sources || []),
@@ -249,15 +271,16 @@ export async function mountAgent(el, ctx) {
   setHtml(
     el,
     html`<h1>Agent</h1>
+    ${owner ? '' : html`<p class="small muted" style="margin:4px 0 0">View only — the owners run the agent.</p>`}
 
     <section class="block" style="margin-top:12px">
       <div class="section-head" style="margin:0 0 8px">
         <h3>Sources</h3>
         <span class="small muted">Where listings come in</span>
       </div>
-      <div id="sources-list">${sourcesList(sources)}</div>
+      <div id="sources-list">${sourcesList(sources, owner)}</div>
 
-      <details class="source-add">
+      ${owner ? html`<details class="source-add">
         <summary>Add a source</summary>
         <form id="form-source">
           <label class="field"><span class="label">Kind</span>
@@ -277,27 +300,29 @@ export async function mountAgent(el, ctx) {
             </select></label>
           <button class="btn btn-primary" type="submit">Add source</button>
         </form>
-      </details>
+      </details>` : ''}
     </section>
 
     <section class="block" style="margin-top:14px" id="duplicates-block">
       <div class="section-head" style="margin:0 0 8px">
         <h3>Duplicates to review</h3>
         <span class="small muted">Same villa, listed twice</span>
-        <button type="button" class="btn btn-sm btn-ghost" id="dup-auto" title="Merge every pair in the same area with two or more identical photos (the daily run does this too)">Auto-merge shared photos</button>
+        ${owner
+          ? html`<button type="button" class="btn btn-sm btn-ghost" id="dup-auto" title="Merge every pair in the same area with two or more identical photos (the daily run does this too)">Auto-merge shared photos</button>`
+          : ''}
       </div>
-      <div id="duplicates-list" aria-live="polite">${duplicatesList(duplicates)}</div>
+      <div id="duplicates-list" aria-live="polite">${duplicatesList(duplicates, owner)}</div>
     </section>
 
     <section class="block" style="margin-top:14px">
       <div class="section-head" style="margin:0 0 8px">
         <h3>Scraper</h3>
-        <button type="button" class="btn btn-sm" id="run-scrape">Run scrape now</button>
+        ${owner ? html`<button type="button" class="btn btn-sm" id="run-scrape">Run scrape now</button>` : ''}
       </div>
       ${runsTable(runs)}
     </section>
 
-    <section class="block" style="margin-top:14px">
+    ${owner ? html`<section class="block" style="margin-top:14px">
       <h3>Notes from the morning session</h3>
       ${notes.length
         ? notes.map(
@@ -307,11 +332,11 @@ export async function mountAgent(el, ctx) {
             </div>`
           )
         : html`<p class="empty">No notes yet.</p>`}
-    </section>
+    </section>` : ''}
 
     <section class="block" style="margin-top:14px">
       <h3>Weights</h3>
-      <form id="form-weights" class="weights">
+      ${owner ? html`<form id="form-weights" class="weights">
         ${Object.keys(WEIGHT_LABELS)
           .filter((k) => k in weights)
           .map(
@@ -325,27 +350,30 @@ export async function mountAgent(el, ctx) {
           <input type="number" name="flag_threshold" min="0" max="100" value="${config.flag_threshold ?? 65}" /></label>
         <button class="btn btn-primary" type="submit">Save weights</button>
         <p class="small muted" id="rescored"></p>
-      </form>
+      </form>` : weightsReadOnly(weights, config.flag_threshold ?? 65)}
     </section>
 
-    <section class="block" style="margin-top:14px">
+    ${owner ? html`<section class="block" style="margin-top:14px">
       <h3>What changed and why</h3>
       ${changesList(runs)}
-    </section>
+    </section>` : ''}
 
     <section class="block" style="margin-top:14px" id="inbox-block">
       <h3>Inbox</h3>
-      <form id="form-inbox">
+      ${owner ? html`<form id="form-inbox">
         <div class="inbox-row">
           <input type="url" name="url" placeholder="https://…" required />
           <button class="btn btn-sm" type="submit">${icons.plus()} Add</button>
         </div>
         <label class="field" style="margin:8px 0 0"><span class="label">From which source</span>
           <select name="source_id" id="inbox-source">${sourceOptions(sources)}</select></label>
-      </form>
+      </form>` : ''}
       <div id="inbox-list" style="margin-top:10px">${inboxList(inbox, sources)}</div>
     </section>`
   );
+
+  // Read-only: none of the edit handlers below are bound for a member.
+  if (!owner) return () => {};
 
   // --- duplicates ----------------------------------------------------------
 
@@ -354,7 +382,7 @@ export async function mountAgent(el, ctx) {
       const res = await api.get('/api/duplicates?limit=30');
       if (!alive) return;
       duplicates = res.pairs || [];
-      setHtml($('#duplicates-list', el), duplicatesList(duplicates));
+      setHtml($('#duplicates-list', el), duplicatesList(duplicates, owner));
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -427,7 +455,7 @@ export async function mountAgent(el, ctx) {
     const res = await api.get('/api/sources');
     if (!alive) return;
     sources = res.sources || [];
-    setHtml($('#sources-list', el), sourcesList(sources));
+    setHtml($('#sources-list', el), sourcesList(sources, owner));
     const select = $('#inbox-source', el);
     const keep = select.value;
     setHtml(select, sourceOptions(sources));
