@@ -29,7 +29,8 @@ const BUILD_MIN_M2 = 0;
 const BUILD_MAX_M2 = 600;
 const BUILD_STEP_M2 = 10;
 // The toolbar's one control: the viewer's own call. '' shows everything.
-const MY_CALLS = [['', 'All'], ['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No'], ['none', 'New']];
+// New (not called yet) leads: it is the queue that still needs a tap.
+const MY_CALLS = [['none', 'New'], ['', 'All'], ['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No']];
 const BEDROOMS = [1, 2, 3, 4];
 const FEATURES = Object.keys(FEATURE_LABELS);
 const AGE_OPTIONS = [['', 'Any'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']];
