@@ -172,6 +172,10 @@ test('list: verdict filters are relative to whoever is asking', async (t) => {
   assert.deepEqual(keysOf(await list(philipp, 'verdict=maybe')), ['bhi:B']);
   assert.deepEqual(keysOf(await list(abigail, 'verdict=maybe')), ['bhi:B']);
 
+  // not_no ("Exclude No"): everything but C, which Abigail ruled out — for both of them.
+  assert.deepEqual(keysOf(await list(philipp, 'verdict=not_no')), ['bhi:A', 'bhi:B', 'bhi:D']);
+  assert.deepEqual(keysOf(await list(abigail, 'verdict=not_no')), ['bhi:A', 'bhi:B', 'bhi:D']);
+
   const bad = await philipp({ method: 'GET', url: '/api/properties?verdict=whatever' });
   assert.equal(bad.statusCode, 400);
 });

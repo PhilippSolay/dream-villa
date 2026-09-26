@@ -170,7 +170,7 @@ export function cardRow(row) {
 
 export const PERSON_VERDICTS = ['yes', 'maybe', 'no']; // (VERDICTS above belongs to viewings)
 /** List filters, all relative to the person asking (`request.user.id`). */
-export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'yes', 'maybe', 'no', 'unvoted'];
+export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'yes', 'maybe', 'no', 'not_no', 'unvoted'];
 /** `my_verdict=`: the caller's own call, or 'none' for listings they have not called. */
 export const MY_VERDICT_FILTERS = [...PERSON_VERDICTS, 'none'];
 
@@ -306,6 +306,8 @@ function verdictWhere(filter, user) {
     yes: `(${mine} = 'yes' OR ${other} = 'yes')`,
     maybe: `(${mine} = 'maybe' OR ${other} = 'maybe')`,
     no: `(${mine} = 'no' OR ${other} = 'no')`,
+    // "Exclude No": the exact complement of `no` — neither of you ruled it out, uncalled included.
+    not_no: `COALESCE(${mine}, '') != 'no' AND COALESCE(${other}, '') != 'no'`,
     unvoted: `${mine} IS NULL AND ${other} IS NULL`,
   }[filter];
   const count = (sql.match(/\?/g) || []).length;
