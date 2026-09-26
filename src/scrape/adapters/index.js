@@ -5,12 +5,14 @@ import bhi from './bhi.js';
 import kibarer from './kibarer.js';
 import balirealty from './balirealty.js';
 import balicoconutliving from './balicoconutliving.js';
+import umadibali from './umadibali.js';
 import rumah123 from './rumah123.js';
 
-// Run order = SPEC §6 order: proven agency first, then agencies, then portals.
+// Run order = SPEC §6 order: proven agency first, then agencies (umadibali, added
+// 2026-09-26, is the last of them), then portals.
 // Skipped (see adapters/*.md): exotiq (sales only), balivillahub (Vercel checkpoint),
 // olx (Akamai), lamudi (401), 99co (Cloudflare), fbmarketplace (login shell).
-export const adapters = { bhi, kibarer, balirealty, balicoconutliving, rumah123 };
+export const adapters = { bhi, kibarer, balirealty, balicoconutliving, umadibali, rumah123 };
 
 /** Every adapter id the registry knows, in run order. */
 export const ADAPTER_IDS = Object.keys(adapters);

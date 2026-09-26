@@ -130,6 +130,23 @@ test('a valid listing imports with explicit facts winning over the description k
   assert.equal(row.price_month_idr, 35_000_000);
 });
 
+test('a stated min_months survives — the text parse only fills a gap', async (t) => {
+  const { db, call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/listings',
+    payload: importPayload({}, [
+      listing({ ref: 'stated', description: 'Minimum term is six months.', min_months: 6 }),
+      listing({ ref: 'text', url: 'https://example.test/text', description: 'Minimum stay 3 months.' }),
+    ]),
+  });
+
+  assert.equal(res.statusCode, 200);
+  const stated = db.prepare("SELECT min_months FROM properties WHERE ref = 'stated'").get();
+  const text = db.prepare("SELECT min_months FROM properties WHERE ref = 'text'").get();
+  assert.equal(stated.min_months, 6);
+  assert.equal(text.min_months, 3);
+});
+
 test('an explicit valid area key is used as-is', async (t) => {
   const { db, call } = await setup(t);
   const res = await call({
