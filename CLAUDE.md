@@ -31,7 +31,7 @@ Private villa-search tracker for Philipp and Abigaïl. One Docker container on t
 - `scope` is `in_filter` or `market`; both are stored, the UI defaults to `in_filter`.
 - Never delete listings; mark `availability = 'gone'` with `last_seen`.
 - Secrets only in `.env` (see `.env.example`). Tokens in query strings are allowed only on `/api/agent/*` (the cloud session can only do GET), over HTTPS, rate-limited, with a dedicated `AGENT_TOKEN` that cannot write anything but notes and inbox URLs.
-- Respect source sites: one request per second per host, normal browser UA, cache HTML for 24 h in `data/cache/`, back off on 429/403.
+- Respect source sites: one request per second per host, normal browser UA, back off on 429/403. HTML is cached in `data/cache/`: index/list pages (and sitemaps) 24 h; the detail page of a listing we already hold 7 days, refreshed on the listing's own weekday (a seventh a day) and busted to a same-day fetch when today's card shows a different price, status, bedrooms or title (Livuma: or a newer sitemap `lastmod`); a brand-new ref is fetched at once. A cached detail never overwrites the facts today's card states. Rule and code: `src/scrape/ingest.js` (`detailPlan`); the recheck always fetches fresh.
 
 ## People
 - Philipp (`USER1_*` env) and Abigaïl (`USER2_*` env) are the two owners and the home team (team 1). Friends are `member`s in their own teams, added from the People page (`#/people`), never via env. SPEC §17 is the contract: verdicts per person; pipeline, notes, visits and places per team; listing facts shared; the brief and all admin owner-only.

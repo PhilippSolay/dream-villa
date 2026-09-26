@@ -548,6 +548,9 @@ export default {
   name: 'Bali Home Immo',
   base: BASE,
   areas: TARGET_SLUGS,
+  // What today's index card owns over a cached detail page (ingest.js detailPlan). Not
+  // `title`: the card's is rebuilt from the URL slug, the real name is on the detail page.
+  cardFacts: ['price_month_idr', 'price_year_idr', 'bedrooms', 'gone'],
   list,
   detail,
   // exposed for the seed / tests
