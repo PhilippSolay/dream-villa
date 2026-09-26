@@ -11,7 +11,7 @@ import path from 'node:path';
 import { openDb } from '../src/db.js';
 import { diceTrigram, trigramProfile, diceProfiles } from '../src/scrape/dedupe.js';
 import { hamming, hashWords, hammingWords, sharedImages, imageKeys, countSharedImages } from '../src/scrape/image-hash.js';
-import { allCandidates, candidatesFor, loadContext, scorePair } from '../src/scrape/duplicates.js';
+import { allCandidates, allCandidatesAsync, candidatesFor, loadContext, scorePair } from '../src/scrape/duplicates.js';
 
 // mulberry32: the same numbers on every run.
 function prng(seed) {
@@ -152,4 +152,36 @@ test('allCandidates scores a context once: a higher bar is answered from the low
   assert.deepEqual(allCandidates(db, { minScore: 0.3, ctx }), low);
   assert.deepEqual(allCandidates(db, { minScore: 0.6, ctx }), low.filter((p) => p.score >= 0.6));
   assert.deepEqual(allCandidates(db, { minScore: 0.2, ctx }), [], 'a lower bar than any list scored runs a new pass');
+});
+
+test('allCandidatesAsync: the same list, other work runs mid-pass, and callers share one pass', async (t) => {
+  const db = tmpDb(t);
+  const ins = db.prepare(`INSERT INTO properties (key, ref, source, url, title, description, area, bedrooms,
+      price_month_idr, availability, first_seen, last_seen, images, raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  // 700 two-bedroom listings inside one price band: ~245 000 pairs, well past one slice.
+  for (let i = 0; i < 700; i++) {
+    const twin = i % 50 === 1; // every 50th listing re-posts the one before it
+    const n = twin ? i - 1 : i;
+    ins.run(`s:${i}`, `R${i}`, i % 2 ? 'bhi' : 'fb', `https://s.test/${i}`, `Villa ${n} Cemagi ${n * 7}`,
+      `Listing ${n}`, 'cemagi', 2, 40e6 + (i % 13) * 1e5, 'available', '2026-09-01', '2026-09-01',
+      JSON.stringify([{ src_url: `https://s.test/${n}.jpg` }]), '{}');
+  }
+  const expected = allCandidates(db, { limit: 1e6, minScore: 0.6, ctx: loadContext(db) });
+  assert.ok(expected.length >= 10);
+
+  const ctx = loadContext(db);
+  let ranMidPass = false;
+  let done = false;
+  const timer = new Promise((resolve) => setImmediate(() => { ranMidPass = !done; resolve(); }));
+  const [first, second] = await Promise.all([
+    allCandidatesAsync(db, { limit: 1e6, minScore: 0.6, ctx }).then((r) => { done = true; return r; }),
+    allCandidatesAsync(db, { limit: 1e6, minScore: 0.7, ctx }),
+    timer,
+  ]);
+  assert.deepEqual(first, expected);
+  assert.deepEqual(second, expected.filter((p) => p.score >= 0.7), 'a higher bar joins the running pass');
+  assert.ok(ranMidPass, 'a callback queued at the start ran before the pass finished');
+
+  ctx.rows.length = 0; // remembered: no second pass
+  assert.deepEqual(await allCandidatesAsync(db, { limit: 5, minScore: 0.6, ctx }), expected.slice(0, 5));
 });

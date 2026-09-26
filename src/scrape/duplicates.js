@@ -81,14 +81,15 @@ const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 // ---------------------------------------------------------------------------
 
 /**
- * Rows plus the three lookups that would otherwise be a query per pair:
- * contacts by property, image `src_url`s by property, dismissed pairs.
+ * Rows plus the two lookups that would otherwise be a query per pair: contacts by
+ * property and dismissed pairs. Each row carries its `images` JSON as stored; featuresOf
+ * parses it a listing at a time (a json_each over every photo here was ~150 ms in one go).
  */
 export function loadContext(db) {
   const rows = db
     .prepare(
       `SELECT id, key, ref, source, title, description, area, sub_area, lat, lng,
-              bedrooms, land_m2, build_m2, price_month_idr, availability, first_seen,
+              bedrooms, land_m2, build_m2, price_month_idr, availability, first_seen, images,
               CASE WHEN json_valid(raw) THEN json_extract(raw, '$.poster_url') END AS poster_url
          FROM properties
         WHERE availability IS NULL OR availability <> 'gone'
@@ -111,28 +112,12 @@ export function loadContext(db) {
     if (phone && !map.has(phone)) map.set(phone, `phone ${row.phone}`);
   }
 
-  const images = new Map(); // property id → [{src_url, hash}] — the shape sharedImages reads
-  for (const row of db
-    .prepare(
-      `SELECT p.id AS pid,
-              json_extract(j.value, '$.src_url') AS src,
-              json_extract(j.value, '$.hash') AS hash
-         FROM properties p,
-              json_each(CASE WHEN json_valid(p.images) THEN p.images ELSE '[]' END) j
-        WHERE (src IS NOT NULL AND src <> '') OR (hash IS NOT NULL AND hash <> '')`
-    )
-    .all()) {
-    let list = images.get(row.pid);
-    if (!list) images.set(row.pid, (list = []));
-    list.push({ src_url: row.src || null, hash: row.hash || null });
-  }
-
   const dismissed = new Set();
   for (const row of db.prepare('SELECT property_a, property_b FROM duplicate_dismissals').all()) {
     dismissed.add(pairKey(row.property_a, row.property_b));
   }
 
-  return { rows, contacts, images, dismissed };
+  return { rows, contacts, dismissed };
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +177,8 @@ function featuresOf(row, ctx) {
   if (!byRow) featureCache.set(ctx, (byRow = new WeakMap()));
   let f = byRow.get(row);
   if (!f) {
-    const images = ctx.images?.get(row.id);
+    // A hand-built ctx may still bring an images map; loadContext's rows carry their own.
+    const images = ctx.images ? ctx.images.get(row.id) : row.images;
     f = {
       title: trigramProfile(row.title),
       ref: refParts(row.ref),
@@ -372,26 +358,82 @@ export function candidatesFor(db, id, { limit = 10, minScore = 0.5, ctx = null }
  */
 export function allCandidates(db, { limit = 200, minScore = 0.5, ctx = null } = {}) {
   const context = ctx || loadContext(db);
-  // One full pass per context: Agent (0.6) and Market (0.6) and a second visit within
-  // the cached context's life all read the same list. A list scored at a lower bar
-  // answers a higher one by filtering; the pass itself only runs once.
-  const lists = pairLists.get(context) || [];
-  let found = lists.find((l) => l.minScore <= minScore);
-  if (!found) {
-    found = { minScore, pairs: scoreAllPairs(context, minScore) };
-    lists.push(found);
-    pairLists.set(context, lists);
+  let pairs = rememberedPairs(context, minScore);
+  if (!pairs) {
+    pairs = [];
+    const pass = pairPass(context, minScore, pairs);
+    while (!pass.next().done);
+    remember(context, minScore, pairs);
   }
-  const pairs = found.minScore === minScore ? found.pairs : found.pairs.filter((p) => p.score >= minScore);
   return pairs.slice(0, limit);
 }
 
+/**
+ * allCandidates for a request handler: the pass steps aside for other requests every
+ * SLICE_MS, so a first visit to Market or Agent never holds up a photo or the health
+ * check, and callers that arrive mid-pass wait for that pass instead of starting their own.
+ * @returns {Promise<{a:number, b:number, score:number, reasons:string[]}[]>}
+ */
+export async function allCandidatesAsync(db, { limit = 200, minScore = 0.5, ctx = null } = {}) {
+  const context = ctx || loadContext(db);
+  let pairs = rememberedPairs(context, minScore);
+  if (!pairs) {
+    let running = passesRunning.get(context);
+    if (!running) passesRunning.set(context, (running = new Map()));
+    const joined = [...running].find(([bar]) => bar <= minScore);
+    if (joined) {
+      pairs = (await joined[1]).filter((p) => p.score >= minScore);
+    } else {
+      const pass = (async () => {
+        const out = [];
+        const steps = pairPass(context, minScore, out);
+        let since = performance.now();
+        while (!steps.next().done) {
+          if (performance.now() - since < SLICE_MS) continue;
+          await new Promise((resolve) => setImmediate(resolve));
+          since = performance.now();
+        }
+        remember(context, minScore, out);
+        return out;
+      })().finally(() => running.delete(minScore));
+      running.set(minScore, pass);
+      pairs = await pass;
+    }
+  }
+  return pairs.slice(0, limit);
+}
+
+// One full pass per context: Agent (0.6) and Market (0.6) and a second visit within the
+// cached context's life all read the same list. A list scored at a lower bar answers a
+// higher one by filtering; the pass itself only runs once.
 const pairLists = new WeakMap(); // context → [{minScore, pairs}], each list complete and sorted
+const passesRunning = new WeakMap(); // context → Map(minScore → Promise<pairs>)
+const SLICE_MS = 15;
 
-// Each bucket pairs row i only with rows after it, so every pair is met exactly once.
-function scoreAllPairs(context, minScore) {
-  const out = [];
+function rememberedPairs(context, minScore) {
+  const found = (pairLists.get(context) || []).find((l) => l.minScore <= minScore);
+  if (!found) return null;
+  return found.minScore === minScore ? found.pairs : found.pairs.filter((p) => p.score >= minScore);
+}
 
+function remember(context, minScore, pairs) {
+  const lists = pairLists.get(context) || [];
+  lists.push({ minScore, pairs });
+  pairLists.set(context, lists);
+}
+
+/**
+ * The all-pairs pass, one listing at a time: it yields after each listing's pairs so a
+ * caller can pause between them, and sorts `out` best first once the last one is done.
+ * Each bucket pairs row i only with rows after it, so every pair is met exactly once.
+ * The per-listing features are worked out first, a listing per step: otherwise the first
+ * listing of each bucket would compute them for the whole bucket in one step.
+ */
+function* pairPass(context, minScore, out) {
+  for (const row of context.rows) {
+    featuresOf(row, context);
+    yield;
+  }
   for (const bucket of bucketsByBedrooms(context.rows).values()) {
     for (let i = 0; i < bucket.length; i++) {
       for (const other of plausible(bucket[i], bucket, i + 1)) {
@@ -400,11 +442,12 @@ function scoreAllPairs(context, minScore) {
         const [a, b] = bucket[i].id < other.id ? [bucket[i].id, other.id] : [other.id, bucket[i].id];
         out.push({ a, b, score: scored.score, reasons: scored.reasons });
       }
+      yield;
     }
   }
-
   out.sort((x, y) => y.score - x.score || x.a - y.a || x.b - y.b);
-  return out;
 }
 
-export default { candidatesFor, allCandidates, scorePair, loadContext, cachedContext, forgetContext, SIGNALS };
+export default {
+  candidatesFor, allCandidates, allCandidatesAsync, scorePair, loadContext, cachedContext, forgetContext, SIGNALS,
+};

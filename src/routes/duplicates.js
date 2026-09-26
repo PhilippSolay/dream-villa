@@ -7,7 +7,7 @@
 
 import { nowIso } from '../db.js';
 import { dedupeAll, mergeInto } from '../scrape/dedupe.js';
-import { allCandidates, cachedContext, candidatesFor, forgetContext } from '../scrape/duplicates.js';
+import { allCandidatesAsync, cachedContext, candidatesFor, forgetContext } from '../scrape/duplicates.js';
 import { finishRun, parseRow, startRun } from '../scrape/store.js';
 import { badRequest, getProperty, heroUrl, notFound, placeholders, strictSchemas } from './_common.js';
 import { publicRow } from './properties.js';
@@ -108,7 +108,7 @@ export default async function duplicatesRoutes(app, opts) {
       },
     },
     async (request) => {
-      const pairs = allCandidates(db, {
+      const pairs = await allCandidatesAsync(db, {
         limit: request.query.limit ?? 100,
         minScore: request.query.min_score ?? 0.6,
         ctx: cachedContext(db),
