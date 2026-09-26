@@ -296,6 +296,17 @@ test('list: q matches title, description and sub_area', async (t) => {
   assert.deepEqual(keysOf((await call({ method: 'GET', url: '/api/properties?q=Tumbak' })).json()), ['olx:F']);
 });
 
+test('list: rows carry the card, not the gallery or the text — detail still has both', async (t) => {
+  const { call, ids } = await setup(t);
+  const row = (await call({ method: 'GET', url: '/api/properties?q=Cemagi' })).json().find((r) => r.key === 'bhi:A');
+  assert.equal(row.hero_url, 'https://bhi.test/a1.jpg');
+  assert.equal('images' in row, false);
+  assert.equal('description' in row, false);
+  const detail = (await call({ method: 'GET', url: `/api/properties/${ids.A}` })).json();
+  assert.equal(detail.description, 'Bright open living with a pool');
+  assert.deepEqual(detail.image_urls, ['https://bhi.test/a1.jpg']);
+});
+
 test('list: term, furnished and source filters', async (t) => {
   const { call } = await setup(t);
   // 'both' satisfies a yearly request as well as a monthly one.

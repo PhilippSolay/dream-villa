@@ -156,6 +156,16 @@ export function publicRow(row) {
   };
 }
 
+/**
+ * A list row: publicRow minus the photo array and the description. Cards, the map and the
+ * pager read hero_url and the facts; the gallery and the text come from the detail route.
+ * Together the two were ~3.4 of a row's ~5 KB, and Home asks for up to 500 rows four times.
+ */
+export function cardRow(row) {
+  const { images, description, ...card } = publicRow(row);
+  return card;
+}
+
 // --- shared search: per-person verdicts -------------------------------------
 
 export const PERSON_VERDICTS = ['yes', 'maybe', 'no']; // (VERDICTS above belongs to viewings)
@@ -701,7 +711,7 @@ export default async function propertiesRoutes(app, opts) {
     return withShared(
       db,
       rows.map((row) => ({
-        ...publicRow(row),
+        ...cardRow(row),
         contacts: contacts.get(row.id) || [],
         counts: counts.get(row.id) || { viewings: 0, ratings: 0, feedback: 0 },
       })),

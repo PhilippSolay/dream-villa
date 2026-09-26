@@ -157,7 +157,7 @@ All JSON. Session cookie for the app; `Authorization: Bearer <ADMIN_TOKEN>` acce
 - `POST /api/login {email, password}` → sets cookie, returns `{user}`; `POST /api/logout`; `GET /api/me`.
 
 **Properties**
-- `GET /api/properties?scope=in_filter|market|all&status=&area=&min=&max=&beach=&bedrooms=&features=pool,garden&sort=fit|price|beach|new&q=` → `[{…property, contacts:[…], counts:{viewings, ratings, feedback}}]`. Default `scope=in_filter`, hides `rejected` unless `status=rejected|all`.
+- `GET /api/properties?scope=in_filter|market|all&status=&area=&min=&max=&beach=&bedrooms=&features=pool,garden&sort=fit|price|beach|new&q=` → `[{…property, contacts:[…], counts:{viewings, ratings, feedback}}]`. Default `scope=in_filter`, hides `rejected` unless `status=rejected|all`. List rows are cards: `images` and `description` are left out (2026-09-26 — ~3.4 of a row's ~5 KB); `hero_url` stays, and the gallery and text come from the detail route.
 - `GET /api/properties/:id` → property + `contacts`, `agent_info[]`, `viewings[]`, `ratings[]`, `feedback[]`, `price_history`.
 - `POST /api/properties` (manual add: `{url}` → enqueues to inbox and returns a stub, or full object) ; `PATCH /api/properties/:id` (person-editable fields only: `extra_rooms, living_open, airy, workspace, style, beach_km, lat, lng, notes, assessed, red_flags`).
 - `POST /api/properties/:id/status {status}` → sets `status, status_by, status_at`.
@@ -234,7 +234,7 @@ export default {
 
 **Normalise** (`src/scrape/normalise.js`): title case titles; area from sub-area/location text via the §7 map; price parsing (`IDR 40.000.000/month`, `Rp 40jt/bln`, `450M/year`, `500 juta / tahun`); term from tags; `min_months` from "Minimum N months"; `beach_km` from "Walk to the beach (350m)" / "5 mins to beach" (walk: 80 m/min; scooter: 400 m/min) else computed (§7); booleans from keywords (pool, garden, joglo, rooftop, aircon/AC, kitchen, office/workspace/studio, open living/open plan/high ceiling → living_open, airy/breezy/light-filled → airy); `style` from keywords (joglo, bamboo, industrial, "traditional Balinese"/"antique"/"old" → balinese_old candidate, flag for review rather than assert); red flags from keywords (construction, "main road", "roadside", "busy road").
 
-**Images**: download every gallery image (max 20/listing) to `data/images/<id>/<n>.jpg`, resize to 1600 px max side with `sharp` (add dependency), keep `src_url`. Hero = first. Skip if already present.
+**Images**: download every gallery image (max 20/listing) to `data/images/<id>/<n>.jpg`, resize to 1600 px max side with `sharp` (add dependency), keep `src_url`. Hero = first. Skip if already present. Cards, map pins and duplicate rows load `/thumbs/<id>/<n>.webp` instead (720 px wide WebP q72, cut on first ask into `data/thumbs/`, recut when the source is newer, public and cached 30 days like `/images/`; listing photos only — a viewing's `v…` photo is never cut). The detail gallery keeps the original.
 
 **Pins**: priority `listing_map` (iframe `q=lat,lng` or `@lat,lng`), `geocode` (Nominatim, 1 req/s, `email` param set, query "<sub_area>, <area>, Bali") only when the listing has a street/banjar, else `centroid` (§7) with `pin_source='centroid'`. `map_url = https://www.google.com/maps?q=<lat>,<lng>`.
 

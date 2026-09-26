@@ -6,7 +6,7 @@ import { STAGES, STAGE_ORDER, loadStageQueues } from '../lib/flow.js';
 import {
   $, $$, html, setHtml, toHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing,
   FEATURE_LABELS, STATUS_LABELS, STYLE_LABELS, REMOVAL_LABELS, openSheet, closeSheet, debounce,
-  makassarDate, makassarTime, dayLabel, agoLabel,
+  makassarDate, makassarTime, dayLabel, agoLabel, thumbUrl,
 } from '../lib/ui.js';
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
@@ -109,7 +109,7 @@ export function cardHtml(p, areas, { reason = false, removal = false, viewer = n
     <a class="card-hit" href="#/p/${p.id}" aria-label="${p.title}">
       <div class="card-media">
         ${p.hero_url
-          ? html`<img src="${p.hero_url}" alt="" loading="lazy" decoding="async" />`
+          ? html`<img src="${thumbUrl(p.hero_url)}" alt="" loading="lazy" decoding="async" />`
           : html`<span class="placeholder">No photo yet</span>`}
         <span class="card-badges">
           ${statusPill(p.status, p.first_seen)}

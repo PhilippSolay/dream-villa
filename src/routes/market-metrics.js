@@ -30,7 +30,7 @@ import { getConfig, nowIso } from '../db.js';
 import { DEFAULT_CONFIG } from '../defaults.js';
 import { percentiles } from './market.js';
 import { TARGET_AREAS } from '../areas.js';
-import { allCandidates } from '../scrape/duplicates.js';
+import { allCandidates, cachedContext } from '../scrape/duplicates.js';
 import { listingsSql } from '../teams.js';
 
 const MAKASSAR_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -513,7 +513,7 @@ function buildCrossSourceGaps(db, allRows) {
   // (b) near misses the duplicate scorer is fairly sure about, across two sources.
   let candidates = [];
   try {
-    candidates = allCandidates(db, { minScore: CANDIDATE_MIN_SCORE });
+    candidates = allCandidates(db, { minScore: CANDIDATE_MIN_SCORE, ctx: cachedContext(db) });
   } catch {
     candidates = [];
   }

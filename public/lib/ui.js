@@ -112,6 +112,17 @@ export function priceLabel(p) {
   return p.term === 'yearly' ? `${m} M / mo · yearly` : `${m} M / mo`;
 }
 
+/**
+ * A downloaded listing photo's card-sized cut: `/images/12/1.jpg` → `/thumbs/12/1.webp`
+ * (720 px WebP, cut on first ask by src/thumbs.js). Cards, map pins and duplicate rows
+ * show photos a few hundred pixels wide; the 1100–1600 px original is the gallery's.
+ * A remote src_url or a viewing photo (`v3-1.jpg`) comes back unchanged.
+ */
+export function thumbUrl(url) {
+  const m = /^\/images\/(\d+)\/(\d+)\.jpg$/.exec(url || '');
+  return m ? `/thumbs/${m[1]}/${m[2]}.webp` : url;
+}
+
 export function beachLabel(km) {
   if (km == null) return null;
   const n = Number(km);
