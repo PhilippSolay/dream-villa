@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { inBand, hardFilters, scopeFrom, fitScore, fitPoints, reasonsFor, scoreRow, beachFactor, landFactor } from '../src/scrape/score.js';
+import { inBand, hardFilters, scopeFrom, fitScore, fitPoints, reasonsFor, scoreRow, beachFactor, landFactor, priceFactor } from '../src/scrape/score.js';
 import { DEFAULT_CONFIG, DEFAULT_WEIGHTS } from '../src/defaults.js';
 
 /** A row that passes every hard filter, with no features known. */
@@ -25,7 +25,7 @@ const perfect = () => ({
   airy: true,
   pool: true,
   garden: true,
-  view: 'ocean',
+  view: 'river',
   kitchen_full: true,
   aircon: true,
   furnished: 1,
@@ -34,6 +34,7 @@ const perfect = () => ({
   joglo: true,
   land_m2: 500,
   style: 'joglo',
+  price_month_idr: 60_000_000,
 });
 
 // ---------------------------------------------------------------------------
@@ -108,7 +109,7 @@ test('hardFilters — style is hard, no red flag is', () => {
 });
 
 test('scoreRow — a construction flag stays in filter but is never featured', () => {
-  const row = { ...base(), pool: 1, garden: 1, view: 'ocean', living_open: 1, airy: 1, red_flags: ['construction'] };
+  const row = { ...base(), price_month_idr: 60_000_000, pool: 1, garden: 1, view: 'river', living_open: 1, airy: 1, land_m2: 500, red_flags: ['construction'] };
   const got = scoreRow(row);
   assert.equal(got.scope, 'in_filter');
   assert.ok(got.fit_score >= 65, 'the row scores well enough to be flagged but for the red flag');
@@ -127,13 +128,14 @@ test('hardFilters — several failures are all reported', () => {
 // fitScore
 // ---------------------------------------------------------------------------
 
-test('fitScore — everything true, ocean view, good furniture = 100', () => {
+test('fitScore — everything true, river view, good furniture, 50–70 M = 100', () => {
   assert.equal(fitScore(perfect(), DEFAULT_WEIGHTS), 100);
 });
 
-test('fitScore — everything unknown = 27 ((7+6+0+0+0+5+4+4+0+0 + beach 5 + land 6 + style 0) / 136)', () => {
-  assert.equal(fitScore({}, DEFAULT_WEIGHTS), 27);
-  assert.equal(fitScore({ ...base(), beach_km: null, style: null }, DEFAULT_WEIGHTS), 27);
+test('fitScore — everything unknown = 25 ((1+3+0+0+0+6+5+1+0+0 + beach 4 + land 7 + price 5 + style 0) / 128)', () => {
+  assert.equal(fitScore({}, DEFAULT_WEIGHTS), 25);
+  // base() asks 40 M, halfway up the price ramp — the same 5 points an unknown price gets
+  assert.equal(fitScore({ ...base(), beach_km: null, style: null }, DEFAULT_WEIGHTS), 25);
 });
 
 test('fitScore — everything explicitly false = 0', () => {
@@ -141,6 +143,7 @@ test('fitScore — everything explicitly false = 0', () => {
     living_open: false, airy: false, pool: false, garden: false, view: 'none',
     kitchen_full: false, aircon: false, furnished: 0, furniture_quality: null,
     workspace: false, joglo: false, beach_km: 9, land_m2: 150, style: 'modern',
+    price_month_idr: 25_000_000,
   };
   assert.equal(fitScore(none, DEFAULT_WEIGHTS), 0);
 });
@@ -149,55 +152,65 @@ test('fitScore — the §2 table, feature by feature', () => {
   const none = {
     living_open: false, airy: false, pool: false, garden: false, view: 'none',
     kitchen_full: false, aircon: false, furnished: 0, workspace: false, joglo: false, beach_km: 9,
-    land_m2: 150, style: 'modern',
+    land_m2: 150, style: 'modern', price_month_idr: 25_000_000,
   };
   // raw points, before normalisation to Σweights
   const only = (patch) => fitPoints({ ...none, ...patch }, DEFAULT_WEIGHTS);
-  assert.equal(only({ living_open: true }), 15);
-  assert.equal(only({ living_open: null }), 7, '15 / 2 rounds down to 7, as SPEC prints it');
-  assert.equal(only({ airy: true }), 12);
-  assert.equal(only({ airy: null }), 6);
-  assert.equal(only({ pool: true }), 12);
-  assert.equal(only({ garden: true }), 10);
-  assert.equal(only({ view: 'ocean' }), 14);
-  assert.equal(only({ view: 'rice' }), 10, '70 % of 14');
-  assert.equal(only({ view: 'river' }), 10);
-  assert.equal(only({ view: 'jungle' }), 10);
+  assert.equal(only({ living_open: true }), 3);
+  assert.equal(only({ living_open: null }), 1, '3 / 2 rounds down to 1');
+  assert.equal(only({ airy: true }), 7);
+  assert.equal(only({ airy: null }), 3);
+  assert.equal(only({ pool: true }), 6);
+  assert.equal(only({ garden: true }), 12);
+  // view (2026-09-27): river first, ocean well down — their verdicts, not the postcard
+  assert.equal(only({ view: 'river' }), 14);
+  assert.equal(only({ view: 'rice' }), 11, '80 % of 14, rounded');
+  assert.equal(only({ view: 'ocean' }), 7, '50 % of 14');
+  assert.equal(only({ view: 'jungle' }), 4, '30 % of 14, rounded');
   assert.equal(only({ view: 'mountain' }), 0, 'not in the SPEC table — scores nothing');
   assert.equal(only({ view: null }), 0);
-  assert.equal(only({ kitchen_full: true }), 10);
-  assert.equal(only({ kitchen_full: null }), 5);
-  assert.equal(only({ aircon: true }), 8);
-  assert.equal(only({ aircon: null }), 4);
-  assert.equal(only({ workspace: true }), 8);
-  assert.equal(only({ joglo: true }), 7);
+  assert.equal(only({ kitchen_full: true }), 12);
+  assert.equal(only({ kitchen_full: null }), 6);
+  assert.equal(only({ aircon: true }), 10);
+  assert.equal(only({ aircon: null }), 5);
+  assert.equal(only({ workspace: true }), 3);
+  assert.equal(only({ joglo: true }), 14);
   // land (2026-09-20: Philipp's maybes sit on 300 m²+ plots)
-  assert.equal(only({ land_m2: 500 }), 12);
-  assert.equal(only({ land_m2: 900 }), 12);
-  assert.equal(only({ land_m2: 350 }), 6, 'halfway up the 200–500 m² ramp');
+  assert.equal(only({ land_m2: 500 }), 14);
+  assert.equal(only({ land_m2: 900 }), 14);
+  assert.equal(only({ land_m2: 350 }), 7, 'halfway up the 200–500 m² ramp');
   assert.equal(only({ land_m2: 200 }), 0);
   assert.equal(only({ land_m2: 93 }), 0);
-  assert.equal(only({ land_m2: null }), 6, 'unknown → half');
-  assert.equal(only({ land_m2: 0 }), 6, 'a scraped 0 means unknown, not a zero-m² plot');
+  assert.equal(only({ land_m2: null }), 7, 'unknown → half');
+  assert.equal(only({ land_m2: 0 }), 7, 'a scraped 0 means unknown, not a zero-m² plot');
   // style: joglo / bamboo full, tropical 70 %, modern nothing — on top of the joglo flag
-  assert.equal(only({ style: 'joglo' }), 10);
-  assert.equal(only({ style: 'bamboo' }), 10);
-  assert.equal(only({ style: 'tropical' }), 7);
+  assert.equal(only({ style: 'joglo' }), 12);
+  assert.equal(only({ style: 'bamboo' }), 12);
+  assert.equal(only({ style: 'tropical' }), 8);
   assert.equal(only({ style: 'modern' }), 0);
   assert.equal(only({ style: 'industrial' }), 0);
   assert.equal(only({ style: null }), 0, 'unknown style scores nothing — most listings say nothing');
-  assert.equal(only({ style: 'joglo', joglo: true }), 17, 'flag and style both count');
+  assert.equal(only({ style: 'joglo', joglo: true }), 26, 'flag and style both count');
+  // price (2026-09-27): full across 50–70 M/month, ramps to nothing at 30 M and at 80 M
+  assert.equal(only({ price_month_idr: 50_000_000 }), 10);
+  assert.equal(only({ price_month_idr: 60_000_000 }), 10);
+  assert.equal(only({ price_month_idr: 70_000_000 }), 10);
+  assert.equal(only({ price_month_idr: 40_000_000 }), 5, 'halfway up the 30–50 M ramp');
+  assert.equal(only({ price_month_idr: 75_000_000 }), 5, 'halfway down the 70–80 M ramp');
+  assert.equal(only({ price_month_idr: 30_000_000 }), 0);
+  assert.equal(only({ price_month_idr: 80_000_000 }), 0);
+  assert.equal(only({ price_month_idr: null }), 5, 'unknown → half');
   // furniture
-  assert.equal(only({ furnished: 1, furniture_quality: 3 }), 8);
-  assert.equal(only({ furnished: 1, furniture_quality: 5 }), 8);
+  assert.equal(only({ furnished: 1, furniture_quality: 3 }), 3);
+  assert.equal(only({ furnished: 1, furniture_quality: 5 }), 3);
   assert.equal(only({ furnished: 1, furniture_quality: 2 }), 0);
-  assert.equal(only({ furnished: 1, furniture_quality: null }), 4, 'furnished, quality unknown → half');
-  assert.equal(only({ furnished: null }), 4, 'unknown whether furnished → half');
+  assert.equal(only({ furnished: 1, furniture_quality: null }), 1, 'furnished, quality unknown → half');
+  assert.equal(only({ furnished: null }), 1, 'unknown whether furnished → half');
   assert.equal(only({ furnished: 0 }), 0);
   // beach (soft filter)
-  assert.equal(only({ beach_km: 0.8 }), 10);
-  assert.equal(only({ beach_km: 4.5 }), 5, 'midpoint of the 1–8 km ramp');
-  assert.equal(only({ beach_km: null }), 5, 'unknown → half');
+  assert.equal(only({ beach_km: 0.8 }), 8);
+  assert.equal(only({ beach_km: 4.5 }), 4, 'midpoint of the 1–8 km ramp');
+  assert.equal(only({ beach_km: null }), 4, 'unknown → half');
 });
 
 test('fitScore — accepts 1/0 as well as true/false (SQLite integers)', () => {
@@ -208,17 +221,17 @@ test('fitScore — accepts 1/0 as well as true/false (SQLite integers)', () => {
 test('fitScore — custom weights', () => {
   const w = { ...DEFAULT_WEIGHTS, pool: 20 };
   assert.equal(fitScore(perfect(), w), 100, 'clamped at 100');
-  const poolOnly = { pool: true, living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0, beach_km: 9, land_m2: 100 };
+  const poolOnly = { pool: true, living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0, beach_km: 9, land_m2: 100, price_month_idr: 25_000_000 };
   assert.equal(fitPoints(poolOnly, w), 20);
-  assert.equal(fitScore(poolOnly, w), 14, '20 of 146');
+  assert.equal(fitScore(poolOnly, w), 14, '20 of 142');
 });
 
 test('fitScore — a low-priority pocket costs 10 points', () => {
   const row = { ...perfect(), sub_area: 'Tumbak Bayuh' };
-  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, []), 136);
-  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 126);
-  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['Buduk']), 136);
-  assert.equal(fitScore(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 93);
+  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, []), 128);
+  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 118);
+  assert.equal(fitPoints(row, DEFAULT_WEIGHTS, ['Buduk']), 128);
+  assert.equal(fitScore(row, DEFAULT_WEIGHTS, ['tumbak bayuh']), 92);
   // clamped at 0
   assert.equal(fitScore({ ...base(), sub_area: 'Tumbak Bayuh', living_open: false, airy: false, kitchen_full: false, aircon: false, furnished: 0, beach_km: 9, land_m2: 100 }, DEFAULT_WEIGHTS, ['Tumbak']), 0);
 });
@@ -270,9 +283,9 @@ test('scoreRow — the flag rule', () => {
   // a rejected listing never flags
   assert.equal(scoreRow({ ...perfect(), status: 'rejected' }, DEFAULT_CONFIG).flagged, 0);
   // exactly on the threshold flags
-  const onThreshold = { ...perfect(), joglo: false, workspace: false, garden: false, view: 'none', aircon: false };
-  assert.equal(fitPoints(onThreshold, DEFAULT_WEIGHTS), 89);
-  assert.equal(fitScore(onThreshold, DEFAULT_WEIGHTS), 65, '89 of 136 rounds to 65');
+  const onThreshold = { ...perfect(), joglo: false, garden: false, aircon: false, living_open: false, workspace: false, furnished: 0 };
+  assert.equal(fitPoints(onThreshold, DEFAULT_WEIGHTS), 83);
+  assert.equal(fitScore(onThreshold, DEFAULT_WEIGHTS), 65, '83 of 128 rounds to 65');
   assert.equal(scoreRow(onThreshold, DEFAULT_CONFIG).flagged, 1);
 });
 
@@ -310,7 +323,7 @@ test('scoreRow — the source row is not mutated', () => {
 
 test('scoreRow — a custom config threshold and budget are honoured', () => {
   const cfg = { ...DEFAULT_CONFIG, flag_threshold: 95, budget_max: 70_000_000 };
-  assert.equal(scoreRow({ ...perfect(), joglo: false, workspace: false }, cfg).flagged, 0, 'fit 89 < 95');
+  assert.equal(scoreRow({ ...perfect(), joglo: false, workspace: false }, cfg).flagged, 0, 'fit 87 < 95');
   const wider = scoreRow({ ...perfect(), price_month_idr: 60_000_000 }, cfg);
   assert.deepEqual(wider.red_flags, [], 'inside the widened budget');
   assert.equal(wider.scope, 'in_filter');
@@ -326,6 +339,22 @@ test('landFactor — nothing at 200 m², full at 500 m², half when unknown', ()
   assert.equal(landFactor(undefined), 0.5);
   assert.equal(landFactor(0), 0.5, 'scrapers write 0 for "not stated"');
   assert.equal(landFactor('abc'), 0.5);
+});
+
+test('priceFactor — nothing to 30 M, full 50–70 M, nothing from 80 M, half when unknown', () => {
+  assert.equal(priceFactor(20_000_000), 0);
+  assert.equal(priceFactor(30_000_000), 0);
+  assert.equal(priceFactor(40_000_000), 0.5);
+  assert.equal(priceFactor(50_000_000), 1);
+  assert.equal(priceFactor(65_000_000), 1);
+  assert.equal(priceFactor(70_000_000), 1);
+  assert.equal(priceFactor(75_000_000), 0.5);
+  assert.equal(priceFactor(80_000_000), 0);
+  assert.equal(priceFactor(95_000_000), 0);
+  assert.equal(priceFactor(null), 0.5);
+  assert.equal(priceFactor(0), 0.5, 'a scraped 0 means unknown');
+  // the ramp ranks, it never excludes: a 25 M villa with everything else stays in filter
+  assert.equal(scoreRow({ ...perfect(), price_month_idr: 25_000_000 }, DEFAULT_CONFIG).scope, 'in_filter');
 });
 
 test('beachFactor — soft beach filter: full at <= 1 km, zero at 8 km, half when unknown', () => {

@@ -1,19 +1,23 @@
 // SPEC §2 — the brief. Seeded into the `config` table on first boot; editable from the Agent page.
 
+// Retuned 2026-09-27 from Philipp's and Abigaïl's 1,926 verdicts (SPEC §2): what their
+// yes/maybes share gained (joglo, style, land, garden, kitchen, aircon, price), what showed
+// no signal at all lost (beach distance, open living, furniture, workspace).
 export const DEFAULT_WEIGHTS = {
-  living_open: 15,
-  airy: 12,
-  pool: 12,
-  garden: 10,
+  living_open: 3,
+  airy: 7,
+  pool: 6,
+  garden: 12,
   view: 14,
-  land: 12,
-  style: 10,
-  beach: 10,
-  kitchen_full: 10,
-  aircon: 8,
-  furniture: 8,
-  workspace: 8,
-  joglo: 7,
+  land: 14,
+  style: 12,
+  price: 10,
+  beach: 8,
+  kitchen_full: 12,
+  aircon: 10,
+  furniture: 3,
+  workspace: 3,
+  joglo: 14,
 };
 
 export const WEIGHT_KEYS = Object.keys(DEFAULT_WEIGHTS);

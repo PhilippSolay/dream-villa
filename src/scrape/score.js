@@ -10,9 +10,11 @@ const isUnknown = (v) => v === null || v === undefined;
 /** SPEC's table rounds 15/2 down to 7, 12/2 to 6, 10/2 to 5, 8/2 to 4 — i.e. floor. */
 const half = (w) => Math.floor(w / 2);
 
-/** view worth 70 % of the weight (SPEC: 10 → 7). */
-const VIEW_PARTIAL = 0.7;
-const PARTIAL_VIEWS = new Set(['rice', 'river', 'jungle']);
+/**
+ * view: the share of the weight each view earns. River first, ocean well down (2026-09-27:
+ * river views drew a yes/maybe on 55 % of Philipp's calls, ocean views on 2 %).
+ */
+const VIEW_SHARE = { river: 1, rice: 0.8, ocean: 0.5, jungle: 0.3 };
 const LOW_PRIORITY_PENALTY = 10;
 const BEACH_FULL_KM = 1;
 
@@ -23,6 +25,11 @@ const LAND_FULL_M2 = 500;
 const STYLE_FULL = new Set(['joglo', 'bamboo']);
 const STYLE_PARTIAL = new Set(['tropical']);
 const STYLE_PARTIAL_SHARE = 0.7;
+/** price: full in the 50–70 M/month band their yes/maybes sit in, none at ≤ 30 M or ≥ 80 M (2026-09-27). */
+const PRICE_ZERO_LOW = 30_000_000;
+const PRICE_FULL_LOW = 50_000_000;
+const PRICE_FULL_HIGH = 70_000_000;
+const PRICE_ZERO_HIGH = 80_000_000;
 
 function asArray(redFlags) {
   if (Array.isArray(redFlags)) return [...redFlags];
@@ -115,9 +122,23 @@ export function landFactor(landM2) {
 }
 
 /**
+ * Price factor 0..1: none at ≤ 30 M/month, rising to full at 50 M, full to 70 M, back to none
+ * at ≥ 80 M; unknown → 0.5. Price stays a hard filter too (the budget); this only ranks.
+ */
+export function priceFactor(priceMonthIdr) {
+  if (priceMonthIdr == null || !Number.isFinite(Number(priceMonthIdr)) || Number(priceMonthIdr) <= 0) return 0.5;
+  const p = Number(priceMonthIdr);
+  if (p <= PRICE_ZERO_LOW || p >= PRICE_ZERO_HIGH) return 0;
+  if (p < PRICE_FULL_LOW) return (p - PRICE_ZERO_LOW) / (PRICE_FULL_LOW - PRICE_ZERO_LOW);
+  if (p <= PRICE_FULL_HIGH) return 1;
+  return (PRICE_ZERO_HIGH - p) / (PRICE_ZERO_HIGH - PRICE_FULL_HIGH);
+}
+
+/**
  * SPEC §2 fit score, 0–100, normalised to the sum of the weights so edited weights stay on
- * a 0–100 scale. With default weights: all features true + ocean view + furniture quality 3
- * + beach ≤ 1 km + land ≥ 500 m² + joglo/bamboo style = 100; everything unknown = 27.
+ * a 0–100 scale. With default weights: all features true + river view + furniture quality 3
+ * + beach ≤ 1 km + land ≥ 500 m² + joglo/bamboo style + 50–70 M/month = 100; everything
+ * unknown = 25.
  */
 export function fitScore(
   row,
@@ -156,12 +177,14 @@ export function fitPoints(
     if (isTrue(r[key])) score += w[key];
   }
 
-  // view: ocean → full, rice/river/jungle → 70 %, none/unknown → 0
-  if (r.view === 'ocean') score += w.view;
-  else if (PARTIAL_VIEWS.has(r.view)) score += Math.round(w.view * VIEW_PARTIAL);
+  // view: river → full, rice → 80 %, ocean → 50 %, jungle → 30 %, none/unknown → 0
+  score += Math.round(w.view * (VIEW_SHARE[r.view] || 0));
 
   // land: ≥ 500 m² → full, ≤ 200 m² → 0, linear between; unknown → half
   score += Math.floor(w.land * landFactor(r.land_m2));
+
+  // price: 50–70 M/month → full, ramps to 0 at ≤ 30 M and ≥ 80 M; unknown → half
+  score += Math.floor(w.price * priceFactor(r.price_month_idr));
 
   // style: joglo / bamboo → full, tropical → 70 %, modern / other / unknown → 0
   if (STYLE_FULL.has(r.style)) score += w.style;
@@ -254,4 +277,4 @@ export function scoreRow(row, config = DEFAULT_CONFIG) {
   return { scope, fit_score, flagged, red_flags, reasons: reasonsFor(r) };
 }
 
-export default { inBand, hardFilters, scopeFrom, beachFactor, landFactor, fitPoints, fitScore, reasonsFor, scoreRow };
+export default { inBand, hardFilters, scopeFrom, beachFactor, landFactor, priceFactor, fitPoints, fitScore, reasonsFor, scoreRow };

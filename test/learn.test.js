@@ -24,8 +24,8 @@ function cleanup({ db, dir }) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-/** A property that clears the hard filters (in_filter) and scores ~100 with default
- *  weights: every boolean feature true, ocean view, furnished quality 3, beach <= 1km. */
+/** A property that clears the hard filters (in_filter) and scores well above the flag line
+ *  with default weights: every boolean feature true, ocean view, furnished quality 3, beach <= 1km. */
 function strongRow(overrides = {}) {
   return {
     key: 'bhi:RF1', ref: 'RF1', source: 'bhi', url: 'https://bali-home-immo.com/x-rf1',
@@ -94,18 +94,18 @@ test('runLearn: negative feedback raises living_open by 2, notes quiet, flags th
   rescoreAll(db);
 
   const before = getConfig(db).weights.living_open;
-  assert.equal(before, 15);
+  assert.equal(before, 3);
 
   insertFeedback(db, { property_id: propertyId, text: 'very noisy road and the living room was cramped' });
 
   const result = await runLearn(db, { now: '2026-09-17T07:00:00.000Z' });
 
   assert.equal(result.feedback_applied, 1);
-  assert.equal(getConfig(db).weights.living_open, 17);
+  assert.equal(getConfig(db).weights.living_open, 5);
   const change = result.weight_changes.find((c) => c.feature === 'living_open');
   assert.ok(change, 'living_open weight_change recorded');
-  assert.equal(change.from, 15);
-  assert.equal(change.to, 17);
+  assert.equal(change.from, 3);
+  assert.equal(change.to, 5);
 
   const feedbackRow = db.prepare('SELECT * FROM feedback WHERE property_id = ?').get(propertyId);
   assert.equal(feedbackRow.applied, 1);
@@ -133,10 +133,10 @@ test('runLearn: positive feedback raises garden by 1', async () => {
   insertFeedback(db, { property_id: propertyId, text: 'loved the garden' });
   const result = await runLearn(db);
 
-  assert.equal(getConfig(db).weights.garden, 11);
+  assert.equal(getConfig(db).weights.garden, 13);
   const change = result.weight_changes.find((c) => c.feature === 'garden');
-  assert.equal(change.from, 10);
-  assert.equal(change.to, 11);
+  assert.equal(change.from, 12);
+  assert.equal(change.to, 13);
 
   cleanup(ctx);
 });

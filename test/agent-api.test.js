@@ -410,7 +410,7 @@ test('weights: valid set rescoring, missing keys keep current, invalid key/value
   const learnRun = db.prepare("SELECT * FROM runs WHERE kind = 'learn' ORDER BY id DESC LIMIT 1").get();
   assert.ok(learnRun, 'a learn run was written');
   const changes = JSON.parse(learnRun.weight_changes);
-  assert.deepEqual(changes, [{ feature: 'pool', from: 12, to: 20, because: 'agent' }]);
+  assert.deepEqual(changes, [{ feature: 'pool', from: 6, to: 20, because: 'agent' }]);
 
   const badKey = encodeURIComponent(JSON.stringify({ not_a_feature: 5 }));
   const badKeyRes = await app.inject({ method: 'GET', url: `/api/agent/weights?token=t-agent&set=${badKey}` });

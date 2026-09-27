@@ -17,6 +17,7 @@ const WEIGHT_LABELS = {
   view: 'View',
   land: 'Land size',
   style: 'Style (joglo, bamboo, tropical)',
+  price: 'Price (50–70 M sweet spot)',
   beach: 'Beach distance',
   kitchen_full: 'Full kitchen',
   aircon: 'Aircon',

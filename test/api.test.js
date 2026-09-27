@@ -39,8 +39,8 @@ const SEED = [
     key: 'bhi:A', ref: 'RFA', source: 'bhi', url: 'https://bhi.test/a', title: 'Ocean View Villa in Cemagi',
     description: 'Bright open living with a pool', area: 'cemagi', sub_area: 'Beach Side',
     beach_km: 0.9, beach_source: 'computed', bedrooms: 2, extra_rooms: 0, price_month_idr: 40_000_000,
-    term: 'monthly', furnished: 1, style: 'modern', pool: 1, garden: 1, view: 'ocean', joglo: 0,
-    aircon: 1, kitchen_full: 1, living_open: 1, airy: 1, status: 'new', land_m2: 150, build_m2: 120,
+    term: 'monthly', furnished: 1, furniture_quality: 4, style: 'tropical', pool: 1, garden: 1, view: 'ocean', joglo: 0,
+    aircon: 1, kitchen_full: 1, living_open: 1, airy: 1, workspace: 1, status: 'new', land_m2: 150, build_m2: 120,
     images: [{ src_url: 'https://bhi.test/a1.jpg' }], availability: 'available',
   },
   {
@@ -932,7 +932,7 @@ test('config: GET returns the whole brief', async (t) => {
   const { call } = await setup(t);
   const cfg = (await call({ method: 'GET', url: '/api/config' })).json();
   assert.equal(cfg.flag_threshold, 65);
-  assert.equal(cfg.weights.living_open, 15);
+  assert.equal(cfg.weights.living_open, 3);
   assert.equal(cfg.budget_min, 20_000_000);
   assert.equal(cfg.beach_km_max, 4);
   assert.ok(Array.isArray(cfg.areas));
@@ -946,8 +946,8 @@ test('config: PATCH weights rescores and logs a learn run', async (t) => {
   const res = await call({ method: 'PATCH', url: '/api/config', payload: { weights: { pool: 20 } } });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().weights.pool, 20);
-  assert.equal(res.json().weights.living_open, 15, 'untouched weights stay');
-  assert.deepEqual(res.json().weight_changes, [{ feature: 'pool', from: 12, to: 20, because: 'edited by Philipp' }]);
+  assert.equal(res.json().weights.living_open, 3, 'untouched weights stay');
+  assert.deepEqual(res.json().weight_changes, [{ feature: 'pool', from: 6, to: 20, because: 'edited by Philipp' }]);
 
   const after = (await call({ method: 'GET', url: `/api/properties/${ids.A}` })).json().fit_score;
   assert.notEqual(after, before, 'every row is rescored');

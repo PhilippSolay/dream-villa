@@ -40,7 +40,7 @@ test('config is seeded from DEFAULT_CONFIG and parsed back to real types', () =>
   const db = openDb(tmpDbPath());
   const cfg = getConfig(db);
   assert.equal(typeof cfg.weights, 'object');
-  assert.equal(cfg.weights.living_open, 15);
+  assert.equal(cfg.weights.living_open, 3);
   assert.equal(cfg.flag_threshold, 65);
   assert.equal(cfg.budget_min, 20_000_000);
   assert.equal(cfg.budget_max, 80_000_000);
@@ -60,8 +60,9 @@ test('setConfig round-trips objects and scalars', () => {
   const cfg = getConfig(db);
   assert.equal(cfg.flag_threshold, 70);
   assert.equal(cfg.weights.pool, 20);
-  assert.equal(cfg.weights.land, 12, 'a weight missing from the stored object reads as its default');
-  assert.equal(cfg.weights.style, 10);
+  assert.equal(cfg.weights.land, 14, 'a weight missing from the stored object reads as its default');
+  assert.equal(cfg.weights.style, 12);
+  assert.equal(cfg.weights.price, 10);
   assert.equal(Object.keys(cfg.weights).length, Object.keys(DEFAULT_WEIGHTS).length);
   db.close();
 });

@@ -42,8 +42,8 @@ const base = (k, extra) => ({
   status: 'new', availability: 'available', lat: -8.64, lng: 115.12, ...extra,
 });
 const featured = {
-  beach_km: 0.9, furnished: 1, style: 'modern', garden: 1, view: 'ocean', aircon: 1, kitchen_full: 1,
-  living_open: 1, airy: 1, land_m2: 150, build_m2: 120,
+  beach_km: 0.9, furnished: 1, furniture_quality: 4, style: 'tropical', garden: 1, view: 'ocean', aircon: 1, kitchen_full: 1,
+  living_open: 1, airy: 1, workspace: 1, land_m2: 150, build_m2: 120,
 };
 const SEED = [
   base('A', featured),

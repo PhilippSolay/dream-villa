@@ -26,23 +26,26 @@ Philipp and Abigaïl are moving from Singakerta (too noisy) to a quiet villa nea
 
 | feature | pts | source field | rule |
 |---|---|---|---|
-| big open living room | 15 | `living_open` (bool) / text | true → 15; unknown → 7 |
-| airy / light | 12 | `airy` | true → 12; unknown → 6 |
-| pool | 12 | `pool` | true → 12 |
-| garden | 10 | `garden` | true → 10 |
-| view | 14 | `view` | ocean → 14, rice/river/jungle → 10 (70 %), none/unknown → 0 |
-| land | 12 | `land_m2` | ≥ 500 m² → 12, linear down to 0 at ≤ 200 m²; unknown or 0 → 6 |
-| style | 10 | `style` | joglo/bamboo → 10, tropical → 7, modern/other/unknown → 0 (on top of the `joglo` flag) |
-| beach | 10 | `beach_km` | ≤ 1 km → 10, linear to 0 at 2 × `beach_km_max` (8 km); unknown → 5 |
-| full kitchen | 10 | `kitchen_full` | true → 10; unknown → 5 |
-| aircon | 8 | `aircon` | true → 8; unknown → 4 |
-| nice furniture | 8 | `furnished` + `furniture_quality` | furnished & quality≥3 → 8; furnished unknown quality → 4; unfurnished → 0 |
-| work space / shala | 8 | `workspace` | true → 8 |
-| joglo | 7 | `joglo` | true → 7 |
+| big open living room | 3 | `living_open` (bool) / text | true → 3; unknown → 1 |
+| airy / light | 7 | `airy` | true → 7; unknown → 3 |
+| pool | 6 | `pool` | true → 6 |
+| garden | 12 | `garden` | true → 12 |
+| view | 14 | `view` | river → 14, rice → 11 (80 %), ocean → 7 (50 %), jungle → 4 (30 %), none/unknown → 0 |
+| land | 14 | `land_m2` | ≥ 500 m² → 14, linear down to 0 at ≤ 200 m²; unknown or 0 → 7 |
+| style | 12 | `style` | joglo/bamboo → 12, tropical → 8, modern/other/unknown → 0 (on top of the `joglo` flag) |
+| price | 10 | `price_month_idr` | 50–70 M → 10, linear to 0 at ≤ 30 M and at ≥ 80 M; unknown → 5 |
+| beach | 8 | `beach_km` | ≤ 1 km → 8, linear to 0 at 2 × `beach_km_max` (8 km); unknown → 4 |
+| full kitchen | 12 | `kitchen_full` | true → 12; unknown → 6 |
+| aircon | 10 | `aircon` | true → 10; unknown → 5 |
+| nice furniture | 3 | `furnished` + `furniture_quality` | furnished & quality≥3 → 3; furnished unknown quality → 1; unfurnished → 0 |
+| work space / shala | 3 | `workspace` | true → 3 |
+| joglo | 14 | `joglo` | true → 14 |
 
-Weights live in `config.weights` (JSON) and are editable in the Agent page; the scraper re-scores everything after a weight change. The score is normalised to the sum of the weights (`round(100 × points / Σweights)`), so edited weights keep the 0–100 scale; with the defaults above (Σ = 136) everything-true + ocean + beach ≤ 1 km + land ≥ 500 m² + joglo style = 100, everything unknown = 27.
+Weights live in `config.weights` (JSON) and are editable in the Agent page; the scraper re-scores everything after a weight change. The score is normalised to the sum of the weights (`round(100 × points / Σweights)`), so edited weights keep the 0–100 scale; with the defaults above (Σ = 128) everything-true + river view + beach ≤ 1 km + land ≥ 500 m² + joglo style + 50–70 M = 100, everything unknown = 25.
 
-`view`, `land` and `style` were raised/added on 2026-09-20 from Philipp's first 748 verdicts: his maybes sit on 300 m²+ plots (22 % maybe rate vs 4 % below), are joglo / bamboo / tropical (47 % for joglo vs 6 % modern) and look onto river, jungle or rice; price correlated positively, so it stays a filter, not a score.
+`view`, `land` and `style` were raised/added on 2026-09-20 from Philipp's first 748 verdicts: his maybes sit on 300 m²+ plots (22 % maybe rate vs 4 % below), are joglo / bamboo / tropical (47 % for joglo vs 6 % modern) and look onto river, jungle or rice.
+
+**Retuned 2026-09-27** from 1,926 verdicts (Philipp 1,619: 8 yes, 85 maybe; Abigaïl 307: 13 yes, 24 maybe; the two agree on 281 of the 303 villas both called). Share of calls that were a yes/maybe, Philipp / Abigaïl: river view 55 % / 50 %, joglo 25 % / 45 %, land 300–500 m² 11–20 % / 50–60 %, 50–70 M 14 % / 13–37 % against 2 % / 10 % at 20–30 M and 1 of 59 above 70 M; ocean view 2 % for Philipp. Beach distance (6 % at every distance), open living, furniture and workspace carried no signal. So the view table puts river first and ocean at half; `price` joins the score and **supersedes the 2026-09-20 line "price stays a filter, not a score"**: the budget is still the hard filter, the ramp only ranks inside it. Replayed on the verdicts, the ranking's AUC went 0.70 → 0.76 (Philipp) and 0.73 → 0.76 (Abigaïl), and the top tenth of Philipp's called villas holds 35 of his 92 yes/maybes instead of 28. With the threshold at 65 the live pool features 75 villas instead of 86.
 
 **Flag** (`flagged = 1`): `scope = in_filter AND fit_score >= config.flag_threshold (65) AND red_flags = [] AND status != 'rejected'`. A flagged villa with `assessed = 'not_yet'` renders as "strong fit, unverified".
 
