@@ -107,12 +107,32 @@ function renderHeader() {
 
 // --- views -----------------------------------------------------------------
 
+// A tab opened before a deploy keeps running the old build, and the server only serves the
+// current /v/<hash>/ files: the old build's first visit to a view it has not loaded yet
+// 404s, and the page stays blank (2026-09-27: "detail pages dont load"). Reload once into
+// the current build instead. At most once a minute, and never without sessionStorage to
+// remember it by, so a view that is genuinely broken cannot loop.
+const STALE_RELOAD_KEY = 'villa.staleReloadAt';
+function reloadIntoCurrentBuild(err) {
+  try {
+    if (Date.now() - (Number(sessionStorage.getItem(STALE_RELOAD_KEY)) || 0) < 60_000) return false;
+    sessionStorage.setItem(STALE_RELOAD_KEY, String(Date.now()));
+  } catch {
+    return false;
+  }
+  console.warn('a view failed to load — reloading into the current build', err);
+  location.reload();
+  return true;
+}
+const NOTHING = () => () => {};
+
 /** market.js and map.js are written by another agent — degrade instead of crashing. */
 async function loadOptional(path, name, message) {
   try {
     const mod = await import(path);
     if (typeof mod[name] === 'function') return mod[name];
   } catch (err) {
+    if (reloadIntoCurrentBuild(err)) return NOTHING;
     console.warn(`${path} is not available yet`, err);
   }
   return (el) => {
@@ -148,7 +168,13 @@ const router = createRouter({
   outlet: $('#view'),
   onRoute: (route) => renderTabs(route.name),
   load: async (name) => {
-    const mount = await VIEWS[name]();
+    let mount;
+    try {
+      mount = await VIEWS[name]();
+    } catch (err) {
+      if (reloadIntoCurrentBuild(err)) return NOTHING;
+      throw err;
+    }
     return async (el, routeCtx) => {
       const state = store.get();
       if (!state.user && name !== 'login') {
