@@ -173,6 +173,43 @@ test('list: X-Total-Count is the full match count, limit/offset page through it'
   assert.equal(filtered.headers['x-total-count'], String(filtered.json().length), 'total follows the filters');
 });
 
+test('prices: every monthly price under the same filters as the list', async (t) => {
+  const { call } = await setup(t);
+  const res = await call({ method: 'GET', url: '/api/properties/prices' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().sort(), [30_000_000, 35_000_000, 40_000_000], 'A, B, F: in_filter, live, not rejected');
+
+  const cemagi = await call({ method: 'GET', url: '/api/properties/prices?area=cemagi' });
+  assert.deepEqual(cemagi.json().sort(), [35_000_000, 40_000_000]);
+
+  const paged = await call({ method: 'GET', url: '/api/properties/prices?limit=1&sort=price' });
+  assert.equal(paged.json().length, 3, 'no paging: a limit or sort is dropped, the histogram sees the whole search');
+});
+
+test('prices: past the list ceiling, the dear end is still counted (histogram regression)', async (t) => {
+  const { db, call } = await setup(t);
+  // 520 cheap listings: a price-sorted page of 500 would hold none of the dear ones.
+  const insert = db.transaction(() => {
+    for (let i = 0; i < 520; i++) {
+      upsertProperty(
+        db,
+        { key: `bulk:${i}`, source: 'bulk', url: `https://bulk.test/${i}`, title: `Bulk ${i}`, area: 'cemagi',
+          bedrooms: 2, price_month_idr: 20_000_000, term: 'monthly', status: 'new', availability: 'available' },
+        { now: '2026-09-10T00:00:00.000Z' }
+      );
+    }
+  });
+  insert();
+  // What Home used to draw from: the list's own search, capped and sorted by price.
+  const page = await call({ method: 'GET', url: '/api/properties?scope=all&sort=price&limit=500' });
+  assert.ok(!page.json().some((r) => r.price_month_idr === 60_000_000), 'the capped page never reaches 60 M');
+
+  const res = await call({ method: 'GET', url: '/api/properties/prices?scope=all' });
+  const prices = res.json();
+  assert.equal(prices.length, 524, '520 bulk + A, B, D, F (C rejected, E gone)');
+  assert.ok(prices.includes(60_000_000), 'the dearest listing is in the histogram');
+});
+
 test('list: sort=size puts the biggest build first, unmeasured last', async (t) => {
   const { call } = await setup(t);
   const res = await call({ method: 'GET', url: '/api/properties?scope=all&status=all&hide_gone=0&sort=size' });
@@ -306,6 +343,30 @@ test('list: rows carry the card, not the gallery or the text — detail still ha
   const detail = (await call({ method: 'GET', url: `/api/properties/${ids.A}` })).json();
   assert.equal(detail.description, 'Bright open living with a pool');
   assert.deepEqual(detail.image_urls, ['https://bhi.test/a1.jpg']);
+});
+
+test('photos: a card counts its photos, and the photos route hands over just the gallery', async (t) => {
+  const { db, call, ids } = await setup(t);
+  const images = [
+    { src_url: 'https://bhi.test/d1.jpg', file: `${ids.D}/1.jpg` },
+    { src_url: 'https://bhi.test/d2.jpg', dead: true }, // images-audit.js gave up: never shown, never counted
+    { src_url: 'https://bhi.test/d3.jpg' },
+  ];
+  db.prepare('UPDATE properties SET images = ? WHERE id = ?').run(JSON.stringify(images), ids.D);
+
+  const rows = (await call({ method: 'GET', url: '/api/properties?scope=all&status=all' })).json();
+  const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+  assert.equal(byKey['bhi:D'].photo_count, 2);
+  assert.equal(byKey['bhi:A'].photo_count, 1);
+  assert.equal(byKey['bhi:B'].photo_count, 0, 'no images at all');
+
+  const res = await call({ method: 'GET', url: `/api/properties/${ids.D}/photos` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), {
+    hero_url: `/images/${ids.D}/1.jpg`,
+    image_urls: [`/images/${ids.D}/1.jpg`, 'https://bhi.test/d3.jpg'],
+  });
+  assert.equal((await call({ method: 'GET', url: '/api/properties/999999/photos' })).statusCode, 404);
 });
 
 test('list: term, furnished and source filters', async (t) => {
@@ -836,6 +897,31 @@ test('market: per-area percentiles, feature premium and shortlist deltas', async
   assert.ok(Math.abs(s.delta_pct - 14.3) < 0.1, `delta ${s.delta_pct}`);
 
   assert.deepEqual(m.counts, { in_filter: 5, market: 1, flagged: 1, shortlist: 1, gone: 1 });
+});
+
+test('market: region narrows the prices, the shortlist and the counts to that region', async (t) => {
+  const { call, ids } = await setup(t);
+  await call({ method: 'POST', url: `/api/properties/${ids.A}/status`, payload: { status: 'shortlist' } });
+
+  const south = (await call({ method: 'GET', url: '/api/market?region=south' })).json();
+  assert.deepEqual(south.by_area.map((a) => a.area), ['uluwatu']);
+  assert.deepEqual(south.by_bedrooms.map((b) => b.bedrooms), [4]);
+  assert.deepEqual(south.shortlist_vs_median, [], 'the shortlisted villa is on the west coast');
+  assert.equal(south.counts.in_filter + south.counts.market, 1);
+  assert.equal(south.counts.shortlist, 0);
+  assert.equal(south.counts.gone, 0);
+
+  const west = (await call({ method: 'GET', url: '/api/market?region=west_coast' })).json();
+  assert.deepEqual(west.by_area.map((a) => a.area).sort(), ['cemagi', 'pererenan', 'seseh']);
+  assert.equal(west.shortlist_vs_median.length, 1);
+  assert.equal(west.counts.shortlist, 1);
+  assert.equal(west.counts.gone, 1); // munggu
+
+  const center = (await call({ method: 'GET', url: '/api/market?region=center' })).json();
+  assert.deepEqual(center.by_area, []);
+  assert.deepEqual(center.counts, { in_filter: 0, market: 0, flagged: 0, shortlist: 0, gone: 0 });
+
+  assert.equal((await call({ method: 'GET', url: '/api/market?region=bukit' })).statusCode, 400);
 });
 
 // ---------------------------------------------------------------------------

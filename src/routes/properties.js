@@ -160,17 +160,19 @@ export function publicRow(row) {
  * A list row: publicRow minus the photo array and the description. Cards, the map and the
  * pager read hero_url and the facts; the gallery and the text come from the detail route.
  * Together the two were ~3.4 of a row's ~5 KB, and Home asks for up to 500 rows four times.
+ * `photo_count` is all a card needs to decide on its arrows; the URLs come from
+ * `/api/properties/:id/photos` on the first tap.
  */
 export function cardRow(row) {
   const { images, description, ...card } = publicRow(row);
-  return card;
+  return { ...card, photo_count: imageUrls({ images }).length };
 }
 
 // --- shared search: per-person verdicts -------------------------------------
 
 export const PERSON_VERDICTS = ['yes', 'maybe', 'no']; // (VERDICTS above belongs to viewings)
 /** List filters, all relative to the person asking (`request.user.id`). */
-export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'yes', 'maybe', 'no', 'unvoted'];
+export const VERDICT_FILTERS = ['match', 'waiting_other', 'waiting_me', 'disagree', 'yes', 'maybe', 'no', 'not_no', 'unvoted'];
 /** `my_verdict=`: the caller's own call, or 'none' for listings they have not called. */
 export const MY_VERDICT_FILTERS = [...PERSON_VERDICTS, 'none'];
 
@@ -306,6 +308,8 @@ function verdictWhere(filter, user) {
     yes: `(${mine} = 'yes' OR ${other} = 'yes')`,
     maybe: `(${mine} = 'maybe' OR ${other} = 'maybe')`,
     no: `(${mine} = 'no' OR ${other} = 'no')`,
+    // "Exclude No": the exact complement of `no` — neither of you ruled it out, uncalled included.
+    not_no: `COALESCE(${mine}, '') != 'no' AND COALESCE(${other}, '') != 'no'`,
     unvoted: `${mine} IS NULL AND ${other} IS NULL`,
   }[filter];
   const count = (sql.match(/\?/g) || []).length;
@@ -395,6 +399,10 @@ const listQuerySchema = {
     offset: { type: 'integer', minimum: 0 },
   },
 };
+
+// The price histogram's search: the list's filters, without the page or the order.
+const { sort: _sort, limit: _limit, offset: _offset, ...priceFilterProps } = listQuerySchema.properties;
+const priceQuerySchema = { ...listQuerySchema, properties: priceFilterProps };
 
 /** @returns {{where:string[], params:any[]} | {error:string}} */
 function buildListWhere(query) {
@@ -659,19 +667,15 @@ export default async function propertiesRoutes(app, opts) {
   await app.register(multipart, { limits: { files: MAX_FILES, fileSize: MAX_FILE_BYTES } });
 
   // --- list ---------------------------------------------------------------
-  app.get('/api/properties', { ...auth, schema: { querystring: listQuerySchema } }, async (request, reply) => {
+  /**
+   * The caller's filtered search as SQL pieces, shared by the list and the price
+   * histogram so both always count the same listings. Replies 400/404 itself and
+   * returns null when the query cannot run.
+   */
+  function listSearch(request, reply) {
     const query = request.query || {};
     const built = buildListWhere(query);
-    if (built.error) return badRequest(reply, built.error);
-
-    const limit = query.limit ?? 200;
-    const offset = query.offset ?? 0;
-    // `removed=show` sorts live listings first, removed ones after, then the chosen sort
-    // within each group (SPEC filter drawer "Removed"). Only the explicit new param
-    // triggers this: `hide_gone=0` keeps its old, purely-a-filter behaviour so an
-    // existing integration's sort order is not silently rearranged underneath it.
-    const removedSecondary = query.removed === 'show' ? `CASE WHEN ${REMOVED_SQL} THEN 1 ELSE 0 END, ` : '';
-    const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
+    if (built.error) return void badRequest(reply, built.error);
     if (query.verdict) {
       const v = verdictWhere(query.verdict, request.user);
       built.where.push(v.sql);
@@ -683,10 +687,10 @@ export default async function propertiesRoutes(app, opts) {
       built.params.push(...v.params);
     }
     if (query.anchor !== undefined) {
-      if (query.anchor_km === undefined) return badRequest(reply, 'anchor needs anchor_km');
+      if (query.anchor_km === undefined) return void badRequest(reply, 'anchor needs anchor_km');
       // Another team's place is not there to filter by: the same 404 as an id that never was.
       const anchor = db.prepare(`SELECT * FROM anchors WHERE id = ? AND ${sameTeamSql(request.user)}`).get(query.anchor);
-      if (!anchor) return notFound(reply);
+      if (!anchor) return void notFound(reply);
       const a = anchorWhere(anchor, query.anchor_km);
       built.where.push(a.sql);
       built.params.push(...a.params);
@@ -695,13 +699,30 @@ export default async function propertiesRoutes(app, opts) {
     // Aliased `properties`, so every fragment above (and `properties.id` in the verdict
     // subqueries) reads the caller's team's status, assessed and flag.
     const from = `${listingsSql(db, request.user)} AS properties`;
+    return { from, whereSql, params: built.params };
+  }
+
+  app.get('/api/properties', { ...auth, schema: { querystring: listQuerySchema } }, async (request, reply) => {
+    const query = request.query || {};
+    const search = listSearch(request, reply);
+    if (!search) return reply;
+    const { from, whereSql, params } = search;
+
+    const limit = query.limit ?? 200;
+    const offset = query.offset ?? 0;
+    // `removed=show` sorts live listings first, removed ones after, then the chosen sort
+    // within each group (SPEC filter drawer "Removed"). Only the explicit new param
+    // triggers this: `hide_gone=0` keeps its old, purely-a-filter behaviour so an
+    // existing integration's sort order is not silently rearranged underneath it.
+    const removedSecondary = query.removed === 'show' ? `CASE WHEN ${REMOVED_SQL} THEN 1 ELSE 0 END, ` : '';
+    const order = removedSecondary + SORT_SQL[query.sort || 'fit'];
 
     const rows = db
       .prepare(`SELECT * FROM ${from} ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
-      .all(...built.params, limit, offset);
+      .all(...params, limit, offset);
     // The body stays a plain array (map, flow and detail all consume it as one); the
     // full match count rides in a header so Home can say "200 of 323" and page on.
-    const total = db.prepare(`SELECT COUNT(*) AS n FROM ${from} ${whereSql}`).get(...built.params).n;
+    const total = db.prepare(`SELECT COUNT(*) AS n FROM ${from} ${whereSql}`).get(...params).n;
     reply.header('X-Total-Count', String(total));
 
     const ids = rows.map((r) => r.id);
@@ -717,6 +738,21 @@ export default async function propertiesRoutes(app, opts) {
       })),
       request.user
     );
+  });
+
+  // --- price histogram ----------------------------------------------------
+  // Every monthly price under the filters, unpaged: Home buckets them into the bars over
+  // the price slider. Capping this like the list (500, in the list's sort) once drew
+  // only the cheapest 500 when sorted by price, leaving the chosen range empty.
+  app.get('/api/properties/prices', { ...auth, schema: { querystring: priceQuerySchema } }, async (request, reply) => {
+    const search = listSearch(request, reply);
+    if (!search) return reply;
+    const { from, whereSql, params } = search;
+    const priced = whereSql ? `${whereSql} AND price_month_idr IS NOT NULL` : 'WHERE price_month_idr IS NOT NULL';
+    return db
+      .prepare(`SELECT price_month_idr FROM ${from} ${priced}`)
+      .pluck()
+      .all(...params);
   });
 
   // --- detail -------------------------------------------------------------
@@ -773,6 +809,20 @@ export default async function propertiesRoutes(app, opts) {
           feedback,
         },
       ], user)[0];
+    }
+  );
+
+  // --- photos: just the gallery, for a card's own arrows ------------------
+  // A list row carries only the hero and `photo_count`; the first arrow tap on a card
+  // asks here instead of pulling the whole detail (contacts, visits, notes) for a photo.
+  app.get(
+    '/api/properties/:id/photos',
+    { ...auth, schema: { params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
+    async (request, reply) => {
+      const row = getListing(db, request.user, request.params.id);
+      if (!row) return notFound(reply);
+      const parsed = parseRow(row);
+      return { hero_url: heroUrl(parsed), image_urls: imageUrls(parsed) };
     }
   );
 

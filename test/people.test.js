@@ -10,6 +10,7 @@ import path from 'node:path';
 import { openDb } from '../src/db.js';
 import { seedUsers, SESSION_COOKIE } from '../src/auth.js';
 import { buildServer } from '../src/server.js';
+import { upsertProperty } from '../src/scrape/store.js';
 
 const ENV = {
   NODE_ENV: 'test',
@@ -68,6 +69,20 @@ test('GET /api/people: the home team exists with both owners, home first', async
   assert.equal(teams[0].home, true);
   assert.deepEqual(teams[0].members.map((m) => [m.name, m.role]).sort(), [['Abigail', 'owner'], ['Philipp', 'owner']]);
   for (const m of teams[0].members) assert.equal('password_hash' in m, false);
+});
+
+test('GET /api/people: each person carries how many Yes, Maybe and No calls they made', async (t) => {
+  const { db, owner } = await setup(t);
+  const philipp = db.prepare('SELECT id FROM users WHERE email = ?').get(ENV.USER1_EMAIL).id;
+  const now = '2026-09-20T00:00:00.000Z';
+  const vote = db.prepare('INSERT INTO verdicts (property_id, by, verdict) VALUES (?, ?, ?)');
+  for (const [i, verdict] of ['yes', 'yes', 'maybe', 'no', 'no', 'no'].entries()) {
+    upsertProperty(db, { key: `t:${i}`, source: 'test', url: `https://t.test/${i}`, title: 'Villa', area: 'cemagi' }, { now });
+    vote.run(db.prepare('SELECT id FROM properties WHERE key = ?').get(`t:${i}`).id, philipp, verdict);
+  }
+  const members = (await getPeople(owner)).json().teams[0].members;
+  assert.deepEqual(members.find((m) => m.id === philipp).verdicts, { yes: 2, maybe: 1, no: 3 });
+  assert.deepEqual(members.find((m) => m.id !== philipp).verdicts, { yes: 0, maybe: 0, no: 0 }, 'no calls yet reads as zeros');
 });
 
 test('POST /api/people with neither team_id nor team_name creates a solo team named after the person', async (t) => {

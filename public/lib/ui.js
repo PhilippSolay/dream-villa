@@ -92,6 +92,8 @@ export const icons = {
   robot: () => svg('<rect x="4" y="7" width="12" height="8" rx="2.4"/><path d="M10 4v3"/><circle cx="7.8" cy="11" r=".9"/><circle cx="12.2" cy="11" r=".9"/>'),
   // An ID card: the People page, where the owners manage who has an account.
   idcard: () => svg('<rect x="2.8" y="4.5" width="14.4" height="11" rx="2"/><circle cx="7.4" cy="8.9" r="1.7"/><path d="M4.9 13.2c.4-1.3 1.3-2 2.5-2s2.1.7 2.5 2"/><path d="M11.8 8.6h3M11.8 11.4h3"/>'),
+  // Three dots: a row's overflow menu (People).
+  more: () => svg('<circle cx="4.6" cy="10" r=".9"/><circle cx="10" cy="10" r=".9"/><circle cx="15.4" cy="10" r=".9"/>'),
   archive: () => svg('<rect x="3.2" y="3.8" width="13.6" height="3.4" rx="1.1"/><path d="M4.6 7.2v7.9a1.4 1.4 0 0 0 1.4 1.4h8a1.4 1.4 0 0 0 1.4-1.4V7.2"/><path d="M8.2 10.3h3.6"/>'),
 };
 
@@ -121,6 +123,22 @@ export function priceLabel(p) {
 export function thumbUrl(url) {
   const m = /^\/images\/(\d+)\/(\d+)\.jpg$/.exec(url || '');
   return m ? `/thumbs/${m[1]}/${m[2]}.webp` : url;
+}
+
+/**
+ * Where a photo that failed to load goes next: a cut falls back to the original it was
+ * cut from (`/thumbs/12/1.webp` → `/images/12/1.jpg`); anything else has nowhere to go.
+ * Takes a path or an absolute URL, since `img.src` is always absolute.
+ */
+export function photoFallback(src) {
+  let pathname = src || '';
+  try {
+    pathname = new URL(pathname, 'http://x').pathname;
+  } catch {
+    return null;
+  }
+  const m = /^\/thumbs\/(\d+)\/(\d+)\.webp$/.exec(pathname);
+  return m ? `/images/${m[1]}/${m[2]}.jpg` : null;
 }
 
 export function beachLabel(km) {
@@ -298,11 +316,16 @@ export function closeSheet() {
   restore?.();
 }
 
-/** Opens the bottom sheet around `node` (which keeps its identity — state survives). */
-export function openSheet(title, node, { onClose } = {}) {
+/**
+ * Opens the bottom sheet around `node` (which keeps its identity — state survives).
+ * `dialog: true` is for a short question with its own buttons (a confirm, one field):
+ * from 720 px up it sits centred as a modal instead of spanning the screen's width.
+ */
+export function openSheet(title, node, { onClose, dialog = false } = {}) {
   const sheet = document.getElementById('sheet');
   const backdrop = document.getElementById('backdrop');
   if (!sheet) return;
+  sheet.classList.toggle('sheet-dialog', dialog);
   setHtml(
     sheet,
     html`<div class="sheet-head">

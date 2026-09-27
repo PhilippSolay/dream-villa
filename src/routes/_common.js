@@ -9,6 +9,7 @@ import { getConfig, nowIso } from '../db.js';
 import { parseRow } from '../scrape/store.js';
 import { scoreRow } from '../scrape/score.js';
 import { resizeToJpeg } from '../scrape/images.js';
+import { AREA_GROUPS, AREAS, TARGET_AREAS } from '../areas.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -101,6 +102,23 @@ export function addRedFlags(db, id, flags, config = getConfig(db)) {
 /** `IN (?, ?, ?)` placeholders for a bound-parameter list. */
 export function placeholders(list) {
   return list.map(() => '?').join(', ');
+}
+
+/** SPEC §7 region ids, the values `?region=` takes (Market's tabs). */
+export const REGION_IDS = AREA_GROUPS.map((g) => g.id);
+
+/** The area ids of one region, or null for no region (every listing, `other` included). */
+export function regionAreas(region) {
+  return region ? TARGET_AREAS.filter((id) => AREAS[id].group === region) : null;
+}
+
+/**
+ * `?region=` as a WHERE fragment: `area IN (…)` for one region, `1 = 1` for none, so a
+ * query can always AND it in. `column` is for an aliased read (`p.area`).
+ */
+export function regionWhere(region, column = 'area') {
+  const ids = regionAreas(region);
+  return ids ? { sql: `${column} IN (${placeholders(ids)})`, params: ids } : { sql: '1 = 1', params: [] };
 }
 
 /** id → user name, for `by_name` on rows people wrote. */

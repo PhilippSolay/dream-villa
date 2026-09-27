@@ -355,3 +355,35 @@ test('GET /api/stats: unknown querystring keys are rejected as bad input, not si
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().daily.length, 5);
 });
+
+test('GET /api/stats: region narrows the listing figures and the activity, not the runs', async (t) => {
+  const { call } = await setup(t);
+  const south = (await call({ method: 'GET', url: '/api/stats?region=south' })).json();
+
+  assert.deepEqual(south.by_area.map((a) => a.area), ['uluwatu']); // p7, p8
+  assert.equal(south.by_area[0].listings, 2);
+  assert.equal(south.pipeline.find((p) => p.status === 'rejected').n, 1); // p7
+  assert.equal(south.pipeline.find((p) => p.status === 'gone').n, 1); // p8
+  assert.equal(south.pipeline.find((p) => p.status === 'shortlist').n, 0);
+  assert.deepEqual(south.by_source.map((s) => s.source).sort(), ['bhi', 'kibarer']);
+  assert.equal(south.fit_histogram.reduce((a, b) => a + b.n, 0), 0, 'p8 is in_filter but gone');
+  assert.equal(south.daily.reduce((a, d) => a + d.new, 0), 2);
+  assert.equal(south.activity.ratings, 0);
+  assert.equal(south.activity.viewings, 0);
+  assert.deepEqual(south.activity.avg_ratings, []);
+  // The scrape runs cover every region, so they stay whole.
+  assert.equal(south.daily.reduce((a, d) => a + d.runs, 0), 3);
+  assert.equal(south.last_run.seen, 120);
+
+  const west = (await call({ method: 'GET', url: '/api/stats?region=west_coast' })).json();
+  assert.deepEqual(west.by_area.map((a) => a.area).sort(), ['cemagi', 'munggu', 'pererenan', 'seseh']);
+  assert.equal(west.activity.ratings, 5, 'every in-window rating is on a west-coast listing');
+  assert.equal(west.activity.viewings, 2);
+  assert.equal(west.activity.agent_info, 2);
+
+  const center = (await call({ method: 'GET', url: '/api/stats?region=center' })).json();
+  assert.deepEqual(center.by_area, []);
+  assert.equal(center.activity.feedback, 0);
+
+  assert.equal((await call({ method: 'GET', url: '/api/stats?region=bukit' })).statusCode, 400);
+});

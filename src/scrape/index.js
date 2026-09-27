@@ -179,6 +179,9 @@ export async function runScrape({
   const erroredAdapterIds = new Set();
   for (const adapter of list) {
     const per = { seen: 0, new: 0, updated: 0, unchanged: 0, skipped: 0, errors: 0 };
+    // Detail pages by cache rule (ingest.js detailPlan): new ref, known (7-day cache),
+    // its weekly refresh day, or refetched today because the card moved.
+    const detailCache = { new: 0, known: 0, weekly: 0, refetch: 0 };
     summary.per_source[adapter.id] = per;
 
     try {
@@ -213,6 +216,10 @@ export async function runScrape({
 
         try {
           const res = await ingestListing(db, ctx, adapter, partial, { detail, now, config });
+          if (res.detail_cache) {
+            const k = res.detail_cache in detailCache ? res.detail_cache : 'refetch';
+            detailCache[k] += 1;
+          }
           if (res.skipped === 'out_of_band') {
             per.skipped += 1;
             summary.skipped_out_of_band += 1;
@@ -244,7 +251,9 @@ export async function runScrape({
 
     log(
       `[scrape] ${adapter.id}: seen ${per.seen}, new ${per.new}, updated ${per.updated}, ` +
-        `unchanged ${per.unchanged}, out of band ${per.skipped}, errors ${per.errors}`
+        `unchanged ${per.unchanged}, out of band ${per.skipped}, errors ${per.errors}; ` +
+        `detail pages: ${detailCache.new} new, ${detailCache.known} known (7-day cache), ` +
+        `${detailCache.weekly} weekly refresh, ${detailCache.refetch} refetched on a card change`
     );
   }
 

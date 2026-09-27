@@ -2,6 +2,8 @@
 // anchors routes (those are covered by their own owning agent's tests):
 //  - every owner-only route in admin.js/duplicates.js/import.js/import-listings.js
 //    403s a member (and the bearer ADMIN_TOKEN, resolving to user 1, still passes);
+//  - the Agent page's reads answer a member (they see it read-only), with their own
+//    team's flag and status — all but the agent's notes;
 //  - a member's PATCH /api/config is a no-op;
 //  - stats.js counts each team's own pipeline/activity, never another's;
 //  - the owners' agent digest (src/routes/agent.js) never surfaces a friend's
@@ -137,12 +139,10 @@ const OWNER_ONLY_ROUTES = [
   ['POST', '/api/scrape', {}],
   ['POST', '/api/inbox', { url: 'https://example.test/member-guard' }],
   ['GET', '/api/notes', undefined],
-  ['GET', '/api/inbox', undefined],
-  ['GET', '/api/sources', undefined],
   ['POST', '/api/sources', { kind: 'agent', name: 'Member source attempt' }],
   ['PATCH', '/api/sources/nonexistent', { enabled: false }],
+  ['PATCH', '/api/sources/bhi', { enabled: false }],
   ['POST', '/api/feedback/1/applied', { note: 'x' }],
-  ['GET', '/api/duplicates', undefined],
   ['GET', '/api/properties/1/duplicates', undefined],
   ['POST', '/api/duplicates/merge', { keep_id: 1, merge_id: 2 }],
   ['POST', '/api/duplicates/auto', undefined],
@@ -161,6 +161,63 @@ test('member: 403 owners_only on every owner-only admin/duplicates/import route'
     assert.equal(res.statusCode, 403, `${method} ${url} should 403 for a member`);
     assert.deepEqual(res.json(), { error: 'owners_only' }, `${method} ${url}`);
   }
+});
+
+// Friends see the Agent page read-only: every read it makes (views/agent.js mountAgent)
+// answers them; every write it makes is in OWNER_ONLY_ROUTES above.
+const AGENT_PAGE_READS = [
+  '/api/runs?limit=14',
+  '/api/config',
+  '/api/inbox?status=pending',
+  '/api/sources',
+  '/api/contacts',
+  '/api/duplicates?limit=30',
+];
+
+test('member: the Agent page reads answer 200, all but the agent notes', async (t) => {
+  const { philippCall, marinaCall } = await setup(t);
+  const queued = await philippCall({ method: 'POST', url: '/api/inbox', payload: { url: 'https://example.test/queued' } });
+  assert.equal(queued.statusCode, 200);
+
+  for (const url of AGENT_PAGE_READS) {
+    const res = await marinaCall({ method: 'GET', url });
+    assert.equal(res.statusCode, 200, `GET ${url} should answer a member`);
+  }
+  const inbox = (await marinaCall({ method: 'GET', url: '/api/inbox?status=pending' })).json();
+  assert.deepEqual(inbox.map((i) => i.url), ['https://example.test/queued']);
+
+  // The morning session writes its notes from the home team's feedback and viewings.
+  const notes = await marinaCall({ method: 'GET', url: '/api/notes?limit=14' });
+  assert.equal(notes.statusCode, 403);
+  assert.deepEqual(notes.json(), { error: 'owners_only' });
+});
+
+test("member: the Agent page's sources and duplicates carry the member team's flag and status", async (t) => {
+  const { db, philippCall, marinaCall } = await setup(t);
+  // Two listings of one villa (same photo, same WhatsApp, same price), both flagged; the
+  // home team rejects the first, which un-features it for the home team only.
+  const images = JSON.stringify([{ src_url: 'https://cdn.test/twin.jpg' }]);
+  const a = insertListing(db, { source: 'bhi', title: 'Villa Anggrek', images, fit_score: 90, flagged: 1 });
+  const b = insertListing(db, { source: 'fb', title: 'Disewakan villa 2 kamar Cemagi', images, fit_score: 90, flagged: 1 });
+  const contact = Number(
+    db.prepare("INSERT INTO contacts (name, whatsapp, created_at) VALUES ('Wayan', '+6283333333333', ?)").run(nowIso()).lastInsertRowid
+  );
+  for (const id of [a, b]) db.prepare('INSERT INTO property_contacts (property_id, contact_id) VALUES (?, ?)').run(id, contact);
+  db.prepare("UPDATE properties SET status = 'rejected', flagged = 0 WHERE id = ?").run(a);
+
+  const flaggedFrom = async (call, source) =>
+    (await call({ method: 'GET', url: '/api/sources' })).json().sources.find((s) => s.id === source).stats.flagged;
+  assert.equal(await flaggedFrom(philippCall, 'bhi'), 0, 'the home team rejected it');
+  assert.equal(await flaggedFrom(marinaCall, 'bhi'), 1, "a home Reject does not un-feature it for Marina's team");
+
+  const sideA = async (call) => {
+    const { pairs } = (await call({ method: 'GET', url: '/api/duplicates?limit=30' })).json();
+    const pair = pairs.find((p) => [p.a.id, p.b.id].includes(a) && [p.a.id, p.b.id].includes(b));
+    assert.ok(pair, 'the pair is listed');
+    return pair.a.id === a ? pair.a : pair.b;
+  };
+  assert.equal((await sideA(philippCall)).status, 'rejected');
+  assert.equal((await sideA(marinaCall)).status, 'new', "Marina never reads the home team's pipeline status");
 });
 
 test("member: /api/runs says when the last run was, not what it found or changed", async (t) => {

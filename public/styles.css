@@ -131,6 +131,10 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body { max-width: 100%; overflow-x: hidden; }
+/* `clip` on body, not `hidden`: `hidden` made body a scroll container that never scrolls,
+   so a `position: sticky` inside it (Market's region tabs) stuck to that instead of the
+   page. html keeps `hidden`, which the viewport takes. */
+body { overflow-x: clip; }
 
 body {
   margin: 0;
@@ -187,6 +191,7 @@ small, .small { font-size: 13px; }
 .card-badges .pill,
 .card-ring,
 .card-pin,
+.card-step-face,
 .gallery-count,
 .gallery-nav,
 .map-legend-control,
@@ -546,7 +551,8 @@ button.chip[aria-pressed='true'] { background: var(--gold-soft); border-color: v
   .card:hover { transform: translateY(-3px); box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow-hover); border-color: var(--line-strong); }
   .card:hover .card-media img { transform: scale(1.03); }
 }
-.card:active { transform: scale(0.99); }
+/* An arrow tap is not a press on the card: it keeps still. */
+.card:active:not(:has(.card-step:active)) { transform: scale(0.99); }
 
 .card-media {
   position: relative;
@@ -651,6 +657,9 @@ button.chip[aria-pressed='true'] { background: var(--gold-soft); border-color: v
 .toolbar .seg { flex: 1; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; background: var(--glass); -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat)); backdrop-filter: blur(var(--blur)) saturate(var(--sat)); box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow); }
 .toolbar .seg::-webkit-scrollbar { display: none; }
 .toolbar .seg button { white-space: nowrap; }
+/* Home's New segment: bold always, the gold gradient when it is the chosen one. */
+#my-call button[value='none'] { font-weight: 600; }
+#my-call button[value='none'][aria-pressed='true'] { background: linear-gradient(180deg, var(--gold-2), var(--gold)); color: var(--on-gold); }
 .filter-count[hidden] { display: none; }
 .filter-count {
   display: inline-flex;
@@ -1263,7 +1272,9 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
      rail's bottom) and rightward, into the page instead of off it. */
   .account-menu { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; }
   .toolbar .seg { flex: 0 1 auto; }
-  .toolbar { position: sticky; z-index: 20; flex-wrap: nowrap; }
+  /* Scrolls with the page. It was `sticky` from 2026-09-19, but body's old
+     `overflow-x: hidden` kept it from ever sticking; its chips have no glass to float on. */
+  .toolbar { position: relative; z-index: 20; flex-wrap: nowrap; }
   .toolbar .flow-strip { flex: 0 1 auto; margin-left: 6px; }
 
   .toasts { bottom: 28px; }
@@ -1278,7 +1289,7 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
     box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow);
   }
   .rail-title { margin-bottom: 12px; }
-  .toolbar { top: 0; padding-top: 18px; margin-top: -18px; padding-bottom: 18px; }
+  .toolbar { padding-top: 18px; margin-top: -18px; padding-bottom: 18px; }
   .filters-toggle { display: none; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
   /* Desktop cards read ~20% larger inside the same column count: taller photo, type
@@ -1321,6 +1332,60 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
   z-index: 2;
   border-radius: 999px;
   color: var(--ink);
+}
+
+/* photo arrows (siblings of the card link for the same reason as the pin): a strip laid
+   exactly over .card-media — same inset, same aspect — that lets every tap through to
+   the link except the two buttons'. 44 px to tap, a 36 px glass face like the pin. */
+.card-steps {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  aspect-ratio: 4 / 3;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  pointer-events: none;
+}
+.card-step {
+  pointer-events: auto;
+  width: var(--tap);
+  height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.card-step-face {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  transition: transform 0.2s var(--ease), background 0.2s var(--ease);
+}
+.card-step-face .icon { width: 18px; height: 18px; }
+.card-step:hover .card-step-face { background: var(--glass-strong); }
+.card-step:active .card-step-face { transform: scale(0.92); }
+.card-step:focus-visible { outline: none; }
+.card-step:focus-visible .card-step-face { outline: 2px solid var(--gold); outline-offset: 2px; }
+/* With a mouse the arrows wait for the pointer (or keyboard focus); a phone always shows them. */
+@media (hover: hover) {
+  .card-steps { opacity: 0; transition: opacity 0.2s var(--ease); }
+  .card:hover .card-steps,
+  .card:focus-within .card-steps { opacity: 1; }
+}
+@media (min-width: 900px) {
+  .card-steps { top: 7px; left: 7px; right: 7px; aspect-ratio: 10 / 9; }
 }
 
 /* the stats chip loses its least important third on narrow phones */
@@ -1618,6 +1683,14 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
 .vbtn-yes[aria-pressed='true'] { background: var(--ok); color: #fff; }
 .vbtn-maybe[aria-pressed='true'] { background: linear-gradient(180deg, var(--gold-2), var(--gold)); color: var(--on-gold); }
 .vbtn-no[aria-pressed='true'] { background: var(--danger); color: #fff; }
+/* Hover previews the call in its own colour; the pressed one just brightens. Pointer
+   devices only, so a tap on a phone never leaves a stuck tint behind. */
+@media (hover: hover) {
+  .vbtn-yes:not([aria-pressed='true']):hover { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ink); }
+  .vbtn-maybe:not([aria-pressed='true']):hover { background: color-mix(in srgb, var(--gold) 24%, transparent); color: var(--ink); }
+  .vbtn-no:not([aria-pressed='true']):hover { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--ink); }
+  .vbtn[aria-pressed='true']:hover { filter: brightness(1.06); }
+}
 .verdict-seg-compact .vbtn { min-height: 36px; padding: 0 11px; font-size: 12.5px; }
 
 .status-btn .who-set { width: 20px; height: 20px; font-size: 11px; margin-left: 7px; background: rgba(0, 0, 0, 0.14); border: 0; color: inherit; }
@@ -1836,10 +1909,55 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
 .people-team-rename:hover { color: var(--gold); }
 .people-team-head .small { flex: 1 1 auto; }
 .people-team-rename-input { max-width: 260px; }
-.person-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.person-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.person-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; min-width: 0; padding-top: 2px; }
 .person-name { font-weight: 500; color: var(--ink); }
-.person-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 8px; }
-.person-actions .field { flex: 1 1 160px; margin: 0; }
-.person-reset-inline { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
-.person-reset-input { max-width: 260px; }
+.person-entry.is-removed .person-id > :not(.pill),
+.person-entry.is-removed .person-stats { opacity: 0.55; }
+/* The ⋯ button sits flush with the row's top right; its menu drops under it. */
+.person-menu-wrap { position: relative; flex: none; margin: -8px -8px 0 0; }
+.person-menu-wrap .icon-btn { color: var(--muted); }
+.person-menu-wrap .icon-btn[aria-expanded='true'] { background: var(--gold-soft); color: var(--ink); }
+.person-menu-wrap .menu { top: calc(100% + 2px); min-width: 200px; }
+
+/* Yes / Maybe / No tallies: a dot in the verdict's colour, the number, the word. */
+.person-stats { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.person-stat { display: inline-flex; align-items: center; gap: 6px; }
+.person-stat::before { content: ''; width: 8px; height: 8px; border-radius: 999px; }
+.person-stat b { color: var(--ink); font-weight: 500; }
+.person-stat-yes::before { background: var(--ok); }
+.person-stat-maybe::before { background: linear-gradient(180deg, var(--gold-2), var(--gold)); }
+.person-stat-no::before { background: var(--danger); }
 #new-team-name-field[hidden] { display: none; }
+
+/* --- menus and dialogs shared by People (and any later ⋯ menu) ------------- */
+.menu-sep { height: 1px; margin: 4px 8px; background: var(--line); }
+.menu button.menu-danger { color: var(--danger); }
+.menu button.menu-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.btn-danger { background: var(--danger); border-color: transparent; color: #fff; }
+.btn-danger:hover { border-color: transparent; filter: brightness(1.06); }
+.dialog-form { display: grid; gap: 12px; }
+.dialog-form .field { margin: 0; }
+.dialog-form p { margin: 0; }
+.dialog-form [hidden] { display: none; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+/* A dialog is the bottom sheet on a phone; from 720 px it is a centred modal. */
+@media (min-width: 720px) {
+  .sheet.sheet-dialog {
+    top: 50%;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    width: min(440px, calc(100vw - 32px));
+    transform: translate(-50%, -50%);
+    border-radius: var(--radius-xl);
+    border-bottom: 1px solid var(--glass-line);
+    animation: dialog-in 0.24s var(--ease);
+  }
+  .sheet.sheet-dialog::before { display: none; }
+  .sheet.sheet-dialog .sheet-head { padding-top: 14px; }
+}
+@keyframes dialog-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}

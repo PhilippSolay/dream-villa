@@ -11,6 +11,7 @@ import {
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
 import { isSolo } from '../lib/people.js';
+import { cardPhotoUrl } from '../lib/card-photos.js';
 // SPEC §7 regions, north to south — the one copy, shared with the server.
 import { AREA_GROUPS } from '../lib/areas.js';
 
@@ -19,7 +20,6 @@ const PRICE_MAX_M = 80;
 const PRICE_STEP_M = 0.5;
 const PRICE_BUCKET_M = 2.5; // one histogram bar per 2.5 M
 const PRICE_BUCKET_COUNT = (PRICE_MAX_M - PRICE_MIN_M) / PRICE_BUCKET_M;
-const HISTOGRAM_LIMIT = 500; // the API's ceiling; enough for the whole market today
 const PAGE_SIZE = 100; // cards per fetch on Home; "Load more" appends the next page
 const BEACH_MAX_KM = 10;
 const LAND_MIN_M2 = 0;
@@ -29,7 +29,8 @@ const BUILD_MIN_M2 = 0;
 const BUILD_MAX_M2 = 600;
 const BUILD_STEP_M2 = 10;
 // The toolbar's one control: the viewer's own call. '' shows everything.
-const MY_CALLS = [['', 'All'], ['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No'], ['none', 'New']];
+// New (not called yet) leads: it is the queue that still needs a tap.
+const MY_CALLS = [['none', 'New'], ['', 'All'], ['yes', 'Yes'], ['maybe', 'Maybe'], ['no', 'No']];
 const BEDROOMS = [1, 2, 3, 4];
 const FEATURES = Object.keys(FEATURE_LABELS);
 const AGE_OPTIONS = [['', 'Any'], ['7', '7 days'], ['30', '30 days'], ['90', '90 days']];
@@ -105,11 +106,12 @@ export function cardHtml(p, areas, { reason = false, removal = false, viewer = n
   const beach = beachLabel(p.beach_km);
   const age = ageLabel(p.first_seen);
   const removed = p.availability === 'gone' || p.availability === 'unlisted' || p.status === 'gone';
-  return html`<article class="card">
+  const photo = cardPhotoUrl(p);
+  return html`<article class="card" data-id="${p.id}">
     <a class="card-hit" href="#/p/${p.id}" aria-label="${p.title}">
       <div class="card-media">
-        ${p.hero_url
-          ? html`<img src="${thumbUrl(p.hero_url)}" alt="" loading="lazy" decoding="async" />`
+        ${photo
+          ? html`<img src="${thumbUrl(photo)}" alt="" loading="lazy" decoding="async" />`
           : html`<span class="placeholder">No photo yet</span>`}
         <span class="card-badges">
           ${statusPill(p.status, p.first_seen)}
@@ -140,6 +142,12 @@ export function cardHtml(p, areas, { reason = false, removal = false, viewer = n
         ${removal && removed ? removalLine(p) : ''}
       </div>
     </a>
+    ${p.photo_count > 1
+      ? html`<div class="card-steps">
+          <button type="button" class="card-step" data-card-step="-1" aria-label="Previous photo"><span class="card-step-face">${icons.back()}</span></button>
+          <button type="button" class="card-step" data-card-step="1" aria-label="Next photo"><span class="card-step-face">${icons.forward()}</span></button>
+        </div>`
+      : ''}
     ${p.map_url
       ? html`<a class="pin-link card-pin" href="${p.map_url}" target="_blank" rel="noopener"
           aria-label="Open the map pin for ${p.title}">${icons.pin()}</a>`
@@ -461,6 +469,10 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
   const buildMinEl = $('[data-role="build-min"]', panel);
   const buildMaxEl = $('[data-role="build-max"]', panel);
 
+  // Each region's selection count at the last paint, so a region opens only when a
+  // selection first appears in it — never again on the repaint after every other filter.
+  const regionCounts = new Map();
+
   /** Paint the panel from the filter state (never rebuilt — a drag keeps its grip). */
   function sync(f) {
     for (const input of $$('input[type="checkbox"][data-filter]', panel)) {
@@ -523,8 +535,9 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       !(f.status || []).includes('rejected') && !(f.status || []).includes('all');
     $('[data-role="in-filter"]', panel).checked = f.scope === 'in_filter';
     $('[data-role="area-hint"]', panel).textContent = areaHint(f.area || [], areas);
-    // Each region carries its own tally, and opens itself when it has one — a selection
-    // must never hide behind a collapsed summary.
+    // Each region carries its own tally, and opens itself when a selection first lands in
+    // it (on load, or from All / Reset) so it never starts hidden. Once you fold it, it
+    // stays folded: the tally on the header still says what is chosen inside.
     for (const r of regions) {
       const el = $(`.filter-region[data-region="${r.id}"]`, panel);
       if (!el) continue;
@@ -532,7 +545,8 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       const count = $('[data-region-count]', el);
       count.textContent = `${n}`;
       count.hidden = n === 0;
-      if (n > 0) el.open = true;
+      if (n > 0 && !regionCounts.get(r.id)) el.open = true;
+      regionCounts.set(r.id, n);
     }
     paintRanges();
   }
@@ -671,11 +685,11 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
 }
 
 /** Listings per PRICE_BUCKET_M step across the slider's span; prices outside it land in the end buckets. */
-export function priceBuckets(rows) {
+export function priceBuckets(prices) {
   const counts = new Array(PRICE_BUCKET_COUNT).fill(0);
-  for (const r of rows) {
-    if (r.price_month_idr == null) continue;
-    const m = Number(r.price_month_idr) / 1e6;
+  for (const idr of prices) {
+    if (idr == null) continue;
+    const m = Number(idr) / 1e6;
     const i = Math.floor((m - PRICE_MIN_M) / PRICE_BUCKET_M);
     counts[Math.max(0, Math.min(PRICE_BUCKET_COUNT - 1, i))] += 1;
   }
@@ -865,17 +879,21 @@ export async function mountHome(el, ctx) {
     select.value = current;
   }
 
-  // The price histogram shows the same search with the price limits lifted, so it only
-  // needs refetching when something other than the price moved.
+  // The price histogram shows the same search with the price limits lifted, every
+  // listing rather than a page of it, so it only needs refetching when something other
+  // than the price or the sort moved.
   let histogramKey = null;
   async function loadHistogram(filters) {
-    const query = filtersToQuery({ ...filters, min: null, max: null }, { limit: HISTOGRAM_LIMIT });
+    const params = new URLSearchParams(filtersToQuery({ ...filters, min: null, max: null }));
+    params.delete('sort');
+    params.delete('limit');
+    const query = params.toString();
     if (query === histogramKey) return;
     histogramKey = query;
     try {
-      const rows = await api.get(`/api/properties?${query}`);
+      const prices = await api.get(`/api/properties/prices?${query}`);
       if (!alive || query !== histogramKey) return;
-      setHistogram(priceBuckets(rows));
+      setHistogram(priceBuckets(prices));
     } catch {
       /* the bars are a hint, not a result — a failed fetch just leaves the last ones up */
     }

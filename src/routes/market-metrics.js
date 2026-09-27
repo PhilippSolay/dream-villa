@@ -30,8 +30,9 @@ import { getConfig, nowIso } from '../db.js';
 import { DEFAULT_CONFIG } from '../defaults.js';
 import { percentiles } from './market.js';
 import { TARGET_AREAS } from '../areas.js';
-import { allCandidates, cachedContext } from '../scrape/duplicates.js';
+import { allCandidatesAsync, cachedContext } from '../scrape/duplicates.js';
 import { listingsSql } from '../teams.js';
+import { REGION_IDS, regionAreas } from './_common.js';
 
 const MAKASSAR_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
@@ -387,7 +388,15 @@ function buildPriceDrops(base, days, nowMs) {
   return { count: drops.length, avg_pct: round1(avg), latest: drops.slice(0, MAX_DROPS) };
 }
 
+/** Per m² for all of `base`, plus the same table per bedroom group (Market's 1 · 2 · 3 · 4+ chips). */
 function buildPerM2(base) {
+  return {
+    ...perM2Table(base),
+    by_br: Object.fromEntries(BR_GROUPS.map((br) => [br, perM2Table(base.filter((r) => brGroup(r.bedrooms) === br))])),
+  };
+}
+
+function perM2Table(base) {
   const byArea = new Map();
   const all = { perM2: [], perBr: [], price: [] };
 
@@ -487,7 +496,7 @@ function buildInclusionsPremium(base) {
   return { electricity: shape(split.electricity), staff: shape(split.staff) };
 }
 
-function buildCrossSourceGaps(db, allRows) {
+function buildCrossSourceGaps(allRows, candidates) {
   const byId = new Map(allRows.map((r) => [r.id, r]));
   const pairs = [];
   const seen = new Set();
@@ -511,12 +520,6 @@ function buildCrossSourceGaps(db, allRows) {
   }
 
   // (b) near misses the duplicate scorer is fairly sure about, across two sources.
-  let candidates = [];
-  try {
-    candidates = allCandidates(db, { minScore: CANDIDATE_MIN_SCORE, ctx: cachedContext(db) });
-  } catch {
-    candidates = [];
-  }
   for (const c of candidates) {
     const a = byId.get(c.a);
     const b = byId.get(c.b);
@@ -629,14 +632,18 @@ function buildNegotiableShare(base) {
 const SELECT_COLUMNS = `id, key, ref, source, url, title, description, notes, area, sub_area,
        bedrooms, price_month_idr, price_year_idr, term, build_m2, beach_km, inclusions,
        availability, available_from, first_seen, last_seen, removed_at, removed_reason, price_history,
-       scope, flagged, raw`;
+       scope, flagged,
+       CASE WHEN json_valid(raw) THEN json_extract(raw, '$.merged_into') END AS merged_into`;
 
 export default async function marketMetricsRoutes(app, opts) {
   const { db } = opts;
   const querystring = {
     type: 'object',
     additionalProperties: false,
-    properties: { days: { type: 'integer', minimum: 1, maximum: 365 } },
+    properties: {
+      days: { type: 'integer', minimum: 1, maximum: 365 },
+      region: { type: 'string', enum: REGION_IDS },
+    },
   };
 
   app.get('/api/market/metrics', { onRequest: app.requireUser, schema: { querystring } }, async (request) => {
@@ -651,10 +658,28 @@ export default async function marketMetricsRoutes(app, opts) {
     // plain scraper facts, so the whole read goes through listingsSql — a no-op for the
     // home team (it resolves to `properties` itself), the caller's own overlay otherwise.
     const listingsExpr = listingsSql(db, request.user, config);
-    const allRows = db.prepare(`SELECT ${SELECT_COLUMNS} FROM ${listingsExpr} AS properties`).all().map((row) => {
-      const raw = safeJson(row.raw);
-      return { ...row, merged_into: raw && !Array.isArray(raw) ? (raw.merged_into ?? null) : null };
-    });
+    // `merged_into` comes out of `raw` in SQL: reading and parsing every listing's whole
+    // scrape record for one field was most of this route's time.
+    // Market's region tab (SPEC §7) narrows the rows once, here, so every figure — the
+    // same-villa pairs too, which then pair only inside the region — is that region's.
+    const inRegion = regionAreas(request.query.region);
+    const areaSet = inRegion && new Set(inRegion);
+    const allRows = db
+      .prepare(`SELECT ${SELECT_COLUMNS} FROM ${listingsExpr} AS properties`)
+      .all()
+      .filter((r) => !areaSet || areaSet.has(r.area));
+
+    // The duplicate scorer's near misses, shared with the Agent page's list and scored off
+    // to the side (allCandidatesAsync steps aside between listings). Awaited here, after a
+    // turn for other requests, so the row read above, the scorer's own read and the
+    // figures below never run as one block. A failed score is an empty list, not a page.
+    let candidates = [];
+    try {
+      await new Promise((resolve) => setImmediate(resolve));
+      candidates = await allCandidatesAsync(db, { minScore: CANDIDATE_MIN_SCORE, ctx: cachedContext(db) });
+    } catch (err) {
+      request.log?.warn?.({ err }, 'cross-source candidates failed');
+    }
 
     // The shared filter: not folded into another row, priced, inside the band.
     const base = allRows.filter(
@@ -677,7 +702,7 @@ export default async function marketMetricsRoutes(app, opts) {
       yearly_discount: buildYearlyDiscount(base),
       beach_premium: buildBeachPremium(base),
       inclusions_premium: buildInclusionsPremium(base),
-      cross_source_gaps: buildCrossSourceGaps(db, allRows),
+      cross_source_gaps: buildCrossSourceGaps(allRows, candidates),
       source_share: buildSourceShare(base),
       budget_bands: buildBudgetBands(base, config),
       availability_lead: buildAvailabilityLead(base, today),

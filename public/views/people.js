@@ -1,10 +1,12 @@
-// #/people — the owners' mini CMS (SPEC §17): who is here, which team they are on, and
-// the account actions (reset password, move team, disable). The API is requireOwner —
-// if a member somehow lands on this route, every call 403s and we say so, plainly.
+// #/people — the owners' mini CMS (SPEC §17): who is here, which team they are on, how
+// many calls each has made, and the account actions behind each person's ⋯ menu (move,
+// reset password, remove). The API is requireOwner — if a member somehow lands on this
+// route, every call 403s and we say so, plainly.
 
-import { $, html, setHtml, toast } from '../lib/ui.js';
+import { $, $$, html, setHtml, toast, icons, openSheet, closeSheet } from '../lib/ui.js';
 
 const GROUP_NEW = '__new__';
+const TEAM_NEW = '__new_team__';
 
 function memberMeta(team) {
   if (team.home) return 'Home team';
@@ -13,42 +15,57 @@ function memberMeta(team) {
 
 // The home team is the owners' alone (the API refuses a friend there), so it is never
 // offered as a place to add or move someone.
-function teamOptions(teams, currentTeamId) {
-  return teams.filter((t) => !t.home).map(
-    (t) => html`<option value="${t.id}" ${t.id === currentTeamId ? 'selected' : ''}>${t.name}</option>`
-  );
-}
-
 function groupOptions(teams) {
   return html`<option value="">New solo group</option>
     <option value="${GROUP_NEW}">New shared group…</option>
     ${teams.filter((t) => !t.home).map((t) => html`<option value="${t.id}">${t.name}</option>`)}`;
 }
 
-function personRow(member, teams, teamId) {
-  const isOwnerRow = member.role === 'owner';
-  const disabled = !!member.disabled_at;
-  return html`<div class="entry person-entry" data-person="${member.id}">
-    <div class="person-row">
-      <span class="person-name">${member.name}</span>
-      <span class="mono small muted">${member.email}</span>
-      ${isOwnerRow ? html`<span class="pill">Owner</span>` : ''}
-      ${disabled ? html`<span class="pill pill-rejected">Disabled</span>` : ''}
-    </div>
-    ${isOwnerRow
-      ? ''
-      : html`<div class="person-actions">
-          <button type="button" class="btn btn-sm" data-reset-password="${member.id}">Reset password</button>
-          <label class="field"><span class="label">Move to</span>
-            <select data-move="${member.id}" aria-label="Move ${member.name} to">${teamOptions(teams, teamId)}</select>
-            <span class="small muted">Their calls, notes, visits and places move with them.</span>
-          </label>
-          <button type="button" class="btn btn-sm" data-toggle-disabled="${member.id}">${disabled ? 'Enable' : 'Disable'}</button>
-        </div>`}
+/** Yes / Maybe / No tallies, each behind a dot in its verdict colour. */
+function statsHtml(v = { yes: 0, maybe: 0, no: 0 }) {
+  return html`<div class="person-stats" aria-label="Calls: ${v.yes} yes, ${v.maybe} maybe, ${v.no} no">
+    <span class="person-stat person-stat-yes"><b class="mono">${v.yes}</b> Yes</span>
+    <span class="person-stat person-stat-maybe"><b class="mono">${v.maybe}</b> Maybe</span>
+    <span class="person-stat person-stat-no"><b class="mono">${v.no}</b> No</span>
   </div>`;
 }
 
-function teamBlock(team, teams) {
+/** The ⋯ menu. Remove is the soft kind (SPEC §17: people are never deleted), so a removed
+    person's menu offers Restore in its place. */
+function personMenu(member) {
+  const removed = !!member.disabled_at;
+  return html`<div class="person-menu-wrap">
+    <button type="button" class="icon-btn" data-person-menu="${member.id}" aria-haspopup="menu" aria-expanded="false"
+      aria-label="Actions for ${member.name}">${icons.more()}</button>
+    <div class="menu" role="menu" hidden>
+      <button type="button" role="menuitem" data-person-action="move" data-id="${member.id}">Move…</button>
+      <button type="button" role="menuitem" data-person-action="reset" data-id="${member.id}">Reset password…</button>
+      <span class="menu-sep" role="separator"></span>
+      ${removed
+        ? html`<button type="button" role="menuitem" data-person-action="restore" data-id="${member.id}">Restore</button>`
+        : html`<button type="button" role="menuitem" class="menu-danger" data-person-action="remove" data-id="${member.id}">Remove…</button>`}
+    </div>
+  </div>`;
+}
+
+function personRow(member) {
+  const isOwnerRow = member.role === 'owner';
+  const removed = !!member.disabled_at;
+  return html`<div class="entry person-entry${removed ? ' is-removed' : ''}" data-person="${member.id}">
+    <div class="person-row">
+      <div class="person-id">
+        <span class="person-name">${member.name}</span>
+        <span class="mono small muted">${member.email}</span>
+        ${isOwnerRow ? html`<span class="pill">Owner</span>` : ''}
+        ${removed ? html`<span class="pill pill-rejected">Removed</span>` : ''}
+      </div>
+      ${isOwnerRow ? '' : personMenu(member)}
+    </div>
+    ${statsHtml(member.verdicts)}
+  </div>`;
+}
+
+function teamBlock(team) {
   const canDelete = !team.home && team.members.length === 0;
   return html`<section class="block people-team" data-team="${team.id}">
     <div class="people-team-head">
@@ -56,7 +73,7 @@ function teamBlock(team, teams) {
       <span class="small muted">${memberMeta(team)}</span>
       ${canDelete ? html`<button type="button" class="btn btn-sm btn-ghost" data-delete-team="${team.id}">Delete</button>` : ''}
     </div>
-    ${team.members.length ? team.members.map((m) => personRow(m, teams, team.id)) : html`<p class="empty">Nobody here yet.</p>`}
+    ${team.members.length ? team.members.map((m) => personRow(m)) : html`<p class="empty">Nobody here yet.</p>`}
   </section>`;
 }
 
@@ -112,7 +129,7 @@ export async function mountPeople(el, ctx) {
   const teamNameField = $('#new-team-name-field', el);
 
   function renderTeams() {
-    setHtml(teamsEl, teams.map((t) => teamBlock(t, teams)));
+    setHtml(teamsEl, teams.map((t) => teamBlock(t)));
   }
   renderTeams();
 
@@ -199,94 +216,179 @@ export async function mountPeople(el, ctx) {
     }
   });
 
-  // --- reset password: tap, type the new one, Save ----------------------------
+  // --- the ⋯ menu: one open at a time; an outside tap or Escape closes it ------
+
+  function closeMenus(except = null) {
+    for (const menu of $$('.person-menu-wrap .menu', el)) {
+      if (menu === except) continue;
+      menu.hidden = true;
+      menu.previousElementSibling?.setAttribute('aria-expanded', 'false');
+    }
+  }
 
   el.addEventListener('click', (event) => {
-    const btn = event.target.closest('button[data-reset-password]');
-    if (!btn) return;
-    const id = btn.dataset.resetPassword;
-    const wrap = document.createElement('span');
-    wrap.className = 'person-reset-inline';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'person-reset-input';
-    input.placeholder = 'New password (min 8 chars)';
-    input.minLength = 8;
-    input.maxLength = 200;
-    input.setAttribute('aria-label', 'New password');
-    const save = document.createElement('button');
-    save.type = 'button';
-    save.className = 'btn btn-sm';
-    save.textContent = 'Save';
-    wrap.append(input, save);
-    btn.replaceWith(wrap);
-    input.focus();
+    const toggle = event.target.closest('button[data-person-menu]');
+    if (!toggle) return;
+    const menu = toggle.nextElementSibling;
+    const open = menu.hidden;
+    closeMenus(menu);
+    menu.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) menu.querySelector('button')?.focus();
+  });
+  const onDocClick = (event) => {
+    if (!event.target.closest('.person-menu-wrap')) closeMenus();
+  };
+  const onDocKey = (event) => {
+    if (event.key !== 'Escape') return;
+    const open = $$('.person-menu-wrap .menu', el).find((m) => !m.hidden);
+    if (!open) return;
+    closeMenus();
+    open.previousElementSibling?.focus();
+  };
+  document.addEventListener('click', onDocClick);
+  document.addEventListener('keydown', onDocKey);
 
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') renderTeams();
-      else if (e.key === 'Enter') {
-        e.preventDefault();
-        save.click();
-      }
-    });
-    save.addEventListener('click', async () => {
-      if (input.value.length < 8) {
-        toast('Password must be at least 8 characters', 'error');
-        return;
-      }
-      save.disabled = true;
+  function personById(id) {
+    for (const team of teams) {
+      const member = team.members.find((m) => m.id === id);
+      if (member) return { member, team };
+    }
+    return null;
+  }
+
+  /** A dialog's form: `body` on top, Cancel and the one action at the bottom. */
+  function dialogForm(body, submitLabel, { danger = false } = {}) {
+    const form = document.createElement('form');
+    form.className = 'dialog-form';
+    form.noValidate = true;
+    setHtml(
+      form,
+      html`${body}<div class="dialog-actions">
+        <button type="button" class="btn" data-dialog-cancel>Cancel</button>
+        <button type="submit" class="btn ${danger ? 'btn-danger' : 'btn-primary'}">${submitLabel}</button>
+      </div>`
+    );
+    $('[data-dialog-cancel]', form).addEventListener('click', closeSheet);
+    return form;
+  }
+
+  /** Every dialog submits the same way: lock the button, run, close, reload. `run`
+      returns false to keep the dialog open (a field still needs fixing). */
+  function onDialogSubmit(form, run) {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = $('button[type=submit]', form);
+      button.disabled = true;
       try {
-        await api.patch(`/api/people/${id}`, { password: input.value });
-        toast('Password reset — their old session is signed out');
+        if ((await run()) === false) return;
+        closeSheet();
         await reload();
       } catch (err) {
         toast(err.message, 'error');
-        save.disabled = false;
+      } finally {
+        button.disabled = false;
       }
     });
-  });
+  }
 
-  // --- move to another team ----------------------------------------------------
+  function openMoveDialog({ member, team }) {
+    const others = teams.filter((t) => !t.home);
+    const form = dialogForm(
+      html`<label class="field"><span class="label">Team</span>
+          <select name="team">
+            ${others.map(
+              (t) => html`<option value="${t.id}" ${t.id === team.id ? 'selected' : ''}>${t.name}${t.id === team.id ? ' (now)' : ''}</option>`
+            )}
+            <option value="${TEAM_NEW}">New team…</option>
+          </select></label>
+        <label class="field" data-role="new-team" hidden><span class="label">New team's name</span>
+          <input type="text" name="team_name" maxlength="80" value="${member.name}" /></label>
+        <p class="small muted">Their calls, notes, visits and places move with them.</p>`,
+      'Move'
+    );
+    const select = form.elements.team;
+    const newField = $('[data-role="new-team"]', form);
+    select.addEventListener('change', () => {
+      newField.hidden = select.value !== TEAM_NEW;
+      if (!newField.hidden) form.elements.team_name.select();
+    });
+    onDialogSubmit(form, async () => {
+      if (select.value !== TEAM_NEW && Number(select.value) === team.id) return true; // already there
+      let teamId = Number(select.value);
+      let teamName = others.find((t) => t.id === teamId)?.name;
+      if (select.value === TEAM_NEW) {
+        teamName = form.elements.team_name.value.trim();
+        if (!teamName) {
+          toast('Name the new team', 'error');
+          return false;
+        }
+        teamId = (await api.post('/api/teams', { name: teamName })).id;
+      }
+      await api.patch(`/api/people/${member.id}`, { team_id: teamId });
+      toast(select.value === TEAM_NEW ? `${member.name} has a new team: ${teamName}` : `${member.name} moved to ${teamName}`);
+      return true;
+    });
+    openSheet(`Move ${member.name}`, form, { dialog: true });
+    select.focus();
+  }
 
-  el.addEventListener('change', async (event) => {
-    const select = event.target.closest('select[data-move]');
-    if (!select) return;
-    const id = select.dataset.move;
-    select.disabled = true;
-    try {
-      await api.patch(`/api/people/${id}`, { team_id: Number(select.value) });
-      toast('Moved');
-      await reload();
-    } catch (err) {
-      toast(err.message, 'error');
-      await reload(); // snap the select back to the true state
-    }
-  });
+  function openResetDialog({ member }) {
+    const form = dialogForm(
+      html`<label class="field"><span class="label">New password</span>
+          <input type="text" name="password" minlength="8" maxlength="200" autocomplete="new-password"
+            placeholder="At least 8 characters" required /></label>
+        <p class="small muted">Their open sessions end. Tell them the new password yourself.</p>`,
+      'Save'
+    );
+    const input = form.elements.password;
+    onDialogSubmit(form, async () => {
+      if (input.value.length < 8) {
+        toast('Password must be at least 8 characters', 'error');
+        return false;
+      }
+      await api.patch(`/api/people/${member.id}`, { password: input.value });
+      toast(`New password saved — ${member.name} is signed out`);
+      return true;
+    });
+    openSheet(`Reset ${member.name}'s password`, form, { dialog: true });
+    input.focus();
+  }
 
-  // --- disable / enable ---------------------------------------------------------
+  function openRemoveDialog({ member }) {
+    const form = dialogForm(
+      html`<p>${member.name} can no longer sign in, and any open session ends. Their calls, notes and
+          visits stay, and you can restore them from this menu.</p>`,
+      'Remove',
+      { danger: true }
+    );
+    onDialogSubmit(form, async () => {
+      await api.patch(`/api/people/${member.id}`, { disabled: true });
+      toast(`${member.name} removed`);
+      return true;
+    });
+    openSheet(`Remove ${member.name}?`, form, { dialog: true });
+    $('button[type=submit]', form).focus();
+  }
 
   el.addEventListener('click', async (event) => {
-    const btn = event.target.closest('button[data-toggle-disabled]');
-    if (!btn) return;
-    const id = btn.dataset.toggleDisabled;
-    const currentlyDisabled = btn.textContent.trim() === 'Enable';
-    if (!currentlyDisabled && btn.dataset.confirm !== '1') {
-      btn.dataset.confirm = '1';
-      btn.textContent = 'Confirm disable';
-      btn.classList.add('btn-confirm');
-      return;
-    }
-    btn.disabled = true;
-    try {
-      await api.patch(`/api/people/${id}`, { disabled: !currentlyDisabled });
-      toast(currentlyDisabled ? 'Enabled' : 'Disabled — their session is signed out');
-      await reload();
-    } catch (err) {
-      toast(err.message, 'error');
-      btn.disabled = false;
-      delete btn.dataset.confirm;
-      btn.textContent = currentlyDisabled ? 'Enable' : 'Disable';
-      btn.classList.remove('btn-confirm');
+    const item = event.target.closest('button[data-person-action]');
+    if (!item) return;
+    closeMenus();
+    const found = personById(Number(item.dataset.id));
+    if (!found) return;
+    const action = item.dataset.personAction;
+    if (action === 'move') openMoveDialog(found);
+    else if (action === 'reset') openResetDialog(found);
+    else if (action === 'remove') openRemoveDialog(found);
+    else if (action === 'restore') {
+      try {
+        await api.patch(`/api/people/${found.member.id}`, { disabled: false });
+        toast(`${found.member.name} restored — they can sign in again`);
+        await reload();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
     }
   });
 
@@ -338,6 +440,8 @@ export async function mountPeople(el, ctx) {
 
   return () => {
     alive = false;
+    document.removeEventListener('click', onDocClick);
+    document.removeEventListener('keydown', onDocKey);
   };
 }
 

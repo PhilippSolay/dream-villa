@@ -13,6 +13,7 @@
 
 import { setConfig, nowIso } from './db.js';
 import { adapters as registry, ADAPTER_IDS } from './scrape/adapters/index.js';
+import { listingsSql } from './teams.js';
 
 /** The channel kinds the UI groups by. `scraper` is the only kind that can run. */
 export const SOURCE_KINDS = [
@@ -308,9 +309,13 @@ function blank() {
  * `[src:<id>]` prefix, or when `inbox.by` is itself a known source id (the phase-5
  * WhatsApp reader writes the sender there).
  *
+ * `user` reads the listings as that person's team sees them (src/teams.js): `flagged`
+ * is per team (SPEC §17), everything else counted here is a shared fact. No user is the
+ * home team, i.e. the `properties` columns as stored.
+ *
  * @returns {Record<string, {listings:number,in_filter:number,flagged:number,last_seen:string|null,inbox_pending:number,inbox_done:number}>}
  */
-export function sourceStats(db, knownIds = null) {
+export function sourceStats(db, knownIds = null, user = null) {
   const known = new Set(knownIds || listSources(db).map((s) => s.id));
   const out = {};
   const ensure = (id) => {
@@ -326,7 +331,7 @@ export function sourceStats(db, knownIds = null) {
               SUM(CASE WHEN scope = 'in_filter' THEN 1 ELSE 0 END) AS in_filter,
               SUM(CASE WHEN flagged = 1 THEN 1 ELSE 0 END) AS flagged,
               MAX(last_seen) AS last_seen
-         FROM properties
+         FROM ${listingsSql(db, user)} AS properties
         GROUP BY source`
     )
     .all();
@@ -351,10 +356,10 @@ export function sourceStats(db, knownIds = null) {
   return out;
 }
 
-/** The list the API returns: every source with its stats folded in. */
-export function sourcesWithStats(db, { includeArchived = false } = {}) {
+/** The list the API returns: every source with its stats folded in (`user` as in sourceStats). */
+export function sourcesWithStats(db, { includeArchived = false, user = null } = {}) {
   const list = listSources(db);
-  const stats = sourceStats(db, list.map((s) => s.id));
+  const stats = sourceStats(db, list.map((s) => s.id), user);
   return list
     .filter((s) => includeArchived || !s.archived)
     .map((s) => ({ ...s, stats: stats[s.id] || blank() }));

@@ -15,7 +15,7 @@
 import { getConfig, nowIso } from '../db.js';
 import { STATUSES, DEFAULT_CONFIG } from '../defaults.js';
 import { percentiles } from './market.js';
-import { userNames } from './_common.js';
+import { userNames, REGION_IDS, regionWhere } from './_common.js';
 import { listingsSql, sameTeamSql, teamMemberIds } from '../teams.js';
 
 const MAKASSAR_OFFSET_MS = 8 * 60 * 60 * 1000; // Asia/Makassar = UTC+8, no DST.
@@ -144,7 +144,11 @@ export function nextDailyRun(cronExpr, from = new Date()) {
 
 export default async function statsRoutes(app, { db, env = process.env }) {
   const auth = { onRequest: app.requireUser };
-  const querystring = { type: 'object', additionalProperties: false, properties: { days: { type: 'integer', minimum: 1, maximum: 365 } } };
+  const querystring = {
+    type: 'object',
+    additionalProperties: false,
+    properties: { days: { type: 'integer', minimum: 1, maximum: 365 }, region: { type: 'string', enum: REGION_IDS } },
+  };
 
   app.get('/api/stats', { ...auth, schema: { querystring } }, async (request) => {
     const user = request.user;
@@ -154,31 +158,44 @@ export default async function statsRoutes(app, { db, env = process.env }) {
     // Team 17: `status`/`flagged`/`assessed` are per-team (listingsSql overlays them for
     // anyone off the home team); everything else on `properties` is a shared scraper fact.
     const listingsExpr = listingsSql(db, user);
+    // Market's region tab (SPEC §7): every listing figure and the team's activity narrow
+    // to that region's areas. The scrape runs stay whole — a run covers every region.
+    const region = regionWhere(request.query.region);
+    const rp = region.params;
+    const inRegion = request.query.region ? ` AND property_id IN (SELECT id FROM properties WHERE ${region.sql})` : '';
 
     // pipeline
     const byStatus = new Map(
-      db.prepare(`SELECT status, COUNT(*) AS n FROM ${listingsExpr} AS properties GROUP BY status`).all().map((r) => [r.status, r.n])
+      db
+        .prepare(`SELECT status, COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE ${region.sql} GROUP BY status`)
+        .all(...rp)
+        .map((r) => [r.status, r.n])
     );
     // One `gone` bucket: the scraper's detection (availability) and the person-set status.
     const goneCount = db
-      .prepare(`SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE availability = 'gone' OR status = 'gone'`)
-      .get().n;
+      .prepare(
+        `SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties
+          WHERE (availability = 'gone' OR status = 'gone') AND ${region.sql}`
+      )
+      .get(...rp).n;
     const pipeline = [
       ...STATUSES.filter((status) => status !== 'gone').map((status) => ({ status, n: byStatus.get(status) || 0 })),
       { status: 'gone', n: goneCount },
     ];
 
     // daily
-    const newByDate = toDateMap(db.prepare("SELECT date(first_seen, '+8 hours') AS d, COUNT(*) AS n FROM properties GROUP BY d").all());
+    const newByDate = toDateMap(
+      db.prepare(`SELECT date(first_seen, '+8 hours') AS d, COUNT(*) AS n FROM properties WHERE ${region.sql} GROUP BY d`).all(...rp)
+    );
     // Dated by `removed_at` (when we found out it was gone), falling back to `last_seen`
     // for rows removed before migration 006 — which is what `last_seen` meant then.
     const goneByDate = toDateMap(
       db
         .prepare(
           `SELECT date(COALESCE(removed_at, last_seen), '+8 hours') AS d, COUNT(*) AS n
-             FROM properties WHERE availability = 'gone' GROUP BY d`
+             FROM properties WHERE availability = 'gone' AND ${region.sql} GROUP BY d`
         )
-        .all()
+        .all(...rp)
     );
     const runsByDate = toDateMap(
       db.prepare("SELECT date(finished_at, '+8 hours') AS d, COUNT(*) AS n FROM runs WHERE finished_at IS NOT NULL GROUP BY d").all()
@@ -187,7 +204,10 @@ export default async function statsRoutes(app, { db, env = process.env }) {
       db.prepare("SELECT date(finished_at, '+8 hours') AS d, SUM(seen) AS n FROM runs WHERE finished_at IS NOT NULL GROUP BY d").all()
     );
     const priceByDate = priceChangeCounts(
-      db.prepare('SELECT price_history FROM properties WHERE price_history IS NOT NULL').all().map((r) => r.price_history)
+      db
+        .prepare(`SELECT price_history FROM properties WHERE price_history IS NOT NULL AND ${region.sql}`)
+        .all(...rp)
+        .map((r) => r.price_history)
     );
     const daily = fillDays(days, today, { new: newByDate, gone: goneByDate, price_changes: priceByDate, runs: runsByDate, seen: seenByDate });
 
@@ -198,13 +218,16 @@ export default async function statsRoutes(app, { db, env = process.env }) {
                 SUM(CASE WHEN scope = 'in_filter' THEN 1 ELSE 0 END) AS in_filter,
                 SUM(CASE WHEN flagged = 1 THEN 1 ELSE 0 END) AS flagged,
                 SUM(CASE WHEN availability = 'gone' THEN 1 ELSE 0 END) AS gone
-           FROM ${listingsExpr} AS properties GROUP BY source ORDER BY listings DESC`
+           FROM ${listingsExpr} AS properties WHERE ${region.sql} GROUP BY source ORDER BY listings DESC`
       )
-      .all();
+      .all(...rp);
     const pricesBySource = new Map();
     for (const row of db
-      .prepare("SELECT source, price_month_idr FROM properties WHERE price_month_idr IS NOT NULL AND (availability IS NULL OR availability != 'gone')")
-      .all()) {
+      .prepare(
+        `SELECT source, price_month_idr FROM properties
+          WHERE price_month_idr IS NOT NULL AND (availability IS NULL OR availability != 'gone') AND ${region.sql}`
+      )
+      .all(...rp)) {
       if (!pricesBySource.has(row.source)) pricesBySource.set(row.source, []);
       pricesBySource.get(row.source).push(row.price_month_idr);
     }
@@ -219,9 +242,9 @@ export default async function statsRoutes(app, { db, env = process.env }) {
         `SELECT area, COUNT(*) AS listings,
                 SUM(CASE WHEN scope = 'in_filter' THEN 1 ELSE 0 END) AS in_filter,
                 SUM(CASE WHEN flagged = 1 THEN 1 ELSE 0 END) AS flagged
-           FROM ${listingsExpr} AS properties GROUP BY area ORDER BY listings DESC`
+           FROM ${listingsExpr} AS properties WHERE ${region.sql} GROUP BY area ORDER BY listings DESC`
       )
-      .all();
+      .all(...rp);
     // "Viewed" is activity (SPEC §17: a viewing is visible to its own team only), so it
     // is scoped the same way ratings/feedback below are — nobody's visit inflates
     // another team's numbers.
@@ -230,16 +253,16 @@ export default async function statsRoutes(app, { db, env = process.env }) {
         .prepare(
           `SELECT p.area AS area, COUNT(DISTINCT p.id) AS n
              FROM ${listingsExpr} AS p JOIN viewings v ON v.property_id = p.id
-            WHERE ${sameTeamSql(user, 'v.by')}
+            WHERE ${sameTeamSql(user, 'v.by')} AND ${regionWhere(request.query.region, 'p.area').sql}
             GROUP BY p.area`
         )
-        .all()
+        .all(...rp)
         .map((r) => [r.area, r.n])
     );
     const shortlistedByArea = new Map(
       db
-        .prepare(`SELECT area, COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE status = 'shortlist' GROUP BY area`)
-        .all()
+        .prepare(`SELECT area, COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE status = 'shortlist' AND ${region.sql} GROUP BY area`)
+        .all(...rp)
         .map((r) => [r.area, r.n])
     );
     const by_area = areaCounts.map((r) => ({
@@ -249,8 +272,11 @@ export default async function statsRoutes(app, { db, env = process.env }) {
 
     // histograms — in_filter, non-gone
     const inFilterRows = db
-      .prepare("SELECT fit_score, beach_km FROM properties WHERE scope = 'in_filter' AND (availability IS NULL OR availability != 'gone')")
-      .all();
+      .prepare(
+        `SELECT fit_score, beach_km FROM properties
+          WHERE scope = 'in_filter' AND (availability IS NULL OR availability != 'gone') AND ${region.sql}`
+      )
+      .all(...rp);
     const fit_histogram = bucketiseFit(inFilterRows.map((r) => r.fit_score));
     const beach_histogram = bucketiseBeach(inFilterRows.map((r) => r.beach_km));
 
@@ -258,24 +284,24 @@ export default async function statsRoutes(app, { db, env = process.env }) {
     // `by`); another team's taps never move Philipp's numbers, and his never move theirs.
     const teamFilter = sameTeamSql(user, 'by');
     const countSince = (table) =>
-      db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE created_at >= ? AND ${teamFilter}`).get(windowStart).n;
+      db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE created_at >= ? AND ${teamFilter}${inRegion}`).get(windowStart, ...rp).n;
     const names = userNames(db);
     const byUser = new Map();
     const ensure = (id) => {
       if (!byUser.has(id)) byUser.set(id, { name: names.get(id) || `user ${id}`, ratings: 0, viewings: 0, feedback: 0 });
       return byUser.get(id);
     };
-    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM ratings WHERE created_at >= ? AND ${teamFilter} GROUP BY by`).all(windowStart))
+    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM ratings WHERE created_at >= ? AND ${teamFilter}${inRegion} GROUP BY by`).all(windowStart, ...rp))
       ensure(r.by).ratings = r.n;
-    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM viewings WHERE created_at >= ? AND ${teamFilter} GROUP BY by`).all(windowStart))
+    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM viewings WHERE created_at >= ? AND ${teamFilter}${inRegion} GROUP BY by`).all(windowStart, ...rp))
       ensure(r.by).viewings = r.n;
-    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM feedback WHERE created_at >= ? AND ${teamFilter} GROUP BY by`).all(windowStart))
+    for (const r of db.prepare(`SELECT by, COUNT(*) AS n FROM feedback WHERE created_at >= ? AND ${teamFilter}${inRegion} GROUP BY by`).all(windowStart, ...rp))
       ensure(r.by).feedback = r.n;
     const userIds = teamMemberIds(db, user);
     const by_user = [...userIds, ...byUser.keys()].filter((id, i, arr) => arr.indexOf(id) === i).map(ensure);
     const avg_ratings = db
-      .prepare(`SELECT feature, AVG(score) AS avg, COUNT(*) AS n FROM ratings WHERE ${teamFilter} GROUP BY feature`)
-      .all()
+      .prepare(`SELECT feature, AVG(score) AS avg, COUNT(*) AS n FROM ratings WHERE ${teamFilter}${inRegion} GROUP BY feature`)
+      .all(...rp)
       .map((r) => ({ feature: r.feature, avg: Math.round(r.avg * 10) / 10, n: r.n }));
 
     // last_run / next_run

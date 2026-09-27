@@ -22,6 +22,8 @@ export function verdictFilterOptions(otherName) {
     ['yes', 'Yes'],
     ['maybe', 'Maybe'],
     ['no', 'No'],
+    // Everything neither of you ruled out, including what nobody has called yet.
+    ['not_no', 'Exclude No'],
   ];
 }
 

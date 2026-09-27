@@ -43,6 +43,53 @@ export function sameImage(a, b) {
   return hamming(a, b) <= MATCH_DISTANCE;
 }
 
+/** A 16-hex hash as two 32-bit words, or null where hamming() would say Infinity. */
+export function hashWords(hex) {
+  if (typeof hex !== 'string' || !/^[0-9a-f]{16}$/i.test(hex)) return null;
+  return [parseInt(hex.slice(0, 8), 16), parseInt(hex.slice(8), 16)];
+}
+
+function popcount32(x) {
+  x -= (x >>> 1) & 0x55555555;
+  x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+  return (Math.imul((x + (x >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24);
+}
+
+/** hamming() on two hashWords() — the same count, without parsing 32 hex digits each time. */
+export function hammingWords(a, b) {
+  return popcount32(a[0] ^ b[0]) + popcount32(a[1] ^ b[1]);
+}
+
+/**
+ * A listing's photos parsed once for countSharedImages. The pairwise duplicate scorer
+ * compares every photo of one listing with every photo of another, over hundreds of
+ * thousands of pairs; parsing each hash per comparison is what made it take minutes.
+ */
+export function imageKeys(images) {
+  return entries(images).map((im) => ({ src_url: im.src_url, words: hashWords(im.hash) }));
+}
+
+/** sharedImages(a, b).count on two imageKeys() — the same greedy match, photo by photo. */
+export function countSharedImages(keysA, keysB) {
+  const usedB = new Uint8Array(keysB.length);
+  let count = 0;
+  for (let i = 0; i < keysA.length; i++) {
+    const x = keysA[i];
+    for (let j = 0; j < keysB.length; j++) {
+      if (usedB[j]) continue;
+      const y = keysB[j];
+      const same =
+        (x.src_url && x.src_url === y.src_url) ||
+        (x.words && y.words && hammingWords(x.words, y.words) <= MATCH_DISTANCE);
+      if (!same) continue;
+      usedB[j] = 1;
+      count++;
+      break;
+    }
+  }
+  return count;
+}
+
 function entries(images) {
   let list = images;
   if (typeof list === 'string') {
@@ -86,4 +133,4 @@ export function sharedImages(imagesA, imagesB, { ignore = null } = {}) {
   return { count: pairs.length, pairs };
 }
 
-export default { dhash, hamming, sameImage, sharedImages, MATCH_DISTANCE };
+export default { dhash, hamming, sameImage, sharedImages, hashWords, hammingWords, imageKeys, countSharedImages, MATCH_DISTANCE };

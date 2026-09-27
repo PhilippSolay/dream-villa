@@ -7,10 +7,11 @@
 
 import { nowIso } from '../db.js';
 import { dedupeAll, mergeInto } from '../scrape/dedupe.js';
-import { allCandidates, cachedContext, candidatesFor, forgetContext } from '../scrape/duplicates.js';
+import { allCandidatesAsync, cachedContext, candidatesFor, forgetContext } from '../scrape/duplicates.js';
 import { finishRun, parseRow, startRun } from '../scrape/store.js';
 import { badRequest, getProperty, heroUrl, notFound, placeholders, strictSchemas } from './_common.js';
 import { publicRow } from './properties.js';
+import { listingsSql } from '../teams.js';
 
 const idSchema = { type: 'integer', minimum: 1 };
 const pairBody = {
@@ -36,11 +37,14 @@ function summary(row) {
   };
 }
 
-/** id → summary for every id in `ids`, in one query. */
-function summariesFor(db, ids) {
+/** id → summary for every id in `ids`, in one query — read as `user`'s team sees the
+    listings, so `status` is that team's own (SPEC §17), never the home team's. */
+function summariesFor(db, ids, user) {
   const list = [...new Set(ids)];
   if (!list.length) return new Map();
-  const rows = db.prepare(`SELECT * FROM properties WHERE id IN (${placeholders(list)})`).all(...list);
+  const rows = db
+    .prepare(`SELECT * FROM ${listingsSql(db, user)} AS properties WHERE id IN (${placeholders(list)})`)
+    .all(...list);
   return new Map(rows.map((r) => [r.id, summary(r)]));
 }
 
@@ -53,7 +57,9 @@ export default async function duplicatesRoutes(app, opts) {
   const { db } = opts;
   // onRequest, not preHandler: an anonymous caller must get the 401, not a schema 400.
   // SPEC §17: merging/dismissing duplicates edits shared listing facts — owners only.
+  // The Agent page's list is the one read friends get (they see that page read-only).
   const auth = { onRequest: app.requireOwner };
+  const readAuth = { onRequest: app.requireUser };
 
   strictSchemas(app);
 
@@ -82,7 +88,7 @@ export default async function duplicatesRoutes(app, opts) {
         minScore: request.query.min_score ?? 0.6,
         ctx: cachedContext(db),
       });
-      const summaries = summariesFor(db, pairs.map((p) => p.b));
+      const summaries = summariesFor(db, pairs.map((p) => p.b), request.user);
 
       return {
         candidates: pairs
@@ -96,7 +102,7 @@ export default async function duplicatesRoutes(app, opts) {
   app.get(
     '/api/duplicates',
     {
-      ...auth,
+      ...readAuth,
       schema: {
         querystring: {
           type: 'object', additionalProperties: false,
@@ -108,12 +114,12 @@ export default async function duplicatesRoutes(app, opts) {
       },
     },
     async (request) => {
-      const pairs = allCandidates(db, {
+      const pairs = await allCandidatesAsync(db, {
         limit: request.query.limit ?? 100,
         minScore: request.query.min_score ?? 0.6,
         ctx: cachedContext(db),
       });
-      const summaries = summariesFor(db, pairs.flatMap((p) => [p.a, p.b]));
+      const summaries = summariesFor(db, pairs.flatMap((p) => [p.a, p.b]), request.user);
 
       return {
         pairs: pairs

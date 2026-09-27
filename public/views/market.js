@@ -1,15 +1,18 @@
-// public/views/market.js — Market view (SPEC §5 "Market"): an "Overview" section
-// (STEP: stats — no SPEC section number yet) followed by the price distributions,
-// feature premiums, and shortlist-vs-median SPEC already describes. Inline SVG only,
-// no chart library. Styles live in views/charts.css (injected once).
+// public/views/market.js — Market view (SPEC §5 "Market"): region tabs, then the price
+// distributions, feature premium and the price metrics, then the Overview (STEP: stats)
+// and the market's movement; `render` holds the order. Inline SVG only, no chart
+// library. Styles live in views/charts.css (injected once).
 
 import { dayLabel } from '../lib/ui.js';
 // SPEC §7, the one copy (src/areas.js re-exports this same module server-side).
-import { AREAS } from '../lib/areas.js';
+import { AREAS, AREA_GROUPS } from '../lib/areas.js';
 
 // Resolved against this module's own URL, so it follows the /v/<hash>/ asset prefix.
 const CHARTS_CSS_HREF = new URL('./charts.css', import.meta.url).pathname;
 const OVERVIEW_DAYS = 30;
+// The tabs across the top (SPEC §7 regions). '' is every listing, `other` included.
+const REGION_TABS = [{ id: '', label: 'All' }, ...AREA_GROUPS];
+const REGION_IDS = new Set(AREA_GROUPS.map((g) => g.id));
 const PIPELINE_LABELS = {
   new: 'New', shortlist: 'Shortlist', contacted: 'Contacted', viewing_booked: 'Viewing booked',
   viewed: 'Viewed', offer: 'Offer', rejected: 'Rejected',
@@ -73,6 +76,14 @@ function areaLabel(areasMap, id) {
   return id === 'other' ? 'Other' : String(id);
 }
 
+// SPEC §7 lists the areas north to south (Center, then the west coast, then the Bukit) —
+// the filter drawer's order, and the order a per-area chart reads in. Unknown areas last.
+const AREA_ORDER = new Map(Object.keys(AREAS).map((id, i) => [id, i]));
+function northToSouth(rows) {
+  const at = (r) => AREA_ORDER.get(r.area) ?? Infinity;
+  return [...rows].sort((a, b) => at(a) - at(b));
+}
+
 function featureLabel(f) {
   return FEATURE_LABELS[f] || f;
 }
@@ -93,6 +104,18 @@ const TOP_PAD = 10;
 const AXIS_H = 26;
 
 const MONEY_DOMAIN = { min: DOMAIN_MIN, max: DOMAIN_MAX, step: TICK_STEP, tickStart: 20e6, fmt: fmtMoney, label: 'Price distribution chart' };
+const ROW_LABEL_PX = 13; // .mkt-row-label's font-size — the label column is measured in it
+const AXIS_LABEL_PX = 11; // .mkt-box-chart .mkt-axis-label's font-size
+const ROW_LABEL_PAD = 10;
+
+let measureCtx = null;
+/** Rendered width of `text` in the row-label font, so the label column fits its longest row. */
+function rowLabelWidth(text) {
+  measureCtx ||= document.createElement('canvas').getContext('2d');
+  const family = getComputedStyle(document.documentElement).getPropertyValue('--body').trim() || 'sans-serif';
+  measureCtx.font = `${ROW_LABEL_PX}px ${family}`;
+  return measureCtx.measureText(text).width;
+}
 
 /**
  * Shared box/whisker rows. `domain` overrides the default money scale — the
@@ -104,7 +127,16 @@ function renderBoxWhisker(rows, { getLabel, getN, getInFilter, chartWidth, domai
 
   const dom = { ...MONEY_DOMAIN, ...(domain || {}) };
   const W = Math.max(240, chartWidth || 600);
-  const labelW = W < 420 ? 92 : 132;
+  // One line per row, "Pererenan (1262)": the column grows to its longest label, never
+  // past half the width, and never narrower than it always was (the charts align). A
+  // label that still would not fit keeps its first name: "Uluwatu / Pecatu" → "Uluwatu".
+  const cap = Math.round(W * 0.5);
+  const names = rows.map((r) => {
+    const name = String(getLabel(r));
+    return rowLabelWidth(`${name} (${getN(r)})`) + ROW_LABEL_PAD <= cap ? name : name.split(' / ')[0];
+  });
+  const longest = Math.max(...rows.map((r, i) => rowLabelWidth(`${names[i]} (${getN(r)})`)));
+  const labelW = Math.min(cap, Math.max(W < 420 ? 92 : 132, Math.ceil(longest) + ROW_LABEL_PAD));
   const chartX0 = labelW;
   const chartX1 = W - RIGHT_PAD;
   const scaleX = (v) => chartX0 + ((v - dom.min) / (dom.max - dom.min)) * (chartX1 - chartX0);
@@ -116,22 +148,27 @@ function renderBoxWhisker(rows, { getLabel, getN, getInFilter, chartWidth, domai
   const ticks = [];
   for (let v = dom.tickStart; v <= dom.max; v += dom.step) ticks.push(v);
 
-  let svg = `<svg class="mkt-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${escapeHtml(dom.label)}">`;
+  let svg = `<svg class="mkt-chart mkt-box-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${escapeHtml(dom.label)}">`;
 
-  for (const v of ticks) {
+  // Every tick keeps its gridline; its label only when the labels fit side by side
+  // (on a phone every second or third one does). Mono digits are ~0.6 em wide.
+  const tickPx = ticks.length > 1 ? scaleX(ticks[1]) - scaleX(ticks[0]) : Infinity;
+  const labelPx = Math.max(...ticks.map((v) => String(dom.fmt(v)).length)) * AXIS_LABEL_PX * 0.6 + 8;
+  const labelEvery = Math.max(1, Math.ceil(labelPx / tickPx));
+  ticks.forEach((v, i) => {
     const x = scaleX(v);
     svg += `<line x1="${x}" y1="${TOP_PAD}" x2="${x}" y2="${plotBottom}" class="mkt-gridline" />`;
-    svg += `<text x="${x}" y="${H - 8}" class="mkt-axis-label" text-anchor="middle">${dom.fmt(v)}</text>`;
-  }
+    if (i % labelEvery === 0) svg += `<text x="${x}" y="${H - 8}" class="mkt-axis-label" text-anchor="middle">${dom.fmt(v)}</text>`;
+  });
 
   rows.forEach((row, i) => {
     const rowTop = TOP_PAD + i * ROW_H;
     const cy = rowTop + ROW_H / 2;
-    const label = escapeHtml(getLabel(row));
+    const full = String(getLabel(row));
     const n = getN(row);
+    const title = names[i] === full ? '' : `<title>${escapeHtml(full)}</title>`;
 
-    svg += `<text x="0" y="${rowTop + 12}" class="mkt-row-label">${label}</text>`;
-    svg += `<text x="0" y="${rowTop + 25}" class="mkt-row-count">n=${n}</text>`;
+    svg += `<text x="0" y="${cy + 4.5}" class="mkt-row-label">${title}${escapeHtml(names[i])} <tspan class="mkt-row-n">(${n})</tspan></text>`;
 
     if (row.p25 != null && row.p75 != null) {
       const x1 = clampX(scaleX(row.p25));
@@ -374,23 +411,58 @@ function renderOverview(stats, { chartWidth } = {}) {
 // Tables
 // ---------------------------------------------------------------------------
 
+// Below this many listings on either side the median is a guess, and its bar fades.
+const PREMIUM_MIN_N = 20;
+
+/** Premium in percent: how much more the median asks with the feature than without. */
+function premiumPct(r) {
+  if (r.median_with == null || r.median_without == null || r.median_without === 0) return null;
+  return Math.round(((r.median_with - r.median_without) / r.median_without) * 1000) / 10;
+}
+
+/**
+ * Feature premium as diverging bars from a zero line, biggest premium first: gold to the
+ * right for a premium, muted to the left for a discount, sign and value at the row's end.
+ * The scale spans only what the data needs (zero sits left of centre when most premiums
+ * are positive). Hover a row for both medians and counts; the table stays one tap away.
+ */
 function renderFeaturePremium(rows) {
   if (!rows || !rows.length) return '<p class="mkt-empty">No feature data yet.</p>';
-  const body = rows.map((r) => {
-    const delta = r.median_with != null && r.median_without != null && r.median_without !== 0
-      ? Math.round(((r.median_with - r.median_without) / r.median_without) * 1000) / 10
-      : null;
-    return `<tr>
+  const data = rows.map((r) => ({ ...r, delta: premiumPct(r) }));
+  const known = data.filter((r) => r.delta != null).sort((a, b) => b.delta - a.delta);
+  const lo = Math.min(0, ...known.map((r) => r.delta));
+  const hi = Math.max(0, ...known.map((r) => r.delta));
+  const span = hi - lo || 1;
+  const zero = (-lo / span) * 100;
+
+  const chart = [...known, ...data.filter((r) => r.delta == null)].map((r) => {
+    const label = featureLabel(r.feature);
+    const thin = Math.min(r.n_with, r.n_without) < PREMIUM_MIN_N;
+    const tip = `${label}: ${fmtMoney(r.median_with)} with (n=${r.n_with}) vs ${fmtMoney(r.median_without)} without (n=${r.n_without})${thin ? ' · small sample' : ''}`;
+    let bar = '';
+    if (r.delta != null) {
+      const w = (Math.abs(r.delta) / span) * 100;
+      const left = r.delta >= 0 ? zero : zero - w;
+      bar = `<span class="mkt-prem-bar ${r.delta >= 0 ? 'is-up' : 'is-down'}${thin ? ' is-thin' : ''}" style="left:${left.toFixed(2)}%;width:${Math.max(w, 0.8).toFixed(2)}%"></span>`;
+    }
+    return `<div class="mkt-prem-row" title="${escapeHtml(tip)}">
+      <span class="mkt-prem-label">${escapeHtml(label)}</span>
+      <span class="mkt-prem-track"><span class="mkt-prem-zero" style="left:${zero.toFixed(2)}%"></span>${bar}</span>
+      <span class="mkt-prem-value mono">${fmtPct(r.delta)}</span>
+    </div>`;
+  }).join('');
+
+  const body = data.map((r) => `<tr>
       <td>${escapeHtml(featureLabel(r.feature))}</td>
       <td class="mkt-mono">${fmtMoney(r.median_with)}<span class="mkt-n">n=${r.n_with}</span></td>
       <td class="mkt-mono">${fmtMoney(r.median_without)}<span class="mkt-n">n=${r.n_without}</span></td>
-      <td class="mkt-mono">${fmtPct(delta)}</td>
-    </tr>`;
-  }).join('');
-  return `<div class="mkt-table-wrap"><table class="mkt-table">
-    <thead><tr><th>Feature</th><th>Median with</th><th>Median without</th><th>Delta</th></tr></thead>
-    <tbody>${body}</tbody>
-  </table></div>`;
+      <td class="mkt-mono">${fmtPct(r.delta)}</td>
+    </tr>`).join('');
+  return `<div class="mkt-prem">${chart}</div>
+    <details class="mkt-more"><summary>Table</summary><div class="mkt-table-wrap"><table class="mkt-table">
+      <thead><tr><th>Feature</th><th>Median with</th><th>Median without</th><th>Delta</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div></details>`;
 }
 
 function renderShortlistTable(rows, areasMap) {
@@ -424,9 +496,9 @@ function renderCounts(counts) {
 }
 
 // ---------------------------------------------------------------------------
-// Market metrics (GET /api/market/metrics) — thirteen sections between the
-// Overview and "Price per area". Every one of them degrades to the same empty
-// state, because on a fresh database most of them have nothing to say yet.
+// Market metrics (GET /api/market/metrics) — thirteen sections, placed among the
+// others by `render`. Every one of them degrades to the same empty state, because
+// on a fresh database most of them have nothing to say yet.
 // ---------------------------------------------------------------------------
 
 const METRICS_DAYS = 90;
@@ -639,7 +711,7 @@ function renderTimeOnMarket(tom, areasMap, { chartWidth }) {
     ['Stale share', stale.share == null ? '—' : `${Math.round(stale.share * 100)}%`],
   ]);
 
-  const chart = renderBoxWhisker(rows, {
+  const chart = renderBoxWhisker(northToSouth(rows), {
     getLabel: (r) => areaLabel(areasMap, r.area),
     getN: (r) => r.n,
     chartWidth,
@@ -711,9 +783,11 @@ function fmtThousands(v) {
   return n >= 1e6 ? fmtMoney(n) : `${Math.round(n / 1000)} k`;
 }
 
-function renderPerM2(perM2, areasMap, sort) {
-  if (!perM2 || !perM2.by_area || !perM2.by_area.length) return emptyMetric();
-  const rows = sortRows(perM2.by_area, sort, areasMap);
+function renderPerM2(perM2, areasMap, sort, br = 'all') {
+  const picker = chips('m2-br', [{ value: 'all', label: 'All' }, ...BR_GROUPS.map((b) => ({ value: b, label: `${b} BR` }))], (v) => v === br);
+  const table = br === 'all' ? perM2 : perM2?.by_br?.[br];
+  if (!table || !table.by_area || !table.by_area.length) return perM2?.by_area?.length ? `${picker}${emptyMetric()}` : emptyMetric();
+  const rows = sortRows(table.by_area, sort, areasMap);
   const head = PER_M2_COLS.map((c) => {
     const on = sort.key === c.key;
     const arrow = on ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : '';
@@ -726,9 +800,9 @@ function renderPerM2(perM2, areasMap, sort) {
       <td class="mkt-mono">${fmtMoney(r.median_per_bedroom)}</td>
       <td class="mkt-mono">${fmtMoney(r.median_price)}</td>
     </tr>`;
-  return `<div class="mkt-table-wrap"><table class="mkt-table">
+  return `${picker}<div class="mkt-table-wrap"><table class="mkt-table">
     <thead><tr>${head}</tr></thead>
-    <tbody>${rows.map((r) => line(r)).join('')}${perM2.all ? line(perM2.all, 'mkt-row-total') : ''}</tbody>
+    <tbody>${rows.map((r) => line(r)).join('')}${table.all ? line(table.all, 'mkt-row-total') : ''}</tbody>
   </table></div>`;
 }
 
@@ -919,51 +993,83 @@ function renderNegotiable(rows, areasMap) {
 
 // --- the whole block -------------------------------------------------------
 
+/** The metric sections by key, so `render` can lay them out in the page's own order. */
 function renderMetrics(metrics, areasMap, uiState, { chartWidth }) {
-  if (!metrics) {
-    return section('Market metrics', 'The deeper read of the market.', '<p class="mkt-error">Could not load the market metrics.</p>');
-  }
+  if (!metrics) return null;
   const days = metrics.days || METRICS_DAYS;
-  return [
-    section('Asking price trend', 'Median asking price per month, by area and bedrooms — what the market is asking, not what anyone paid.',
+  return {
+    trend: section('Asking price trend', 'Median asking price per month, by area and bedrooms — what the market is asking, not what anyone paid.',
       renderPriceTrend(metrics.price_trend, areasMap, { chartWidth, brs: uiState.trendBrs, selectedArea: uiState.trendArea })),
-    section('Supply flow', 'New listings up, removed listings down, per week. Removal is dated by the last day the listing was confirmed.',
+    flow: section('Supply flow', 'New listings up, removed listings down, per week. Removal is dated by the last day the listing was confirmed.',
       renderSupplyFlow(metrics.supply_flow, areasMap, { chartWidth, area: uiState.flowArea })),
-    section('Time on market', 'How long a listing stays up before it disappears — and how much of what is live has been sitting for over a month.',
+    timeOnMarket: section('Time on market', 'How long a listing stays up before it disappears — and how much of what is live has been sitting for over a month.',
       renderTimeOnMarket(metrics.time_on_market, areasMap, { chartWidth })),
-    section('Price drops', `Listings that lowered their asking price in the last ${days} days.`,
+    drops: section('Price drops', `Listings that lowered their asking price in the last ${days} days.`,
       renderPriceDrops(metrics.price_drops, areasMap, days)),
-    section('Price per m²', 'Monthly rent per built square metre and per bedroom — tap a column to sort.',
-      renderPerM2(metrics.per_m2, areasMap, uiState.m2Sort)),
-    section('Yearly discount', 'How much cheaper a month is when the listing quotes both a monthly and a yearly price.',
+    perM2: section('Price per m²', 'Monthly rent per built square metre and per bedroom — tap a column to sort.',
+      renderPerM2(metrics.per_m2, areasMap, uiState.m2Sort, uiState.m2Br)),
+    yearly: section('Yearly discount', 'How much cheaper a month is when the listing quotes both a monthly and a yearly price.',
       renderYearlyDiscount(metrics.yearly_discount, areasMap)),
-    section('Beach premium', 'Median price by distance to the beach, one group of bars per bedroom count.',
+    beach: section('Beach premium', 'Median price by distance to the beach, one group of bars per bedroom count.',
       renderBeachPremium(metrics.beach_premium, { chartWidth })),
-    section('Inclusions premium', 'What the median asks when electricity or cleaning is included versus when it is not.',
+    inclusions: section('Inclusions premium', 'What the median asks when electricity or cleaning is included versus when it is not.',
       renderInclusionsPremium(metrics.inclusions_premium)),
-    section('Same villa, different price', 'The same house listed twice — merged duplicates and the near misses the scorer is fairly sure about.',
+    sameVilla: section('Same villa, different price', 'The same house listed twice — merged duplicates and the near misses the scorer is fairly sure about.',
       renderCrossSourceGaps(metrics.cross_source_gaps, areasMap)),
-    section('Where the good ones come from', 'Each source’s share of the in-filter and flagged pool.',
+    sources: section('Where the good ones come from', 'Each source’s share of the in-filter and flagged pool.',
       renderSourceShare(metrics.source_share)),
-    section('Budget bands', 'Live 1–3 bedroom listings per area in 10 M steps across the budget, plus the 10 M stretch above it.',
+    budget: section('Budget bands', 'Live 1–3 bedroom listings per area in 10 M steps across the budget, plus the 10 M stretch above it.',
       renderBudgetBands(metrics.budget_bands, areasMap)),
-    section('Availability', 'When the live listings say they are free.',
+    availability: section('Availability', 'When the live listings say they are free.',
       renderAvailability(metrics.availability_lead, areasMap)),
-    section('Negotiable', 'Share of live listings per area that say the price is negotiable.',
+    negotiable: section('Negotiable', 'Share of live listings per area that say the price is negotiable.',
       renderNegotiable(metrics.negotiable_share, areasMap)),
-  ].join('');
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Region tabs — every figure on the page is the chosen region's (the three routes
+// take ?region=); the choice rides in the hash and is remembered for the next visit.
+// ---------------------------------------------------------------------------
+
+function renderRegionTabs(region) {
+  return `<div class="tabs mkt-regions" role="tablist" aria-label="Region">${REGION_TABS
+    .map((t) => `<button type="button" class="tab-btn" role="tab" data-region="${t.id}" aria-selected="${String(region === t.id)}">${escapeHtml(t.label)}</button>`)
+    .join('')}</div>`;
+}
+
+/** The page's frame: the tabs, then `body` (the sections, a loading line, an error). */
+function frame(uiState, body) {
+  return `<div class="market-view">${renderRegionTabs(uiState.region)}${body}</div>`;
 }
 
 // ---------------------------------------------------------------------------
 // Full render
 // ---------------------------------------------------------------------------
 
+// A chart sits inside .mkt-section: 16 px padding and a 1 px border a side (charts.css).
+const SECTION_INSET = 2 * 16 + 2 * 1;
+
+/**
+ * The width a chart actually gets: the page frame's content box minus a section's inset.
+ * The SVGs draw at this width, so 13 px text shows as 13 px. Reading the outlet instead
+ * (its own padding and the frame's 960 px cap left out) drew every chart ~10 % too wide
+ * on a phone, more on a wide screen, and the browser scaled the text down to fit.
+ */
+function chartWidthOf(el) {
+  const view = el.querySelector('.market-view');
+  if (!view) return Math.max(240, (el.clientWidth || 600) - 64);
+  const cs = getComputedStyle(view);
+  const inner = view.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  return Math.max(240, Math.floor(inner - SECTION_INSET));
+}
+
 function render(el, data, areasMap, stats, metrics, uiState) {
-  const chartWidth = Math.max(240, (el.clientWidth || 600) - 64);
+  const chartWidth = chartWidthOf(el);
 
   const overview = renderOverview(stats, { chartWidth });
-  const metricSections = renderMetrics(metrics, areasMap, uiState, { chartWidth });
-  const byArea = renderBoxWhisker(data.by_area || [], {
+  const m = renderMetrics(metrics, areasMap, uiState, { chartWidth });
+  const byArea = renderBoxWhisker(northToSouth(data.by_area || []), {
     getLabel: (r) => areaLabel(areasMap, r.area),
     getN: (r) => r.n,
     getInFilter: (r) => r.n_in_filter,
@@ -978,29 +1084,33 @@ function render(el, data, areasMap, stats, metrics, uiState) {
   const shortlist = renderShortlistTable(data.shortlist_vs_median, areasMap);
   const counts = renderCounts(data.counts);
 
-  el.innerHTML = `
-    <div class="market-view">
-      ${overview}
-      ${metricSections}
-      <section class="mkt-section">
-        <h2 class="mkt-heading">Price per area</h2>
-        ${byArea}
-      </section>
-      <section class="mkt-section">
-        <h2 class="mkt-heading">Price per bedrooms</h2>
-        ${byBedrooms}
-      </section>
-      <section class="mkt-section">
-        <h2 class="mkt-heading">Feature premium</h2>
-        ${featurePremium}
-      </section>
-      <section class="mkt-section">
-        <h2 class="mkt-heading">Your shortlist vs area median</h2>
-        ${shortlist}
-      </section>
-      ${counts}
-    </div>
-  `;
+  const plain = (title, body) => `<section class="mkt-section"><h2 class="mkt-heading">${escapeHtml(title)}</h2>${body}</section>`;
+  // Philipp's order (2026-09-27): what a villa costs and what moves the price first, the
+  // market's movement and the bookkeeping after. A failed /api/market/metrics leaves one
+  // error card where its first section would have been.
+  const metricsFailed = section('Market metrics', 'The deeper read of the market.', '<p class="mkt-error">Could not load the market metrics.</p>');
+  const mm = (key) => (m ? m[key] : '');
+  el.innerHTML = frame(uiState, [
+    plain('Price per area', byArea),
+    plain('Price per bedrooms', byBedrooms),
+    section('Feature premium', `How much more the median asks with the feature than without it. Faded: fewer than ${PREMIUM_MIN_N} listings on one side.`, featurePremium),
+    m ? m.budget : metricsFailed,
+    mm('perM2'),
+    mm('availability'),
+    mm('yearly'),
+    mm('negotiable'),
+    mm('beach'),
+    mm('sources'),
+    overview,
+    mm('trend'),
+    mm('flow'),
+    mm('timeOnMarket'),
+    mm('drops'),
+    mm('inclusions'),
+    mm('sameVilla'),
+    plain('Your shortlist vs area median', shortlist),
+    counts,
+  ].join(''));
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,7 +1119,6 @@ function render(el, data, areasMap, stats, metrics, uiState) {
 
 export async function mountMarket(el, ctx) {
   ensureChartsCss();
-  el.innerHTML = '<div class="market-view"><p class="mkt-loading">Loading market data…</p></div>';
 
   let destroyed = false;
   let lastData = null;
@@ -1019,14 +1128,40 @@ export async function mountMarket(el, ctx) {
 
   // Section-local UI state. It lives here (not in the DOM) so a resize re-render,
   // which rebuilds innerHTML wholesale, keeps the chips and the sort where they were.
+  // The region: the hash says (a shared or reloaded link), else the last visit's choice.
+  const asked = ctx.query?.region ?? ctx.store?.get().marketRegion ?? '';
   const uiState = {
+    region: REGION_IDS.has(asked) ? asked : '',
     trendBrs: new Set(['2', '3']),
     trendArea: null,
     flowArea: 'all',
     m2Sort: { key: 'median_per_build_m2', dir: 'desc' },
+    m2Br: 'all',
   };
+  el.innerHTML = frame(uiState, '<p class="mkt-loading">Loading market data…</p>');
+  const regionHash = () => (uiState.region ? `#/market?region=${uiState.region}` : '#/market');
+  // replaceState, never a hash change: the router would remount the page on its own.
+  if (location.hash !== regionHash()) history.replaceState(null, '', regionHash());
 
   function handleClick(e) {
+    const tab = e.target.closest('.mkt-regions [data-region]');
+    if (tab) {
+      const region = tab.getAttribute('data-region');
+      if (region === uiState.region) return;
+      uiState.region = region;
+      // An area picked in one region's chart means nothing in the next one's.
+      uiState.trendArea = null;
+      uiState.flowArea = 'all';
+      ctx.store?.set({ marketRegion: region });
+      history.replaceState(null, '', regionHash());
+      for (const b of el.querySelectorAll('.mkt-regions [data-region]')) {
+        b.setAttribute('aria-selected', String(b === tab));
+      }
+      el.querySelector('.market-view')?.classList.add('is-loading');
+      load();
+      return;
+    }
+
     const chip = e.target.closest('.mkt-chip');
     if (chip) {
       e.preventDefault();
@@ -1040,6 +1175,8 @@ export async function mountMarket(el, ctx) {
         uiState.trendArea = uiState.trendArea === value ? null : value;
       } else if (group === 'flow-area') {
         uiState.flowArea = value;
+      } else if (group === 'm2-br') {
+        uiState.m2Br = value;
       }
       renderNow();
       return;
@@ -1081,23 +1218,30 @@ export async function mountMarket(el, ctx) {
 
   // /api/market, /api/stats and /api/market/metrics are fetched in parallel; a
   // failure of either extra call must not block the rest of the Market page
-  // (renderOverview / renderMetrics degrade to an inline error).
-  const marketPromise = ctx.api.get('/api/market');
-  const statsPromise = ctx.api.get(`/api/stats?days=${OVERVIEW_DAYS}`).catch(() => null);
-  const metricsPromise = ctx.api.get(`/api/market/metrics?days=${METRICS_DAYS}`).catch(() => null);
-
-  try {
-    const [data, stats, metrics] = await Promise.all([marketPromise, statsPromise, metricsPromise]);
-    if (destroyed) return cleanup;
-    lastData = data;
-    lastStats = stats;
-    lastMetrics = metrics;
-    render(el, data, areasMap, stats, metrics, uiState);
-  } catch (err) {
-    if (destroyed) return cleanup;
-    const msg = err && err.status ? `Could not load market data (HTTP ${err.status}).` : 'Could not load market data.';
-    el.innerHTML = `<div class="market-view"><p class="mkt-error">${escapeHtml(msg)}</p></div>`;
+  // (renderOverview / renderMetrics degrade to an inline error). A tab tapped while
+  // the last region is still loading wins: the older answer is dropped on arrival.
+  let loadToken = 0;
+  async function load() {
+    const mine = ++loadToken;
+    const region = uiState.region ? `region=${uiState.region}` : '';
+    const marketPromise = ctx.api.get(`/api/market${region ? `?${region}` : ''}`);
+    const statsPromise = ctx.api.get(`/api/stats?days=${OVERVIEW_DAYS}${region ? `&${region}` : ''}`).catch(() => null);
+    const metricsPromise = ctx.api.get(`/api/market/metrics?days=${METRICS_DAYS}${region ? `&${region}` : ''}`).catch(() => null);
+    try {
+      const [data, stats, metrics] = await Promise.all([marketPromise, statsPromise, metricsPromise]);
+      if (destroyed || mine !== loadToken) return;
+      lastData = data;
+      lastStats = stats;
+      lastMetrics = metrics;
+      render(el, data, areasMap, stats, metrics, uiState);
+    } catch (err) {
+      if (destroyed || mine !== loadToken) return;
+      lastData = null; // a resize must not redraw the previous region's figures under this tab
+      const msg = err && err.status ? `Could not load market data (HTTP ${err.status}).` : 'Could not load market data.';
+      el.innerHTML = frame(uiState, `<p class="mkt-error">${escapeHtml(msg)}</p>`);
+    }
   }
 
+  await load();
   return cleanup;
 }

@@ -4,12 +4,13 @@ import { createStore } from './lib/store.js';
 import { defaultFilters } from './lib/filters.js';
 import { createApi } from './lib/api.js';
 import { createRouter, navigate } from './lib/router.js';
-import { $, html, setHtml, icons, toast } from './lib/ui.js';
+import { $, html, setHtml, icons, toast, photoFallback } from './lib/ui.js';
 import { isSolo, isOwner } from './lib/people.js';
+import { stepCardPhoto } from './lib/card-photos.js';
 
 const store = createStore(
-  { filters: defaultFilters(), theme: 'system', user: null, users: [], team: null, areas: [] },
-  { persist: ['filters', 'theme'] }
+  { filters: defaultFilters(), theme: 'system', user: null, users: [], team: null, areas: [], marketRegion: '' },
+  { persist: ['filters', 'theme', 'marketRegion'] }
 );
 
 const api = createApi({ onUnauthorized: () => navigate('/login', { replace: true }) });
@@ -42,7 +43,8 @@ const TABS = [
   { route: 'map', href: '#/map', label: 'Map', icon: icons.map },
   { route: 'market', href: '#/market', label: 'Market', icon: icons.chart },
   { route: 'gone', href: '#/gone', label: 'Gone', icon: icons.archive },
-  { route: 'agent', href: '#/agent', label: 'Agent', icon: icons.robot, hide: (s) => !isOwner(s) },
+  // Everyone sees the Agent page; a member gets it read-only (views/agent.js, SPEC §17).
+  { route: 'agent', href: '#/agent', label: 'Agent', icon: icons.robot },
   // The owners' mini CMS — also in the account menu, but a tab is one tap from anywhere.
   { route: 'people', href: '#/people', label: 'People', icon: icons.idcard, hide: (s) => !isOwner(s) },
 ];
@@ -153,10 +155,10 @@ const router = createRouter({
         navigate('/login', { replace: true });
         return () => {};
       }
-      // SPEC §17: the Agent page and People are the owners'; Shared needs a teammate to
-      // share with. A friend who lands here anyway (a stale link, a typed hash) is bounced
-      // home rather than shown a page that has nothing — or the wrong things — for them.
-      if (state.user && ((name === 'agent' && !isOwner(state)) || (name === 'people' && !isOwner(state)) || (name === 'shared' && isSolo(state)))) {
+      // SPEC §17: People is the owners'; Shared needs a teammate to share with. A friend
+      // who lands here anyway (a stale link, a typed hash) is bounced home rather than
+      // shown a page that has nothing — or the wrong things — for them.
+      if (state.user && ((name === 'people' && !isOwner(state)) || (name === 'shared' && isSolo(state)))) {
         navigate('/', { replace: true });
         return () => {};
       }
@@ -210,8 +212,35 @@ accountMenu.addEventListener('click', (event) => {
   else if (button.dataset.account === 'logout') signOut();
 });
 
+// A photo cut that fails to load — cut short in transit and cached broken, or a hiccup
+// mid-cut — falls back to the original photo once; if that fails too it steps aside for
+// the card's empty photo well instead of a broken-image icon. `error` does not bubble,
+// hence the capture phase. Gallery and remote photos are left as they are.
+document.addEventListener(
+  'error',
+  (event) => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    const next = photoFallback(img.getAttribute('src'));
+    if (next) {
+      img.dataset.fellBack = '1';
+      img.src = next;
+    } else if (img.dataset.fellBack) {
+      img.remove();
+    }
+  },
+  true
+);
+
 document.addEventListener('click', (event) => {
   if (!accountMenu.hidden && !event.target.closest('#account-wrap')) toggleAccountMenu(false);
+});
+
+// A card's photo arrows, on every view that draws cards (Home, Shared, Gone). They sit
+// beside the card's link, not in it, so the rest of the photo still opens the listing.
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-card-step]');
+  if (button) stepCardPhoto(button, api);
 });
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !accountMenu.hidden) {

@@ -10,7 +10,7 @@ import sharp from 'sharp';
 import { openDb } from '../src/db.js';
 import { buildServer } from '../src/server.js';
 import { ensureThumb, THUMB_WIDTH } from '../src/thumbs.js';
-import { thumbUrl } from '../public/lib/ui.js';
+import { thumbUrl, photoFallback } from '../public/lib/ui.js';
 
 const ENV = {
   NODE_ENV: 'test',
@@ -48,12 +48,22 @@ test('thumbUrl: a downloaded listing photo maps to its cut; anything else is lef
   assert.equal(thumbUrl(null), null);
 });
 
+test('photoFallback: a broken cut falls back to its original; nothing else has a fallback', () => {
+  assert.equal(photoFallback('/thumbs/12/1.webp'), '/images/12/1.jpg');
+  assert.equal(photoFallback('https://villa.solay.cloud/thumbs/12/3.webp'), '/images/12/3.jpg');
+  assert.equal(photoFallback('/images/12/1.jpg'), null, 'the original is the last stop');
+  assert.equal(photoFallback('https://cdn.test/thumbs/a.webp'), null);
+  assert.equal(photoFallback(''), null);
+  assert.equal(photoFallback(null), null);
+});
+
 test('GET /thumbs: a 720 px WebP, public and cached, cut once and then read from disk', async (t) => {
   const { app, thumbsDir } = await setup(t);
   const res = await app.inject({ method: 'GET', url: '/thumbs/7/1.webp' });
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['content-type'], 'image/webp');
   assert.match(res.headers['cache-control'], /public, max-age=2592000/);
+  assert.equal(Number(res.headers['content-length']), res.rawPayload.length, 'a cut-short transfer is detectable');
   const meta = await sharp(res.rawPayload).metadata();
   assert.equal(meta.format, 'webp');
   assert.equal(meta.width, THUMB_WIDTH);

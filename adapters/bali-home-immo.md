@@ -85,6 +85,13 @@ The site is an **Inertia.js** app: the detail page is server-rendered with the w
 `JSON.parse(unescape(attr))`, then `props.property` is the record. No Google Maps iframe, no listing JSON-LD
 (only `RealEstateAgent` + `WebSite`), so **read the JSON, do not scrape the HTML**. Page ~820 KB.
 
+**Caching (2026-09-26).** Index pages stay at 24 h (71 a day). A known listing's detail page is
+cached for 7 days under the shared rule (`src/scrape/ingest.js` `detailPlan`, CLAUDE.md): refreshed
+on the listing's own weekday, refetched the same day when the card's price, bedrooms or
+`is_archived` differs from the stored row, new refs fetched at once. ~760 detail pages a day
+become ~110–140. The adapter's `cardFacts` leaves out `title`: the card's title is rebuilt from
+the URL slug, the real name (`property.name`) is a detail-page fact.
+
 `props.property` fields (RF9183D):
 
 | field | example | use |

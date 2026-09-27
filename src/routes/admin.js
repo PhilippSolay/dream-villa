@@ -152,7 +152,10 @@ export default async function adminRoutes(app, opts) {
     return runs.map(({ id, kind, started_at, finished_at }) => ({ id, kind, started_at, finished_at }));
   });
 
-  // The agent's private notes (SPEC §17) — owners only.
+  // The agent's notes stay owners only even though friends now see the Agent page: the
+  // morning session writes them from the home team's digest (its feedback, viewings and
+  // shortlist), which SPEC §17 keeps inside the team — the same reason /api/runs above
+  // strips `notes` and `weight_changes` for a member.
   app.get('/api/notes', { ...ownerAuth, schema: { querystring: limitSchema } }, async (request) => {
     const limit = request.query.limit ?? 14;
     return db.prepare('SELECT * FROM agent_notes ORDER BY id DESC LIMIT ?').all(limit);
@@ -217,11 +220,12 @@ export default async function adminRoutes(app, opts) {
   );
 
   // The inbox and the intake channels are the owners' agent desk (who pasted what, notes
-  // on agencies and groups); only the Agent page reads them, and friends do not have it.
+  // on agencies and groups). Friends see the Agent page read-only (SPEC §17), so both
+  // reads are open to everyone signed in; every write here stays the owners'.
   app.get(
     '/api/inbox',
     {
-      ...ownerAuth,
+      ...auth,
       schema: {
         querystring: {
           type: 'object', additionalProperties: false,
@@ -254,10 +258,12 @@ export default async function adminRoutes(app, opts) {
     archived: { type: 'boolean' },
   };
 
+  // `user`: the per-source `flagged` count is the caller's team's (SPEC §17 recomputes
+  // `flagged` per team), so a friend never reads the home team's rejections off it.
   app.get(
     '/api/sources',
     {
-      ...ownerAuth,
+      ...auth,
       schema: {
         querystring: {
           type: 'object', additionalProperties: false,
@@ -265,7 +271,9 @@ export default async function adminRoutes(app, opts) {
         },
       },
     },
-    async (request) => ({ sources: sourcesWithStats(db, { includeArchived: request.query.archived === true }) })
+    async (request) => ({
+      sources: sourcesWithStats(db, { includeArchived: request.query.archived === true, user: request.user }),
+    })
   );
 
   app.post(
