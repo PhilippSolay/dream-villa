@@ -131,6 +131,16 @@ export function loadContext(db) {
 // a pair dismissed) or after CONTEXT_TTL_MS, which bounds how stale a changed price or
 // a newly hashed photo can be in a hint that only ever suggests.
 export const CONTEXT_TTL_MS = 10 * 60_000;
+
+// A scrape or an import (a worker, src/jobs) moves the fingerprint with every listing it
+// adds, links or retires. Re-reading on each move put that ~0.5 s stall on every detail
+// page, and a fresh all-pairs pass on every Market visit, for as long as a run lasted.
+// So those moves re-read it at most this often; the job's end re-reads it anyway (the
+// runner forgets it). Two things still re-read at once: a dismissal (a person's tap on
+// the Agent page, whose reload must lose the pair) and a detail page asking about a
+// listing newer than the kept context (it must find itself).
+export const CONTEXT_REFRESH_MS = 60_000;
+
 const contexts = new WeakMap(); // db → { stamp, at, ctx }
 
 function fingerprint(db) {
@@ -143,14 +153,26 @@ function fingerprint(db) {
     .get();
   const links = db.prepare('SELECT COUNT(*) AS n FROM property_contacts').get().n;
   const dismissed = db.prepare('SELECT COUNT(*) AS n FROM duplicate_dismissals').get().n;
-  return `${p.n}:${p.max_id}:${p.gone}:${links}:${dismissed}`;
+  return { listings: `${p.n}:${p.max_id}:${p.gone}:${links}`, maxId: p.max_id ?? 0, dismissed };
 }
 
-/** loadContext, served from memory while nothing it depends on has visibly moved. */
-export function cachedContext(db, { now = Date.now() } = {}) {
+function stillGood(hit, stamp, now, need) {
+  const age = now - hit.at;
+  if (age >= CONTEXT_TTL_MS) return false;
+  if (stamp.dismissed !== hit.stamp.dismissed) return false;
+  if (need != null && Number(need) > hit.stamp.maxId) return false;
+  return stamp.listings === hit.stamp.listings || age < CONTEXT_REFRESH_MS;
+}
+
+/**
+ * loadContext, served from memory while nothing it depends on has visibly moved.
+ * @param {object} [opts]
+ * @param {number} [opts.need] a listing id the caller must find (a detail page's own)
+ */
+export function cachedContext(db, { now = Date.now(), need = null } = {}) {
   const stamp = fingerprint(db);
   const hit = contexts.get(db);
-  if (hit && hit.stamp === stamp && now - hit.at < CONTEXT_TTL_MS) return hit.ctx;
+  if (hit && stillGood(hit, stamp, now, need)) return hit.ctx;
   const ctx = loadContext(db);
   contexts.set(db, { stamp, at: now, ctx });
   return ctx;

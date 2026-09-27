@@ -86,7 +86,7 @@ export default async function duplicatesRoutes(app, opts) {
       const pairs = candidatesFor(db, id, {
         limit: request.query.limit ?? 10,
         minScore: request.query.min_score ?? 0.6,
-        ctx: cachedContext(db),
+        ctx: cachedContext(db, { need: id }),
       });
       const summaries = summariesFor(db, pairs.map((p) => p.b), request.user);
 
