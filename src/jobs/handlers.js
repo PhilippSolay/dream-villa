@@ -76,6 +76,12 @@ export const HANDLERS = {
     return importListings(db, args);
   },
 
+  /** POST /api/duplicates/auto — the automatic merge pass, run by a person. */
+  async dedupe(db, args) {
+    const { runDedupe } = await import('../routes/duplicates.js');
+    return runDedupe(db, args);
+  },
+
   /** /api/import/listings' settle: dedupe, hero probe, the remaining galleries (src/scrape/settle.js). */
   async settle(db, args, { log, onRun }) {
     const { settleBatch } = await import('../routes/import-listings.js');

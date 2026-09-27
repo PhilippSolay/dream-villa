@@ -395,3 +395,32 @@ test('PATCH /api/config and the agent weights call rescore in a worker and answe
   assert.equal((await agent.json()).weights.pool, 0);
   assert.ok(fit() < raised, 'and lower again once the agent sets it to 0');
 });
+
+// ---------------------------------------------------------------------------
+// The Agent page's automatic duplicate pass
+// ---------------------------------------------------------------------------
+
+test('POST /api/duplicates/auto merges in a worker and answers as before', async (t) => {
+  const ctx = tmp(t);
+  const { call } = await server(t, ctx, { mode: 'fork' });
+
+  const insert = ctx.db.prepare(
+    `INSERT INTO properties (key, ref, source, url, title, description, area, bedrooms, price_month_idr,
+       availability, first_seen, last_seen, raw)
+     VALUES (?, ?, ?, ?, ?, ?, 'cemagi', 2, 40000000, 'available', ?, ?, '{}')`
+  );
+  const text = 'A calm two bedroom villa a short walk from the beach, with a big open living room.';
+  const older = insert.run('bhi:RF1', 'RF1', 'bhi', 'https://bhi.test/1', 'Villa Satu', text, '2026-09-01T00:00:00.000Z', '2026-09-27T00:00:00.000Z').lastInsertRowid;
+  const newer = insert.run('kibarer:K9', 'K9', 'kibarer', 'https://kibarer.test/9', 'Villa Dua', text, '2026-09-20T00:00:00.000Z', '2026-09-27T00:00:00.000Z').lastInsertRowid;
+
+  const res = await call('/api/duplicates/auto', { method: 'POST', body: {} });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.merged, [{ kept_id: Number(older), merged_id: Number(newer), reason: 'same first 60 chars of description' }]);
+
+  const run = lastRun(ctx.db, 'dedupe');
+  assert.equal(run.id, body.run_id);
+  assert.equal(run.gone, 1);
+  assert.equal(ctx.db.prepare('SELECT availability FROM properties WHERE id = ?').get(newer).availability, 'gone');
+});

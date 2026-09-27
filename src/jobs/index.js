@@ -17,6 +17,7 @@
 //   import  POST /api/import/posts and /api/import/listings. The request awaits its turn
 //           and its result, so the response keeps its shape.
 //   settle  /api/import/listings' background settle (dedupe, hero probe, galleries).
+//   dedupe  the Agent page's "run the automatic pass" button (POST /api/duplicates/auto).
 //   rescore every row's scope and fit score, after a weight or threshold edit (Agent page,
 //           the agent's weights call) or a migration. Its own lane: an edit never waits
 //           behind a scrape. Edits that land while one runs share the next one, which
@@ -40,6 +41,7 @@ export const LANES = {
   'import-posts': 'import',
   'import-listings': 'import',
   settle: 'settle',
+  dedupe: 'dedupe',
 };
 
 const MINUTE = 60_000;
@@ -52,6 +54,7 @@ export const TIMEOUTS = {
   'import-posts': 15 * MINUTE,
   'import-listings': 15 * MINUTE,
   settle: 3 * 60 * MINUTE,
+  dedupe: 15 * MINUTE,
 };
 
 /**

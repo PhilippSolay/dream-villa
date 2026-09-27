@@ -107,8 +107,9 @@ enabled adapter, images, geocode, dedupe, score, recheck, learn — then a backu
 (its own or one started from the Agent page) is skipped, not queued. `SCRAPE_CRON=off`
 disables it.
 
-The scrape, the backup, `POST /api/scrape`, the two import routes and every full rescore
-(after a weight or threshold edit, or a migration) never run on the web thread: each is a job (`src/jobs/`) in a child process
+The scrape, the backup, `POST /api/scrape`, the two import routes, the Agent page's
+automatic duplicate pass and every full rescore (after a weight or threshold edit, or a
+migration) never run on the web thread: each is a job (`src/jobs/`) in a child process
 of its own with its own SQLite connection, so photos and the API keep answering while
 it works. Same container, no extra service.
 

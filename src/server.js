@@ -183,7 +183,7 @@ export async function buildServer({ db, env = process.env, logger = false, jobs:
   });
 
   // API route modules (SPEC §4). Each receives { db, env }; the ones that hand work to a
-  // worker (scrape, imports, rescore) also get `jobs`.
+  // worker (scrape, imports, rescore, the duplicate pass) also get `jobs`.
   await app.register(propertiesRoutes, { db, env });
   await app.register(marketRoutes, { db, env });
   await app.register(marketMetricsRoutes, { db, env });
@@ -192,7 +192,7 @@ export async function buildServer({ db, env = process.env, logger = false, jobs:
   await app.register(statsRoutes, { db, env });
   await app.register(importRoutes, { db, env, jobs });
   await app.register(importListingsRoutes, { db, env, jobs });
-  await app.register(duplicatesRoutes, { db, env });
+  await app.register(duplicatesRoutes, { db, env, jobs });
   await app.register(anchorsRoutes, { db, env });
   await app.register(peopleRoutes, { db, env });
 
