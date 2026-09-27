@@ -344,6 +344,30 @@ test('list: rows carry the card, not the gallery or the text — detail still ha
   assert.deepEqual(detail.image_urls, ['https://bhi.test/a1.jpg']);
 });
 
+test('photos: a card counts its photos, and the photos route hands over just the gallery', async (t) => {
+  const { db, call, ids } = await setup(t);
+  const images = [
+    { src_url: 'https://bhi.test/d1.jpg', file: `${ids.D}/1.jpg` },
+    { src_url: 'https://bhi.test/d2.jpg', dead: true }, // images-audit.js gave up: never shown, never counted
+    { src_url: 'https://bhi.test/d3.jpg' },
+  ];
+  db.prepare('UPDATE properties SET images = ? WHERE id = ?').run(JSON.stringify(images), ids.D);
+
+  const rows = (await call({ method: 'GET', url: '/api/properties?scope=all&status=all' })).json();
+  const byKey = Object.fromEntries(rows.map((r) => [r.key, r]));
+  assert.equal(byKey['bhi:D'].photo_count, 2);
+  assert.equal(byKey['bhi:A'].photo_count, 1);
+  assert.equal(byKey['bhi:B'].photo_count, 0, 'no images at all');
+
+  const res = await call({ method: 'GET', url: `/api/properties/${ids.D}/photos` });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), {
+    hero_url: `/images/${ids.D}/1.jpg`,
+    image_urls: [`/images/${ids.D}/1.jpg`, 'https://bhi.test/d3.jpg'],
+  });
+  assert.equal((await call({ method: 'GET', url: '/api/properties/999999/photos' })).statusCode, 404);
+});
+
 test('list: term, furnished and source filters', async (t) => {
   const { call } = await setup(t);
   // 'both' satisfies a yearly request as well as a monthly one.

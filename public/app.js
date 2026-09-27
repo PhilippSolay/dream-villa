@@ -6,6 +6,7 @@ import { createApi } from './lib/api.js';
 import { createRouter, navigate } from './lib/router.js';
 import { $, html, setHtml, icons, toast, photoFallback } from './lib/ui.js';
 import { isSolo, isOwner } from './lib/people.js';
+import { stepCardPhoto } from './lib/card-photos.js';
 
 const store = createStore(
   { filters: defaultFilters(), theme: 'system', user: null, users: [], team: null, areas: [] },
@@ -233,6 +234,13 @@ document.addEventListener(
 
 document.addEventListener('click', (event) => {
   if (!accountMenu.hidden && !event.target.closest('#account-wrap')) toggleAccountMenu(false);
+});
+
+// A card's photo arrows, on every view that draws cards (Home, Shared, Gone). They sit
+// beside the card's link, not in it, so the rest of the photo still opens the listing.
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-card-step]');
+  if (button) stepCardPhoto(button, api);
 });
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !accountMenu.hidden) {

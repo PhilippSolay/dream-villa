@@ -160,10 +160,12 @@ export function publicRow(row) {
  * A list row: publicRow minus the photo array and the description. Cards, the map and the
  * pager read hero_url and the facts; the gallery and the text come from the detail route.
  * Together the two were ~3.4 of a row's ~5 KB, and Home asks for up to 500 rows four times.
+ * `photo_count` is all a card needs to decide on its arrows; the URLs come from
+ * `/api/properties/:id/photos` on the first tap.
  */
 export function cardRow(row) {
   const { images, description, ...card } = publicRow(row);
-  return card;
+  return { ...card, photo_count: imageUrls({ images }).length };
 }
 
 // --- shared search: per-person verdicts -------------------------------------
@@ -807,6 +809,20 @@ export default async function propertiesRoutes(app, opts) {
           feedback,
         },
       ], user)[0];
+    }
+  );
+
+  // --- photos: just the gallery, for a card's own arrows ------------------
+  // A list row carries only the hero and `photo_count`; the first arrow tap on a card
+  // asks here instead of pulling the whole detail (contacts, visits, notes) for a photo.
+  app.get(
+    '/api/properties/:id/photos',
+    { ...auth, schema: { params: { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } } },
+    async (request, reply) => {
+      const row = getListing(db, request.user, request.params.id);
+      if (!row) return notFound(reply);
+      const parsed = parseRow(row);
+      return { hero_url: heroUrl(parsed), image_urls: imageUrls(parsed) };
     }
   );
 

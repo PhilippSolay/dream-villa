@@ -159,6 +159,7 @@ All JSON. Session cookie for the app; `Authorization: Bearer <ADMIN_TOKEN>` acce
 **Properties**
 - `GET /api/properties?scope=in_filter|market|all&status=&area=&min=&max=&beach=&bedrooms=&features=pool,garden&sort=fit|price|beach|new&q=` → `[{…property, contacts:[…], counts:{viewings, ratings, feedback}}]`. Default `scope=in_filter`, hides `rejected` unless `status=rejected|all`. List rows are cards: `images` and `description` are left out (2026-09-26 — ~3.4 of a row's ~5 KB); `hero_url` stays, and the gallery and text come from the detail route.
 - `GET /api/properties/:id` → property + `contacts`, `agent_info[]`, `viewings[]`, `ratings[]`, `feedback[]`, `price_history`.
+- `GET /api/properties/:id/photos` → `{hero_url, image_urls}` — just the gallery, for a card's arrows. List rows carry `photo_count` (shown photos, `dead` ones left out) so a card knows whether to draw them.
 - `POST /api/properties` (manual add: `{url}` → enqueues to inbox and returns a stub, or full object) ; `PATCH /api/properties/:id` (person-editable fields only: `extra_rooms, living_open, airy, workspace, style, beach_km, lat, lng, notes, assessed, red_flags`).
 - `POST /api/properties/:id/status {status}` → sets `status, status_by, status_at`.
 - `POST /api/properties/:id/ratings {feature, score, comment}`; `POST …/feedback {text}`; `POST …/agent-info {…}`; `POST …/viewings {…}` (multipart with photos allowed); `POST …/contacts {…}` (links or creates by whatsapp).
@@ -191,7 +192,7 @@ Single page, phone first. Routes via hash: `#/`, `#/p/:id`, `#/market`, `#/map`,
 - Top strip: horizontal cards for `flagged` then `new today`, each with a one-line reason ("3BR Cemagi · 900 m to beach · 44 M · pool, ricefield view").
 - Filter drawer (bottom sheet on phone, left rail on desktop): area checkboxes (grouped: West coast / Bukit), bedrooms 1–4 chips, price range slider 15–80 M (step 0.5 M, dual thumb), beach distance slider 0–10 km, furnished / unfurnished / any, term monthly / yearly / any, feature checkboxes (pool, garden, view, joglo, aircon, full kitchen, workspace, airy/light, open living), status multi-select, assessed on location, source, hide rejected (on), "in-filter only" (on).
 - Sort: fit, price, beach, newest.
-- Cards: hero image (local file), price `JetBrains Mono` "44 M / mo" (yearly shown "38 M / mo · yearly"), area · sub-area, beach km, bedrooms (+extra rooms), feature chips, fit score ring, status pill, small pin icon linking to `map_url`.
+- Cards: hero image (local file), price `JetBrains Mono` "44 M / mo" (yearly shown "38 M / mo · yearly"), area · sub-area, beach km, bedrooms (+extra rooms), feature chips, fit score ring, status pill, small pin icon linking to `map_url`. A card with more than one photo (`photo_count > 1`) has ‹ › glass arrows over the photo that step through the gallery in place (fetched from `/photos` on the first tap, wrapping at the ends; always shown on touch, on hover with a mouse); the rest of the photo opens the detail.
 - Pull to refresh is not needed; a "Updated 06:12" line at the bottom from the last run.
 
 **Detail `#/p/:id`** — five tabs:

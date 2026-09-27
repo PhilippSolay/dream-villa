@@ -187,6 +187,7 @@ small, .small { font-size: 13px; }
 .card-badges .pill,
 .card-ring,
 .card-pin,
+.card-step-face,
 .gallery-count,
 .gallery-nav,
 .map-legend-control,
@@ -546,7 +547,8 @@ button.chip[aria-pressed='true'] { background: var(--gold-soft); border-color: v
   .card:hover { transform: translateY(-3px); box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow-hover); border-color: var(--line-strong); }
   .card:hover .card-media img { transform: scale(1.03); }
 }
-.card:active { transform: scale(0.99); }
+/* An arrow tap is not a press on the card: it keeps still. */
+.card:active:not(:has(.card-step:active)) { transform: scale(0.99); }
 
 .card-media {
   position: relative;
@@ -1324,6 +1326,60 @@ main.view:has(> .map-view) { padding: 0; max-width: none; }
   z-index: 2;
   border-radius: 999px;
   color: var(--ink);
+}
+
+/* photo arrows (siblings of the card link for the same reason as the pin): a strip laid
+   exactly over .card-media — same inset, same aspect — that lets every tap through to
+   the link except the two buttons'. 44 px to tap, a 36 px glass face like the pin. */
+.card-steps {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  aspect-ratio: 4 / 3;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  pointer-events: none;
+}
+.card-step {
+  pointer-events: auto;
+  width: var(--tap);
+  height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.card-step-face {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  transition: transform 0.2s var(--ease), background 0.2s var(--ease);
+}
+.card-step-face .icon { width: 18px; height: 18px; }
+.card-step:hover .card-step-face { background: var(--glass-strong); }
+.card-step:active .card-step-face { transform: scale(0.92); }
+.card-step:focus-visible { outline: none; }
+.card-step:focus-visible .card-step-face { outline: 2px solid var(--gold); outline-offset: 2px; }
+/* With a mouse the arrows wait for the pointer (or keyboard focus); a phone always shows them. */
+@media (hover: hover) {
+  .card-steps { opacity: 0; transition: opacity 0.2s var(--ease); }
+  .card:hover .card-steps,
+  .card:focus-within .card-steps { opacity: 1; }
+}
+@media (min-width: 900px) {
+  .card-steps { top: 7px; left: 7px; right: 7px; aspect-ratio: 10 / 9; }
 }
 
 /* the stats chip loses its least important third on narrow phones */

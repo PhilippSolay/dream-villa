@@ -11,6 +11,7 @@ import {
 import { verdictPairHtml, verdictControlHtml, verdictFilterOptions, bindVerdicts, firstName } from '../lib/verdicts.js';
 import { valueBadgesHtml } from '../lib/value.js';
 import { isSolo } from '../lib/people.js';
+import { cardPhotoUrl } from '../lib/card-photos.js';
 // SPEC §7 regions, north to south — the one copy, shared with the server.
 import { AREA_GROUPS } from '../lib/areas.js';
 
@@ -105,11 +106,12 @@ export function cardHtml(p, areas, { reason = false, removal = false, viewer = n
   const beach = beachLabel(p.beach_km);
   const age = ageLabel(p.first_seen);
   const removed = p.availability === 'gone' || p.availability === 'unlisted' || p.status === 'gone';
-  return html`<article class="card">
+  const photo = cardPhotoUrl(p);
+  return html`<article class="card" data-id="${p.id}">
     <a class="card-hit" href="#/p/${p.id}" aria-label="${p.title}">
       <div class="card-media">
-        ${p.hero_url
-          ? html`<img src="${thumbUrl(p.hero_url)}" alt="" loading="lazy" decoding="async" />`
+        ${photo
+          ? html`<img src="${thumbUrl(photo)}" alt="" loading="lazy" decoding="async" />`
           : html`<span class="placeholder">No photo yet</span>`}
         <span class="card-badges">
           ${statusPill(p.status, p.first_seen)}
@@ -140,6 +142,12 @@ export function cardHtml(p, areas, { reason = false, removal = false, viewer = n
         ${removal && removed ? removalLine(p) : ''}
       </div>
     </a>
+    ${p.photo_count > 1
+      ? html`<div class="card-steps">
+          <button type="button" class="card-step" data-card-step="-1" aria-label="Previous photo"><span class="card-step-face">${icons.back()}</span></button>
+          <button type="button" class="card-step" data-card-step="1" aria-label="Next photo"><span class="card-step-face">${icons.forward()}</span></button>
+        </div>`
+      : ''}
     ${p.map_url
       ? html`<a class="pin-link card-pin" href="${p.map_url}" target="_blank" rel="noopener"
           aria-label="Open the map pin for ${p.title}">${icons.pin()}</a>`
