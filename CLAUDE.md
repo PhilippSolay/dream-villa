@@ -28,7 +28,7 @@ Private villa-search tracker for Philipp and Abigaïl. One Docker container on t
 ## Conventions
 - All money is IDR integers per month. Yearly prices are stored as `price_year_idr` and normalised to `price_month_idr = round(price_year_idr / 12)` when no monthly price is given; `term` records what the listing actually offers.
 - Every row that a person creates carries `by` (user id) and `created_at`. Never overwrite a person's rating, note or status from the scraper; the scraper only touches listing facts.
-- `scope` is `in_filter` or `market`; both are stored, the UI defaults to `in_filter`.
+- `scope` is `in_filter` or `market`; both are stored and the flag rule reads it, but the list, map and queues show every listing the visible filters let through (no in-filter switch since 2026-09-27).
 - Never delete listings; mark `availability = 'gone'` with `last_seen`.
 - Secrets only in `.env` (see `.env.example`). Tokens in query strings are allowed only on `/api/agent/*` (the cloud session can only do GET), over HTTPS, rate-limited, with a dedicated `AGENT_TOKEN` that cannot write anything but notes and inbox URLs.
 - Respect source sites: one request per second per host, normal browser UA, back off on 429/403. HTML is cached in `data/cache/`: index/list pages (and sitemaps) 24 h; the detail page of a listing we already hold 7 days, refreshed on the listing's own weekday (a seventh a day) and busted to a same-day fetch when today's card shows a different price, status, bedrooms or title (Livuma: or a newer sitemap `lastmod`); a brand-new ref is fetched at once. A cached detail never overwrites the facts today's card states. Rule and code: `src/scrape/ingest.js` (`detailPlan`); the recheck always fetches fresh.

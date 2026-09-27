@@ -377,7 +377,6 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
     <div class="filter-group">
       <label class="check"><input type="checkbox" data-role="assessed" /><span>Assessed on location</span></label>
       <label class="check"><input type="checkbox" data-role="hide-rejected" /><span>Hide rejected</span></label>
-      <label class="check"><input type="checkbox" data-role="in-filter" /><span>In-filter only</span></label>
     </div>
 
     <button type="button" class="btn btn-sm" data-role="reset">Reset filters</button>`
@@ -533,7 +532,6 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
     $('[data-role="assessed"]', panel).checked = f.assessed === 'done';
     $('[data-role="hide-rejected"]', panel).checked =
       !(f.status || []).includes('rejected') && !(f.status || []).includes('all');
-    $('[data-role="in-filter"]', panel).checked = f.scope === 'in_filter';
     $('[data-role="area-hint"]', panel).textContent = areaHint(f.area || [], areas);
     // Each region carries its own tally, and opens itself when a selection first lands in
     // it (on load, or from All / Reset) so it never starts hidden. Once you fold it, it
@@ -567,7 +565,6 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       onChange((f) => ({ anchor: id, anchor_km: id == null ? null : (f.anchor_km ?? ANCHOR_DEFAULT_KM) }));
     }
     else if (t.dataset.role === 'assessed') onChange({ assessed: t.checked ? 'done' : null });
-    else if (t.dataset.role === 'in-filter') onChange({ scope: t.checked ? 'in_filter' : 'all' });
     else if (t.dataset.role === 'hide-rejected') {
       onChange((f) => ({ status: t.checked ? (f.status || []).filter((s) => s !== 'rejected' && s !== 'all') : ['all'] }));
     }
@@ -952,7 +949,7 @@ export async function mountHome(el, ctx) {
         grid,
         rows.length
           ? rows.map((p) => cardHtml(p, areas, { viewer: viewer() }))
-          : html`<p class="empty">Nothing matches these filters. Try widening the price range or turning off "In-filter only".</p>`
+          : html`<p class="empty">Nothing matches these filters. Try widening the price range or clearing a filter.</p>`
       );
       publishList();
     } catch (err) {

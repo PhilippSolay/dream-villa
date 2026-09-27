@@ -1,8 +1,9 @@
 // The filter state and its translation to GET /api/properties query params.
 // Field names and values are exactly the API's (SPEC §4).
 
+// No scope here: the list shows every listing the filters below let through (Philipp,
+// 2026-09-27). The hard filters' in_filter / market split stays server-side for the flag.
 export const DEFAULT_FILTERS = {
-  scope: 'in_filter',
   status: [],
   area: [],
   bedrooms: [],
@@ -51,7 +52,7 @@ export function defaultFilters() {
 
 export function filtersToQuery(f, { limit = 200, offset = 0 } = {}) {
   const p = new URLSearchParams();
-  p.set('scope', f.scope || 'in_filter');
+  p.set('scope', 'all');
   if (f.status?.length) p.set('status', f.status.join(','));
   if (f.area?.length) p.set('area', f.area.join(','));
   if (f.bedrooms?.length) p.set('bedrooms', f.bedrooms.join(','));
@@ -87,7 +88,6 @@ export function filtersToQuery(f, { limit = 200, offset = 0 } = {}) {
 /** How many filters differ from the defaults — the badge on the Filters button. */
 export function activeFilterCount(f) {
   let n = 0;
-  if (f.scope !== 'in_filter') n += 1;
   for (const key of ['status', 'area', 'bedrooms', 'features', 'style']) if (f[key]?.length) n += 1;
   if (f.anchor != null && f.anchor_km != null) n += 1;
   if (f.min != null || f.max != null) n += 1;
