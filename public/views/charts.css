@@ -82,11 +82,7 @@
   font-family: var(--body, var(--font-body, sans-serif));
 }
 
-.mkt-row-count {
-  font-size: 9px;
-  fill: var(--muted, #8a8271);
-  font-family: var(--mono, var(--font-mono, ui-monospace, monospace));
-}
+.mkt-row-n { fill: var(--muted, #8a8271); }
 
 .mkt-box { fill: var(--gold-soft, #ead9a8); stroke: var(--gold, #b8902e); stroke-width: 1; }
 .mkt-median { stroke: var(--ink, #1a1712); stroke-width: 2; }
@@ -192,6 +188,45 @@
 .mkt-funnel-bar.is-new { background: var(--muted, #8a8271); }
 .mkt-funnel-bar.is-rejected { background: var(--danger, #b3432b); }
 .mkt-funnel-count { flex: 0 0 26px; text-align: right; font-size: 11px; color: var(--muted, #8a8271); }
+
+/* Feature premium: diverging bars off one zero line. Rows touch (no gap) so each row's
+   piece of the zero line joins into one hairline down the chart. */
+.mkt-prem { display: flex; flex-direction: column; }
+.mkt-prem-row {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  border-radius: 8px;
+}
+.mkt-prem-row:hover { background: var(--surface-inset, var(--bg, #f7f4ec)); }
+.mkt-prem-label {
+  padding-left: 4px;
+  font-family: var(--body, var(--font-body, sans-serif));
+  font-size: 12px;
+  color: var(--ink, #1a1712);
+}
+.mkt-prem-track { position: relative; align-self: stretch; }
+.mkt-prem-zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong, var(--line, #d8cfbd)); }
+.mkt-prem-bar { position: absolute; top: 50%; height: 14px; transform: translateY(-50%); }
+.mkt-prem-bar.is-up { background: var(--gold, #b8902e); border-radius: 0 4px 4px 0; }
+.mkt-prem-bar.is-down { background: var(--muted, #8a8271); border-radius: 4px 0 0 4px; }
+.mkt-prem-bar.is-thin { opacity: 0.4; }
+.mkt-prem-value { padding-right: 4px; text-align: right; font-size: 12px; color: var(--ink, #1a1712); }
+
+/* "Table" under a chart: the same figures as rows, one tap away. */
+.mkt-more { margin-top: 10px; }
+.mkt-more > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: 12px;
+  color: var(--muted, #8a8271);
+  cursor: pointer;
+}
+.mkt-more > summary:hover { color: var(--ink, #1a1712); }
+.mkt-more[open] > summary { margin-bottom: 6px; }
 
 .mkt-day-bar { fill: var(--gold, #b8902e); }
 .mkt-day-bar-today { fill: var(--ink, #1a1712); }

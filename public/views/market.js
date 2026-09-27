@@ -96,6 +96,17 @@ const TOP_PAD = 10;
 const AXIS_H = 26;
 
 const MONEY_DOMAIN = { min: DOMAIN_MIN, max: DOMAIN_MAX, step: TICK_STEP, tickStart: 20e6, fmt: fmtMoney, label: 'Price distribution chart' };
+const ROW_LABEL_PX = 11; // .mkt-row-label's font-size — the label column is measured in it
+const ROW_LABEL_PAD = 10;
+
+let measureCtx = null;
+/** Rendered width of `text` in the row-label font, so the label column fits its longest row. */
+function rowLabelWidth(text) {
+  measureCtx ||= document.createElement('canvas').getContext('2d');
+  const family = getComputedStyle(document.documentElement).getPropertyValue('--body').trim() || 'sans-serif';
+  measureCtx.font = `${ROW_LABEL_PX}px ${family}`;
+  return measureCtx.measureText(text).width;
+}
 
 /**
  * Shared box/whisker rows. `domain` overrides the default money scale — the
@@ -107,7 +118,10 @@ function renderBoxWhisker(rows, { getLabel, getN, getInFilter, chartWidth, domai
 
   const dom = { ...MONEY_DOMAIN, ...(domain || {}) };
   const W = Math.max(240, chartWidth || 600);
-  const labelW = W < 420 ? 92 : 132;
+  // One line per row, "Pererenan (1262)": the column grows to its longest label, never
+  // past 45 % of the width, and never narrower than it always was (the charts align).
+  const longest = Math.max(...rows.map((r) => rowLabelWidth(`${getLabel(r)} (${getN(r)})`)));
+  const labelW = Math.min(Math.round(W * 0.45), Math.max(W < 420 ? 92 : 132, Math.ceil(longest) + ROW_LABEL_PAD));
   const chartX0 = labelW;
   const chartX1 = W - RIGHT_PAD;
   const scaleX = (v) => chartX0 + ((v - dom.min) / (dom.max - dom.min)) * (chartX1 - chartX0);
@@ -133,8 +147,7 @@ function renderBoxWhisker(rows, { getLabel, getN, getInFilter, chartWidth, domai
     const label = escapeHtml(getLabel(row));
     const n = getN(row);
 
-    svg += `<text x="0" y="${rowTop + 12}" class="mkt-row-label">${label}</text>`;
-    svg += `<text x="0" y="${rowTop + 25}" class="mkt-row-count">n=${n}</text>`;
+    svg += `<text x="0" y="${cy + 4}" class="mkt-row-label">${label} <tspan class="mkt-row-n">(${n})</tspan></text>`;
 
     if (row.p25 != null && row.p75 != null) {
       const x1 = clampX(scaleX(row.p25));
@@ -377,23 +390,58 @@ function renderOverview(stats, { chartWidth } = {}) {
 // Tables
 // ---------------------------------------------------------------------------
 
+// Below this many listings on either side the median is a guess, and its bar fades.
+const PREMIUM_MIN_N = 20;
+
+/** Premium in percent: how much more the median asks with the feature than without. */
+function premiumPct(r) {
+  if (r.median_with == null || r.median_without == null || r.median_without === 0) return null;
+  return Math.round(((r.median_with - r.median_without) / r.median_without) * 1000) / 10;
+}
+
+/**
+ * Feature premium as diverging bars from a zero line, biggest premium first: gold to the
+ * right for a premium, muted to the left for a discount, sign and value at the row's end.
+ * The scale spans only what the data needs (zero sits left of centre when most premiums
+ * are positive). Hover a row for both medians and counts; the table stays one tap away.
+ */
 function renderFeaturePremium(rows) {
   if (!rows || !rows.length) return '<p class="mkt-empty">No feature data yet.</p>';
-  const body = rows.map((r) => {
-    const delta = r.median_with != null && r.median_without != null && r.median_without !== 0
-      ? Math.round(((r.median_with - r.median_without) / r.median_without) * 1000) / 10
-      : null;
-    return `<tr>
+  const data = rows.map((r) => ({ ...r, delta: premiumPct(r) }));
+  const known = data.filter((r) => r.delta != null).sort((a, b) => b.delta - a.delta);
+  const lo = Math.min(0, ...known.map((r) => r.delta));
+  const hi = Math.max(0, ...known.map((r) => r.delta));
+  const span = hi - lo || 1;
+  const zero = (-lo / span) * 100;
+
+  const chart = [...known, ...data.filter((r) => r.delta == null)].map((r) => {
+    const label = featureLabel(r.feature);
+    const thin = Math.min(r.n_with, r.n_without) < PREMIUM_MIN_N;
+    const tip = `${label}: ${fmtMoney(r.median_with)} with (n=${r.n_with}) vs ${fmtMoney(r.median_without)} without (n=${r.n_without})${thin ? ' · small sample' : ''}`;
+    let bar = '';
+    if (r.delta != null) {
+      const w = (Math.abs(r.delta) / span) * 100;
+      const left = r.delta >= 0 ? zero : zero - w;
+      bar = `<span class="mkt-prem-bar ${r.delta >= 0 ? 'is-up' : 'is-down'}${thin ? ' is-thin' : ''}" style="left:${left.toFixed(2)}%;width:${Math.max(w, 0.8).toFixed(2)}%"></span>`;
+    }
+    return `<div class="mkt-prem-row" title="${escapeHtml(tip)}">
+      <span class="mkt-prem-label">${escapeHtml(label)}</span>
+      <span class="mkt-prem-track"><span class="mkt-prem-zero" style="left:${zero.toFixed(2)}%"></span>${bar}</span>
+      <span class="mkt-prem-value mono">${fmtPct(r.delta)}</span>
+    </div>`;
+  }).join('');
+
+  const body = data.map((r) => `<tr>
       <td>${escapeHtml(featureLabel(r.feature))}</td>
       <td class="mkt-mono">${fmtMoney(r.median_with)}<span class="mkt-n">n=${r.n_with}</span></td>
       <td class="mkt-mono">${fmtMoney(r.median_without)}<span class="mkt-n">n=${r.n_without}</span></td>
-      <td class="mkt-mono">${fmtPct(delta)}</td>
-    </tr>`;
-  }).join('');
-  return `<div class="mkt-table-wrap"><table class="mkt-table">
-    <thead><tr><th>Feature</th><th>Median with</th><th>Median without</th><th>Delta</th></tr></thead>
-    <tbody>${body}</tbody>
-  </table></div>`;
+      <td class="mkt-mono">${fmtPct(r.delta)}</td>
+    </tr>`).join('');
+  return `<div class="mkt-prem">${chart}</div>
+    <details class="mkt-more"><summary>Table</summary><div class="mkt-table-wrap"><table class="mkt-table">
+      <thead><tr><th>Feature</th><th>Median with</th><th>Median without</th><th>Delta</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div></details>`;
 }
 
 function renderShortlistTable(rows, areasMap) {
@@ -714,9 +762,11 @@ function fmtThousands(v) {
   return n >= 1e6 ? fmtMoney(n) : `${Math.round(n / 1000)} k`;
 }
 
-function renderPerM2(perM2, areasMap, sort) {
-  if (!perM2 || !perM2.by_area || !perM2.by_area.length) return emptyMetric();
-  const rows = sortRows(perM2.by_area, sort, areasMap);
+function renderPerM2(perM2, areasMap, sort, br = 'all') {
+  const picker = chips('m2-br', [{ value: 'all', label: 'All' }, ...BR_GROUPS.map((b) => ({ value: b, label: `${b} BR` }))], (v) => v === br);
+  const table = br === 'all' ? perM2 : perM2?.by_br?.[br];
+  if (!table || !table.by_area || !table.by_area.length) return perM2?.by_area?.length ? `${picker}${emptyMetric()}` : emptyMetric();
+  const rows = sortRows(table.by_area, sort, areasMap);
   const head = PER_M2_COLS.map((c) => {
     const on = sort.key === c.key;
     const arrow = on ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : '';
@@ -729,9 +779,9 @@ function renderPerM2(perM2, areasMap, sort) {
       <td class="mkt-mono">${fmtMoney(r.median_per_bedroom)}</td>
       <td class="mkt-mono">${fmtMoney(r.median_price)}</td>
     </tr>`;
-  return `<div class="mkt-table-wrap"><table class="mkt-table">
+  return `${picker}<div class="mkt-table-wrap"><table class="mkt-table">
     <thead><tr>${head}</tr></thead>
-    <tbody>${rows.map((r) => line(r)).join('')}${perM2.all ? line(perM2.all, 'mkt-row-total') : ''}</tbody>
+    <tbody>${rows.map((r) => line(r)).join('')}${table.all ? line(table.all, 'mkt-row-total') : ''}</tbody>
   </table></div>`;
 }
 
@@ -936,7 +986,7 @@ function renderMetrics(metrics, areasMap, uiState, { chartWidth }) {
     drops: section('Price drops', `Listings that lowered their asking price in the last ${days} days.`,
       renderPriceDrops(metrics.price_drops, areasMap, days)),
     perM2: section('Price per m²', 'Monthly rent per built square metre and per bedroom — tap a column to sort.',
-      renderPerM2(metrics.per_m2, areasMap, uiState.m2Sort)),
+      renderPerM2(metrics.per_m2, areasMap, uiState.m2Sort, uiState.m2Br)),
     yearly: section('Yearly discount', 'How much cheaper a month is when the listing quotes both a monthly and a yearly price.',
       renderYearlyDiscount(metrics.yearly_discount, areasMap)),
     beach: section('Beach premium', 'Median price by distance to the beach, one group of bars per bedroom count.',
@@ -1005,7 +1055,7 @@ function render(el, data, areasMap, stats, metrics, uiState) {
   el.innerHTML = frame(uiState, [
     plain('Price per area', byArea),
     plain('Price per bedrooms', byBedrooms),
-    plain('Feature premium', featurePremium),
+    section('Feature premium', `How much more the median asks with the feature than without it. Faded: fewer than ${PREMIUM_MIN_N} listings on one side.`, featurePremium),
     m ? m.budget : metricsFailed,
     mm('perM2'),
     mm('availability'),
@@ -1048,6 +1098,7 @@ export async function mountMarket(el, ctx) {
     trendArea: null,
     flowArea: 'all',
     m2Sort: { key: 'median_per_build_m2', dir: 'desc' },
+    m2Br: 'all',
   };
   el.innerHTML = frame(uiState, '<p class="mkt-loading">Loading market data…</p>');
   const regionHash = () => (uiState.region ? `#/market?region=${uiState.region}` : '#/market');
@@ -1086,6 +1137,8 @@ export async function mountMarket(el, ctx) {
         uiState.trendArea = uiState.trendArea === value ? null : value;
       } else if (group === 'flow-area') {
         uiState.flowArea = value;
+      } else if (group === 'm2-br') {
+        uiState.m2Br = value;
       }
       renderNow();
       return;

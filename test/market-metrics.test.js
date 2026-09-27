@@ -435,6 +435,17 @@ test('per_m2: build_m2 > 20 only, by area and overall', async (t) => {
   assert.equal(cemagi.median_price, 40 * M);
   assert.equal(body.per_m2.all.area, 'all');
   assert.ok(body.per_m2.all.n >= cemagi.n);
+
+  // The same table per bedroom group, for the 1 · 2 · 3 · 4+ chips.
+  assert.deepEqual(Object.keys(body.per_m2.by_br), ['1', '2', '3', '4+']);
+  const cemagi2 = body.per_m2.by_br['2'].by_area.find((r) => r.area === 'cemagi');
+  const cemagi3 = body.per_m2.by_br['3'].by_area.find((r) => r.area === 'cemagi');
+  assert.equal(cemagi2.n, 2); // 100 and 200 m², both 2 BR
+  assert.equal(cemagi2.median_per_build_m2, 200_000); // 300k and 200k — nearest rank takes the lower
+  assert.equal(cemagi3.n, 1); // the 250 m² 3 BR at 50 M
+  assert.equal(cemagi3.median_per_build_m2, 200_000);
+  const sumByBr = Object.values(body.per_m2.by_br).reduce((a, t) => a + t.all.n, 0);
+  assert.ok(sumByBr <= body.per_m2.all.n, 'a row without bedrooms is only in All');
 });
 
 test("yearly_discount: term='both' rows only, as a percentage cheaper per month", async (t) => {

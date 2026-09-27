@@ -388,7 +388,15 @@ function buildPriceDrops(base, days, nowMs) {
   return { count: drops.length, avg_pct: round1(avg), latest: drops.slice(0, MAX_DROPS) };
 }
 
+/** Per m² for all of `base`, plus the same table per bedroom group (Market's 1 · 2 · 3 · 4+ chips). */
 function buildPerM2(base) {
+  return {
+    ...perM2Table(base),
+    by_br: Object.fromEntries(BR_GROUPS.map((br) => [br, perM2Table(base.filter((r) => brGroup(r.bedrooms) === br))])),
+  };
+}
+
+function perM2Table(base) {
   const byArea = new Map();
   const all = { perM2: [], perBr: [], price: [] };
 
