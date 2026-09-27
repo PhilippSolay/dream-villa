@@ -20,7 +20,7 @@
 // it (contacts, ratings, feedback, viewings, agent info) moves to the kept row.
 
 import { nowIso } from '../db.js';
-import { sharedImages } from './image-hash.js';
+import { sharedImages, imageKeys, countSharedImages } from './image-hash.js';
 
 const PRICE_TOLERANCE = 0.05;
 /** Photos two listings must share before rule 2 merges them without any price check. */
@@ -169,7 +169,8 @@ export function sameComplexDifferentUnit(a, b) {
   return ra.stem === rb.stem && ra.suffix !== rb.suffix;
 }
 
-function priceClose(a, b) {
+/** Rule 1's price test: within PRICE_TOLERANCE of the larger price. */
+export function priceClose(a, b) {
   const pa = a.price_month_idr;
   const pb = b.price_month_idr;
   if (pa == null || pb == null) return false;
@@ -252,10 +253,6 @@ function olderFirst(a, b) {
 }
 
 /**
- * Candidate duplicate pairs, newest-into-oldest, without touching the database.
- * @returns {{kept_id:number, merged_id:number, reason:string}[]}
- */
-/**
  * Photos that are not evidence: a hash (or url) that appears on listings in two or more
  * areas, or with two or more different known bedroom counts, is an agent's logo, collage
  * or stock shot, not a picture of one villa. A villa reposted ten times still keeps all
@@ -285,16 +282,55 @@ export function promoImages(rows) {
   return out;
 }
 
+/**
+ * Everything the two rules read off one row, worked out once. findDuplicates compares
+ * every pair of rows in an area — Pererenan alone is ~700k pairs at 8k listings — and
+ * parsing both photo lists and normalising both texts again for each pair took ~70 s
+ * on a Mac and ~120 s on the VPS, per /api/import/posts batch (2026-09-27): past
+ * Cloudflare's 100 s. The per-pair helpers (matchReason, sharedPhotoReason) stay the
+ * definition; test/dedupe-fast.test.js holds this pass to the same pairs and reasons.
+ */
+function pairFeatures(row, ignore) {
+  const urls = imageUrls(row);
+  return {
+    ref: refParts(row.ref),
+    title: trigramProfile(row.title),
+    desc: normText(row.description).slice(0, DESC_PREFIX),
+    urls, // in order: the first shared url names the reason
+    urlSet: new Set(urls),
+    photos: imageKeys(row.images, { ignore }),
+  };
+}
+
+/** matchReason on pairFeatures — the same reason, in the same order. */
+function matchReasonFast(a, b, fa, fb, sharedCount, ignore) {
+  const sameSource = Boolean(a.source) && a.source === b.source;
+
+  const sim = diceProfiles(fa.title, fb.title);
+  if (sim >= TITLE_SIMILARITY && !sameSource) return `title similarity ${sim.toFixed(2)}`;
+
+  if (fa.desc && fb.desc && fa.desc === fb.desc) return `same first ${DESC_PREFIX} chars of description`;
+
+  for (const url of fb.urls) if (fa.urlSet.has(url) && !ignore?.has(url)) return `shared image ${url}`;
+  if (sharedCount() >= 1) return 'shared image (hash)';
+
+  return null;
+}
+
+/**
+ * Candidate duplicate pairs, newest-into-oldest, without touching the database.
+ * @returns {{kept_id:number, merged_id:number, reason:string}[]}
+ */
 export function findDuplicates(db) {
   const rows = db
     .prepare("SELECT * FROM properties WHERE availability IS NULL OR availability <> 'gone' ORDER BY id")
     .all();
   const ignore = promoImages(rows);
+  const features = new Map(rows.map((r) => [r, pairFeatures(r, ignore)]));
 
   // Both rules need the same area, so only rows sharing an area can ever pair up.
   // Bedrooms are checked per pair, not bucketed: rule 2 pairs a bedroom-less Facebook
-  // post with a known count. An area holds a few hundred live rows, so the O(n²) inside
-  // one bucket stays cheap.
+  // post with a known count.
   const buckets = new Map();
   for (const r of rows) {
     const k = r.area == null ? '\u0000null' : String(r.area);
@@ -305,19 +341,28 @@ export function findDuplicates(db) {
   const out = [];
   for (const bucket of buckets.values()) {
     for (let i = 0; i < bucket.length; i++) {
+      const a = bucket[i];
+      const fa = features.get(a);
       for (let j = i + 1; j < bucket.length; j++) {
-        const a = bucket[i];
         const b = bucket[j];
         if (a.key === b.key) continue;
-        if (sameComplexDifferentUnit(a, b)) continue;
+        const fb = features.get(b);
+        // sameComplexDifferentUnit, on refs parsed once.
+        if (a.source && a.source === b.source && fa.ref && fb.ref && fa.ref.stem === fb.ref.stem && fa.ref.suffix !== fb.ref.suffix) continue;
 
-        // Rule 2 — photographs, no price condition.
+        let shared = null;
+        const sharedCount = () => (shared ??= countSharedImages(fa.photos, fb.photos));
+
+        // Rule 2 — photographs, no price condition. The count decides; the reason string
+        // (url or hash, which only a match needs) comes from sharedPhotoReason itself.
         let reason = null;
-        if (a.area && a.area !== 'other' && bedroomsCompatible(a, b)) reason = sharedPhotoReason(a, b, { ignore });
+        if (a.area && a.area !== 'other' && bedroomsCompatible(a, b) && sharedCount() >= AUTO_SHARED_PHOTOS) {
+          reason = sharedPhotoReason(a, b, { ignore });
+        }
 
         // Rule 1 — SPEC §6, unchanged apart from the photo test.
         if (!reason && a.bedrooms != null && a.bedrooms === b.bedrooms && priceClose(a, b)) {
-          reason = matchReason(a, b, { ignore });
+          reason = matchReasonFast(a, b, fa, fb, sharedCount, ignore);
         }
         if (!reason) continue;
 

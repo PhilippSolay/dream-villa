@@ -64,9 +64,17 @@ export function hammingWords(a, b) {
  * A listing's photos parsed once for countSharedImages. The pairwise duplicate scorer
  * compares every photo of one listing with every photo of another, over hundreds of
  * thousands of pairs; parsing each hash per comparison is what made it take minutes.
+ * `ignore` leaves out what sharedImages' own `ignore` would: a photo that can never
+ * match counts the same whether it sits in the list or not.
  */
-export function imageKeys(images) {
-  return entries(images).map((im) => ({ src_url: im.src_url, words: hashWords(im.hash) }));
+export function imageKeys(images, { ignore = null } = {}) {
+  return entries(images)
+    .filter((im) => !isIgnored(im, ignore))
+    .map((im) => ({ src_url: im.src_url, words: hashWords(im.hash) }));
+}
+
+function isIgnored(im, ignore) {
+  return Boolean(ignore && ((im.hash && ignore.has(im.hash)) || (im.src_url && ignore.has(im.src_url))));
 }
 
 /** sharedImages(a, b).count on two imageKeys() — the same greedy match, photo by photo. */
@@ -115,7 +123,7 @@ function entries(images) {
  * @returns {{count:number, pairs:{a:number, b:number, how:'url'|'hash'}[]}} indexes into each array
  */
 export function sharedImages(imagesA, imagesB, { ignore = null } = {}) {
-  const skip = (im) => Boolean(ignore && ((im.hash && ignore.has(im.hash)) || (im.src_url && ignore.has(im.src_url))));
+  const skip = (im) => isIgnored(im, ignore);
   const ea = entries(imagesA).map((im) => (skip(im) ? { src_url: null, hash: null } : im));
   const eb = entries(imagesB).map((im) => (skip(im) ? { src_url: null, hash: null } : im));
   const usedB = new Set();
