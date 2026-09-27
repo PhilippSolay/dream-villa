@@ -87,6 +87,9 @@ const PATCH_FIELDS = [
 const TEAM_PATCH_FIELDS = PATCH_FIELDS.filter((f) => TEAM_FIELDS.includes(f));
 
 /** Columns the PATCH handler may ever write (the above plus what lat/lng/beach derive). */
+/** `term=` values: the two rent terms and "for sale" (SPEC §4). */
+const TERM_FILTERS = ['monthly', 'yearly', 'sale'];
+
 const PATCH_WRITABLE = new Set([
   ...PATCH_FIELDS, 'beach_name', 'beach_source', 'pin_source', 'map_url',
 ]);
@@ -379,7 +382,7 @@ const listQuerySchema = {
     bedrooms: { type: 'string' },
     features: { type: 'string' },
     furnished: { type: 'string', enum: ['1', '0', 'any'] },
-    term: { type: 'string', enum: ['monthly', 'yearly', 'any'] },
+    term: { type: 'string', maxLength: 40 },
     assessed: { type: 'string', enum: ASSESSED },
     source: { type: 'string', maxLength: 40 },
     flagged: { type: 'integer', enum: [0, 1] },
@@ -495,10 +498,26 @@ function buildListWhere(query) {
     params.push(Number(query.furnished));
   }
 
-  if (query.term && query.term !== 'any') {
-    // A listing offering 'both' satisfies either request.
-    where.push('term IN (?, ?)');
-    params.push(query.term, 'both');
+  // term=monthly,yearly,sale — what to show (SPEC §4). A listing shows when it offers one
+  // of the chosen rent terms ('both' offers either), or is for sale and sale is chosen;
+  // leaving sale out hides everything that is also for sale. All three (or any) = no filter.
+  const terms = listParam(query.term);
+  if (terms && !terms.includes('any')) {
+    const bad = terms.filter((t) => !TERM_FILTERS.includes(t));
+    if (bad.length) return { error: `unknown term: ${bad.join(', ')}` };
+    const rent = terms.filter((t) => t !== 'sale');
+    const sale = terms.includes('sale');
+    if (rent.length < 2 || !sale) {
+      const offers = [];
+      if (rent.length === 2) offers.push('1');
+      else if (rent.length === 1) {
+        offers.push('term IN (?, ?)');
+        params.push(rent[0], 'both');
+      }
+      if (sale) offers.push('for_sale = 1');
+      where.push(`(${offers.join(' OR ')})`);
+      if (!sale) where.push('for_sale = 0');
+    }
   }
 
   if (query.assessed) {

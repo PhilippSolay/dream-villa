@@ -1,7 +1,7 @@
 // #/ — flagged / new-today strip, filter drawer (bottom sheet on phone, rail on desktop),
 // sort, and the card grid. SPEC §5 "Home".
 
-import { filtersToQuery, activeFilterCount, defaultFilters, SORTS, sortOf } from '../lib/filters.js';
+import { filtersToQuery, activeFilterCount, defaultFilters, SORTS, sortOf, TERM_CHIPS, termsOf } from '../lib/filters.js';
 import { STAGES, STAGE_ORDER, loadStageQueues } from '../lib/flow.js';
 import {
   $, $$, html, setHtml, toHtml, icons, toast, priceLabel, beachLabel, statusPill, fitRing,
@@ -54,6 +54,7 @@ function ageLabel(firstSeenIso) {
 
 function featureChips(p, max = 4) {
   const out = [];
+  if (p.for_sale === 1) out.push('For sale');
   if (p.style && STYLE_LABELS[p.style]) out.push(STYLE_LABELS[p.style]);
   if (p.pool === 1) out.push('Pool');
   if (p.garden === 1) out.push('Garden');
@@ -290,10 +291,8 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
 
     <div class="filter-group">
       <span class="label">Term</span>
-      <div class="seg" data-role="term" role="group" aria-label="Term">
-        <button type="button" value="any" aria-pressed="true">Any</button>
-        <button type="button" value="monthly" aria-pressed="false">Monthly</button>
-        <button type="button" value="yearly" aria-pressed="false">Yearly</button>
+      <div class="chips" data-role="term" role="group" aria-label="Term">
+        ${TERM_CHIPS.map(([v, label]) => html`<button type="button" class="chip" data-term="${v}" aria-pressed="true">${label}</button>`)}
       </div>
     </div>
 
@@ -496,11 +495,11 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
     anchorKmEl.value = String(km);
     anchorReadout.textContent = `${km} km`;
     anchorKmRow.hidden = !anchorOn;
-    for (const group of ['furnished', 'term']) {
-      for (const b of $$(`[data-role="${group}"] button`, panel)) {
-        b.setAttribute('aria-pressed', String((f[group] || 'any') === b.value));
-      }
+    for (const b of $$('[data-role="furnished"] button', panel)) {
+      b.setAttribute('aria-pressed', String((f.furnished || 'any') === b.value));
     }
+    const terms = termsOf(f);
+    for (const b of $$('[data-term]', panel)) b.setAttribute('aria-pressed', String(terms.includes(b.dataset.term)));
     for (const b of $$('[data-role="age"] button', panel)) {
       b.setAttribute('aria-pressed', String(String(f.max_age_days ?? '') === b.value));
     }
@@ -636,7 +635,7 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
   panel.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
-    const { bedrooms, status, areaSet, areaMode, verdictFilter, style, role } = button.dataset;
+    const { bedrooms, status, areaSet, areaMode, verdictFilter, style, term, role } = button.dataset;
     if (verdictFilter) {
       onChange((f) => ({ verdict: f.verdict === verdictFilter ? null : verdictFilter }));
     } else if (style) {
@@ -667,8 +666,13 @@ function buildFilterPanel({ areas, onChange, sources, otherName = '', anchors = 
       }));
     } else if (button.parentElement?.dataset.role === 'furnished') {
       onChange({ furnished: button.value });
-    } else if (button.parentElement?.dataset.role === 'term') {
-      onChange({ term: button.value });
+    } else if (term) {
+      onChange((f) => {
+        const on = termsOf(f);
+        if (!on.includes(term)) return { term: [...on, term] };
+        // The last chip stays on: nothing to show is never what anyone means.
+        return on.length > 1 ? { term: on.filter((t) => t !== term) } : {};
+      });
     } else if (button.parentElement?.dataset.role === 'age') {
       onChange({ max_age_days: button.value ? Number(button.value) : null });
     } else if (button.parentElement?.dataset.role === 'removed') {

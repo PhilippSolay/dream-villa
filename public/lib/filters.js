@@ -15,7 +15,7 @@ export const DEFAULT_FILTERS = {
   build_min: null,
   build_max: null,
   furnished: 'any',
-  term: 'any',
+  term: ['monthly', 'yearly', 'sale'], // what to show; a chip turned off filters it out
   features: [],
   assessed: null,
   source: null,
@@ -47,7 +47,26 @@ export function sortOf(f) {
 }
 
 export function defaultFilters() {
-  return { ...DEFAULT_FILTERS, status: [], area: [], bedrooms: [], features: [], style: [] };
+  return { ...DEFAULT_FILTERS, status: [], area: [], bedrooms: [], features: [], style: [], term: [...TERMS] };
+}
+
+/** The Term chips, in panel order: value → label. `sale` = also or only offered to buy. */
+export const TERM_CHIPS = [
+  ['monthly', 'Monthly'],
+  ['yearly', 'Yearly'],
+  ['sale', 'For sale'],
+];
+const TERMS = TERM_CHIPS.map(([v]) => v);
+
+/**
+ * The chips that are on. Filters saved before 2026-09-27 hold a string: 'monthly' /
+ * 'yearly' meant that term (sale was never filtered), 'any' or nothing meant all.
+ */
+export function termsOf(f) {
+  const t = f?.term;
+  if (Array.isArray(t)) return TERMS.filter((v) => t.includes(v));
+  if (t === 'monthly' || t === 'yearly') return [t, 'sale'];
+  return [...TERMS];
 }
 
 export function filtersToQuery(f, { limit = 200, offset = 0 } = {}) {
@@ -65,7 +84,8 @@ export function filtersToQuery(f, { limit = 200, offset = 0 } = {}) {
   if (f.build_min != null) p.set('build_min', String(f.build_min));
   if (f.build_max != null) p.set('build_max', String(f.build_max));
   if (f.furnished && f.furnished !== 'any') p.set('furnished', f.furnished);
-  if (f.term && f.term !== 'any') p.set('term', f.term);
+  const terms = termsOf(f);
+  if (terms.length && terms.length < TERM_CHIPS.length) p.set('term', terms.join(','));
   if (f.assessed) p.set('assessed', f.assessed);
   if (f.source) p.set('source', f.source);
   if (f.max_age_days != null) p.set('max_age_days', String(f.max_age_days));
@@ -95,7 +115,7 @@ export function activeFilterCount(f) {
   if (f.land_min != null || f.land_max != null) n += 1;
   if (f.build_min != null || f.build_max != null) n += 1;
   if (f.furnished && f.furnished !== 'any') n += 1;
-  if (f.term && f.term !== 'any') n += 1;
+  if (termsOf(f).length < TERM_CHIPS.length) n += 1;
   if (f.assessed) n += 1;
   if (f.source) n += 1;
   if (f.q) n += 1;

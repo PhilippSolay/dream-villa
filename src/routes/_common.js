@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { getConfig, nowIso } from '../db.js';
 import { parseRow } from '../scrape/store.js';
 import { scoreRow } from '../scrape/score.js';
+import { forSale } from '../scrape/sale.js';
 import { resizeToJpeg } from '../scrape/images.js';
 import { AREA_GROUPS, AREAS, TARGET_AREAS } from '../areas.js';
 
@@ -80,8 +81,8 @@ export function rescoreOne(db, id, config = getConfig(db)) {
   const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(id);
   if (!row) return null;
   const scored = scoreRow(parseRow(row), config);
-  db.prepare('UPDATE properties SET scope = ?, fit_score = ?, flagged = ?, red_flags = ? WHERE id = ?')
-    .run(scored.scope, scored.fit_score, scored.flagged, JSON.stringify(scored.red_flags), id);
+  db.prepare('UPDATE properties SET scope = ?, fit_score = ?, flagged = ?, red_flags = ?, for_sale = ? WHERE id = ?')
+    .run(scored.scope, scored.fit_score, scored.flagged, JSON.stringify(scored.red_flags), forSale(row), id);
   return scored;
 }
 

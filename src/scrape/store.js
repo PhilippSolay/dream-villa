@@ -4,6 +4,7 @@
 
 import { nowIso, getConfig } from '../db.js';
 import { scoreRow } from './score.js';
+import { forSale } from './sale.js';
 import { nearestBeach } from '../areas.js';
 import { mapUrl } from './pins.js';
 
@@ -92,8 +93,8 @@ export function parseRow(row) {
 }
 
 function insertProperty(db, row, now) {
-  const cols = ['first_seen', 'last_seen'];
-  const vals = [row.first_seen || now, now];
+  const cols = ['first_seen', 'last_seen', 'for_sale'];
+  const vals = [row.first_seen || now, now, forSale(row)];
 
   for (const col of INSERT_COLUMNS) {
     if (row[col] === undefined) continue;
@@ -196,6 +197,10 @@ function updateProperty(db, existing, row, now) {
     if (existing.map_url == null && row.map_url != null) sets.map_url = row.map_url;
   }
 
+  // Derived from the text as it stands after this write (SPEC §2 "for sale").
+  const sale = forSale({ title: sets.title ?? existing.title, description: sets.description ?? existing.description });
+  if (sale !== existing.for_sale) sets.for_sale = sale;
+
   const meaningfulChange = Object.keys(sets).length > 0 || changes.length > 0;
   sets.last_seen = now;
 
@@ -227,7 +232,7 @@ export function upsertProperty(db, row, { now = nowIso(), runKind = 'scrape' } =
  */
 export function rescoreAll(db, config = getConfig(db)) {
   const rows = db.prepare('SELECT * FROM properties').all();
-  const update = db.prepare('UPDATE properties SET scope = ?, fit_score = ?, flagged = ?, red_flags = ? WHERE id = ?');
+  const update = db.prepare('UPDATE properties SET scope = ?, fit_score = ?, flagged = ?, red_flags = ?, for_sale = ? WHERE id = ?');
 
   let in_filter = 0;
   let market = 0;
@@ -238,7 +243,7 @@ export function rescoreAll(db, config = getConfig(db)) {
     if (scored.scope === 'in_filter') in_filter++;
     else market++;
     if (scored.flagged) flagged++;
-    return [scored.scope, scored.fit_score, scored.flagged, JSON.stringify(scored.red_flags), row.id];
+    return [scored.scope, scored.fit_score, scored.flagged, JSON.stringify(scored.red_flags), forSale(row), row.id];
   });
 
   db.transaction(() => {

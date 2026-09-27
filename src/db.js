@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG, DEFAULT_WEIGHTS } from './defaults.js';
+import { forSale } from './scrape/sale.js';
 
 /** ISO-8601 UTC timestamp — the one time format used across the app. */
 export function nowIso() {
@@ -305,6 +306,19 @@ export const MIGRATIONS = [
       if (!Array.isArray(stored) || stored.length !== BEFORE.length) return;
       if (!BEFORE.every((a) => stored.includes(a))) return;
       db.prepare("UPDATE config SET value = ? WHERE key = 'areas'").run(JSON.stringify([...stored, ...ADDED]));
+    },
+  },
+  // "For sale" (2026-09-27, Philipp: filter out monthly, yearly, sale). Derived from the
+  // title and description (src/scrape/sale.js) on every write and rescore; filled here once
+  // for the rows already stored.
+  {
+    name: '012_for_sale',
+    up: (db) => {
+      addColumn(db, 'properties', 'for_sale', 'INTEGER NOT NULL DEFAULT 0');
+      const set = db.prepare('UPDATE properties SET for_sale = 1 WHERE id = ?');
+      for (const row of db.prepare('SELECT id, title, description FROM properties').all()) {
+        if (forSale(row)) set.run(row.id);
+      }
     },
   },
 ];
