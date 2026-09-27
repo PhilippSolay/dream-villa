@@ -32,6 +32,7 @@ import { percentiles } from './market.js';
 import { TARGET_AREAS } from '../areas.js';
 import { allCandidatesAsync, cachedContext } from '../scrape/duplicates.js';
 import { listingsSql } from '../teams.js';
+import { REGION_IDS, regionAreas } from './_common.js';
 
 const MAKASSAR_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
@@ -631,7 +632,10 @@ export default async function marketMetricsRoutes(app, opts) {
   const querystring = {
     type: 'object',
     additionalProperties: false,
-    properties: { days: { type: 'integer', minimum: 1, maximum: 365 } },
+    properties: {
+      days: { type: 'integer', minimum: 1, maximum: 365 },
+      region: { type: 'string', enum: REGION_IDS },
+    },
   };
 
   app.get('/api/market/metrics', { onRequest: app.requireUser, schema: { querystring } }, async (request) => {
@@ -648,7 +652,14 @@ export default async function marketMetricsRoutes(app, opts) {
     const listingsExpr = listingsSql(db, request.user, config);
     // `merged_into` comes out of `raw` in SQL: reading and parsing every listing's whole
     // scrape record for one field was most of this route's time.
-    const allRows = db.prepare(`SELECT ${SELECT_COLUMNS} FROM ${listingsExpr} AS properties`).all();
+    // Market's region tab (SPEC §7) narrows the rows once, here, so every figure — the
+    // same-villa pairs too, which then pair only inside the region — is that region's.
+    const inRegion = regionAreas(request.query.region);
+    const areaSet = inRegion && new Set(inRegion);
+    const allRows = db
+      .prepare(`SELECT ${SELECT_COLUMNS} FROM ${listingsExpr} AS properties`)
+      .all()
+      .filter((r) => !areaSet || areaSet.has(r.area));
 
     // The duplicate scorer's near misses, shared with the Agent page's list and scored off
     // to the side (allCandidatesAsync steps aside between listings). Awaited here, after a

@@ -16,6 +16,25 @@
   font-family: var(--body, var(--font-body, -apple-system, sans-serif));
 }
 
+/* Region tabs: the detail page's tab capsule, in glass, pinned at the top while the
+   long page scrolls under it — so a region can be switched in front of any chart. */
+.mkt-regions {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  margin: 0 0 -12px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  backdrop-filter: blur(var(--blur)) saturate(var(--sat));
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow);
+}
+/* Switching region: the previous region's figures fade until the new ones land. */
+.market-view.is-loading > :not(.mkt-regions) {
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 0.2s var(--ease, ease);
+}
+
 .mkt-heading {
   font-family: var(--display, var(--font-display, Georgia, serif));
   font-size: 22px;

@@ -328,6 +328,24 @@ test('days is honoured and validated', async (t) => {
   assert.equal(bad.statusCode, 400);
 });
 
+test('region narrows every figure to that region, the same-villa pairs included', async (t) => {
+  const { body: south, call } = await metrics(t, '?region=south');
+  assert.deepEqual(south.per_m2.by_area.map((r) => r.area).sort(), ['uluwatu', 'ungasan']);
+  assert.ok(south.n_rows > 0);
+  assert.ok(south.negotiable_share.every((r) => ['uluwatu', 'ungasan'].includes(r.area)));
+  assert.equal(south.cross_source_gaps.pairs.length, 0, 'the merged pair is in Munggu');
+
+  const west = (await call({ method: 'GET', url: '/api/market/metrics?region=west_coast' })).json();
+  assert.ok(west.cross_source_gaps.pairs.some((p) => p.kind === 'merged'));
+  assert.equal(south.n_rows + west.n_rows, 12, 'south + west coast = every row (no center rows seeded)');
+
+  const center = (await call({ method: 'GET', url: '/api/market/metrics?region=center' })).json();
+  assert.equal(center.n_rows, 0);
+
+  const bad = await call({ method: 'GET', url: '/api/market/metrics?region=bukit' });
+  assert.equal(bad.statusCode, 400);
+});
+
 test('price_trend: six Makassar months, per area and an all-areas aggregate', async (t) => {
   const { body } = await metrics(t);
   const trend = body.price_trend;

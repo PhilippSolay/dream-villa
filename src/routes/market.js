@@ -3,8 +3,7 @@
 
 import { getConfig } from '../db.js';
 import { DEFAULT_CONFIG, ACTIVE_STATUSES } from '../defaults.js';
-import { countsSummary } from '../scrape/store.js';
-import { placeholders } from './_common.js';
+import { placeholders, REGION_IDS, regionWhere } from './_common.js';
 import { listingsSql } from '../teams.js';
 
 /**
@@ -46,12 +45,16 @@ function groupBy(rows, keyOf) {
 export default async function marketRoutes(app, opts) {
   const { db } = opts;
 
-  app.get('/api/market', { onRequest: app.requireUser }, async (request) => {
+  const querystring = { type: 'object', properties: { region: { type: 'string', enum: REGION_IDS } } };
+
+  app.get('/api/market', { onRequest: app.requireUser, schema: { querystring } }, async (request) => {
     const config = getConfig(db);
     const band = config.band || DEFAULT_CONFIG.band;
     // SPEC §17: price statistics are shared facts (read straight off `properties`); the
     // caller's own shortlist below is per-team, so it reads through the overlay.
     const listingsExpr = listingsSql(db, request.user, config);
+    // Market's region tab (SPEC §7): every figure below, counts included, is that region's.
+    const region = regionWhere(request.query?.region);
 
     const rows = db
       .prepare(
@@ -60,9 +63,10 @@ export default async function marketRoutes(app, opts) {
            FROM properties
           WHERE (availability IS NULL OR availability != 'gone')
             AND price_month_idr IS NOT NULL
-            AND price_month_idr >= ? AND price_month_idr <= ?`
+            AND price_month_idr >= ? AND price_month_idr <= ?
+            AND ${region.sql}`
       )
-      .all(band.price_min, band.price_max);
+      .all(band.price_min, band.price_max, ...region.params);
 
     const priceOf = (r) => r.price_month_idr;
 
@@ -108,9 +112,10 @@ export default async function marketRoutes(app, opts) {
         `SELECT id, ref, title, area, price_month_idr FROM ${listingsExpr} AS properties
           WHERE status IN (${placeholders(ACTIVE_STATUSES)})
             AND (availability IS NULL OR availability != 'gone')
+            AND ${region.sql}
           ORDER BY id`
       )
-      .all(...ACTIVE_STATUSES);
+      .all(...ACTIVE_STATUSES, ...region.params);
 
     const shortlist_vs_median = shortlist.map((r) => {
       const median = areaMedian.get(r.area) ?? null;
@@ -128,11 +133,20 @@ export default async function marketRoutes(app, opts) {
       };
     });
 
-    const summary = countsSummary(db);
-    const shortlistCount = db.prepare(`SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE status = 'shortlist'`).get().n;
-    // Featured depends on the team's own Reject / Gone (SPEC §17), so it is counted
-    // through the overlay rather than taken from the shared summary.
-    const flaggedCount = db.prepare(`SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE flagged = 1`).get().n;
+    // Scope and gone are shared facts; Featured and Shortlist depend on the team's own
+    // taps (SPEC §17), so those two are counted through the overlay.
+    const summary = db
+      .prepare(
+        `SELECT SUM(CASE WHEN scope = 'in_filter' THEN 1 ELSE 0 END) AS in_filter,
+                SUM(CASE WHEN scope = 'market' THEN 1 ELSE 0 END) AS market,
+                SUM(CASE WHEN availability = 'gone' THEN 1 ELSE 0 END) AS gone
+           FROM properties WHERE ${region.sql}`
+      )
+      .get(...region.params);
+    const countWhere = (cond) =>
+      db.prepare(`SELECT COUNT(*) AS n FROM ${listingsExpr} AS properties WHERE ${cond} AND ${region.sql}`).get(...region.params).n;
+    const shortlistCount = countWhere("status = 'shortlist'");
+    const flaggedCount = countWhere('flagged = 1');
 
     return {
       band: { price_min: band.price_min, price_max: band.price_max },
@@ -141,11 +155,11 @@ export default async function marketRoutes(app, opts) {
       feature_premium,
       shortlist_vs_median,
       counts: {
-        in_filter: summary.in_filter,
-        market: summary.market,
+        in_filter: summary.in_filter || 0,
+        market: summary.market || 0,
         flagged: flaggedCount,
         shortlist: shortlistCount,
-        gone: summary.gone,
+        gone: summary.gone || 0,
       },
     };
   });

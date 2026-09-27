@@ -9,8 +9,8 @@ import { isSolo, isOwner } from './lib/people.js';
 import { stepCardPhoto } from './lib/card-photos.js';
 
 const store = createStore(
-  { filters: defaultFilters(), theme: 'system', user: null, users: [], team: null, areas: [] },
-  { persist: ['filters', 'theme'] }
+  { filters: defaultFilters(), theme: 'system', user: null, users: [], team: null, areas: [], marketRegion: '' },
+  { persist: ['filters', 'theme', 'marketRegion'] }
 );
 
 const api = createApi({ onUnauthorized: () => navigate('/login', { replace: true }) });

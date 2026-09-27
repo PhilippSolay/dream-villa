@@ -898,6 +898,31 @@ test('market: per-area percentiles, feature premium and shortlist deltas', async
   assert.deepEqual(m.counts, { in_filter: 5, market: 1, flagged: 1, shortlist: 1, gone: 1 });
 });
 
+test('market: region narrows the prices, the shortlist and the counts to that region', async (t) => {
+  const { call, ids } = await setup(t);
+  await call({ method: 'POST', url: `/api/properties/${ids.A}/status`, payload: { status: 'shortlist' } });
+
+  const south = (await call({ method: 'GET', url: '/api/market?region=south' })).json();
+  assert.deepEqual(south.by_area.map((a) => a.area), ['uluwatu']);
+  assert.deepEqual(south.by_bedrooms.map((b) => b.bedrooms), [4]);
+  assert.deepEqual(south.shortlist_vs_median, [], 'the shortlisted villa is on the west coast');
+  assert.equal(south.counts.in_filter + south.counts.market, 1);
+  assert.equal(south.counts.shortlist, 0);
+  assert.equal(south.counts.gone, 0);
+
+  const west = (await call({ method: 'GET', url: '/api/market?region=west_coast' })).json();
+  assert.deepEqual(west.by_area.map((a) => a.area).sort(), ['cemagi', 'pererenan', 'seseh']);
+  assert.equal(west.shortlist_vs_median.length, 1);
+  assert.equal(west.counts.shortlist, 1);
+  assert.equal(west.counts.gone, 1); // munggu
+
+  const center = (await call({ method: 'GET', url: '/api/market?region=center' })).json();
+  assert.deepEqual(center.by_area, []);
+  assert.deepEqual(center.counts, { in_filter: 0, market: 0, flagged: 0, shortlist: 0, gone: 0 });
+
+  assert.equal((await call({ method: 'GET', url: '/api/market?region=bukit' })).statusCode, 400);
+});
+
 // ---------------------------------------------------------------------------
 // Config, runs, notes, inbox, scrape
 // ---------------------------------------------------------------------------
