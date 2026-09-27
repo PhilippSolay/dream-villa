@@ -55,7 +55,10 @@ export const HANDLERS = {
     return runBackup(db, dir, keep);
   },
 
-  /** A migration that moves the brief leaves every scope and score stale (src/db.js). */
+  /**
+   * Every row's scope and fit score against the config as it stands now: after a weight or
+   * threshold edit, or a migration that moved the brief (src/db.js).
+   */
   async rescore(db) {
     const { rescoreAll } = await import('../scrape/store.js');
     return rescoreAll(db);

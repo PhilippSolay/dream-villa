@@ -182,13 +182,13 @@ export async function buildServer({ db, env = process.env, logger = false, jobs:
     return { ok: true, db: true, time: nowIso() };
   });
 
-  // API route modules (SPEC §4). Each receives { db, env }; the scraper and import routes
-  // also get `jobs`.
+  // API route modules (SPEC §4). Each receives { db, env }; the ones that hand work to a
+  // worker (scrape, imports, rescore) also get `jobs`.
   await app.register(propertiesRoutes, { db, env });
   await app.register(marketRoutes, { db, env });
   await app.register(marketMetricsRoutes, { db, env });
   await app.register(adminRoutes, { db, env, jobs });
-  await app.register(agentRoutes, { db, env });
+  await app.register(agentRoutes, { db, env, jobs });
   await app.register(statsRoutes, { db, env });
   await app.register(importRoutes, { db, env, jobs });
   await app.register(importListingsRoutes, { db, env, jobs });

@@ -11,12 +11,16 @@
 //
 // Lanes: one job at a time per lane, the rest wait their turn in order. Lanes run side by
 // side and take turns at SQLite's one write lock, a short transaction at a time.
-//   scrape  the daily run, POST /api/scrape, the nightly backup, the rescore after a
-//           migration. The route and the cron ask busy('scrape') first and refuse (409,
-//           or skip the tick), so a scrape never queues behind another.
+//   scrape  the daily run, POST /api/scrape, the nightly backup. The route and the cron
+//           ask busy('scrape') first and refuse (409, or skip the tick), so a scrape
+//           never queues behind another.
 //   import  POST /api/import/posts and /api/import/listings. The request awaits its turn
 //           and its result, so the response keeps its shape.
 //   settle  /api/import/listings' background settle (dedupe, hero probe, galleries).
+//   rescore every row's scope and fit score, after a weight or threshold edit (Agent page,
+//           the agent's weights call) or a migration. Its own lane: an edit never waits
+//           behind a scrape. Edits that land while one runs share the next one, which
+//           reads the brief as it stands when it starts.
 //
 // mode 'inline' runs the same handlers on the caller's own connection: what the route
 // tests use, and the only choice for an in-memory database, which a child cannot open.
@@ -32,7 +36,7 @@ const WORKER = fileURLToPath(new URL('./worker.js', import.meta.url));
 export const LANES = {
   scrape: 'scrape',
   backup: 'scrape',
-  rescore: 'scrape',
+  rescore: 'rescore',
   'import-posts': 'import',
   'import-listings': 'import',
   settle: 'settle',
@@ -49,6 +53,12 @@ export const TIMEOUTS = {
   'import-listings': 15 * MINUTE,
   settle: 3 * 60 * MINUTE,
 };
+
+/**
+ * Kinds whose queued job a new request joins instead of queueing another: a rescore reads
+ * the config when it starts, so the one already waiting covers every edit made before it.
+ */
+const COALESCING = new Set(['rescore']);
 
 /** Flags a child must not inherit: a second file watcher, the test runner, a debugger port. */
 const NOT_INHERITED = /^--(watch|test|inspect)/;
@@ -213,10 +223,18 @@ export function createJobs({
     const lane = LANES[kind];
     if (!lane) return Promise.reject(new Error(`unknown job kind: ${kind}`));
     if (closed) return Promise.reject(new Error('jobs: shutting down'));
-    return new Promise((resolve, reject) => {
-      laneOf(lane).queue.push({ kind, args: { ...defaults[kind], ...args }, resolve, reject });
-      pump(lane);
+    if (COALESCING.has(kind)) {
+      const waiting = laneOf(lane).queue.find((job) => job.kind === kind);
+      if (waiting) return waiting.promise;
+    }
+    const job = { kind, args: { ...defaults[kind], ...args } };
+    job.promise = new Promise((resolve, reject) => {
+      job.resolve = resolve;
+      job.reject = reject;
     });
+    laneOf(lane).queue.push(job);
+    pump(lane);
+    return job.promise;
   }
 
   /** Is anything running or waiting on this lane? */

@@ -315,3 +315,83 @@ test('POST /api/import/listings answers from a worker, and its settle runs in on
   assert.equal(settle.seen, 1);
   assert.deepEqual(JSON.parse(settle.errors), []);
 });
+
+// ---------------------------------------------------------------------------
+// Rescores after a weight edit
+// ---------------------------------------------------------------------------
+
+test('weight edits that land while a rescore runs share the next one, which starts after them', async (t) => {
+  const { db } = tmp(t);
+  const gates = [];
+  let calls = 0;
+  const jobs = createJobs({
+    db,
+    mode: 'inline',
+    handlers: {
+      rescore: async () => {
+        const n = (calls += 1);
+        await new Promise((resolve) => gates.push(resolve));
+        return { n };
+      },
+    },
+  });
+
+  const first = jobs.run('rescore');
+  while (!gates.length) await sleep(1); // running
+  const second = jobs.run('rescore');
+  const third = jobs.run('rescore');
+  assert.equal(third, second, 'the waiting rescore is shared, not queued twice');
+
+  gates.shift()();
+  assert.deepEqual(await first, { n: 1 });
+  while (!gates.length) await sleep(1);
+  gates.shift()();
+  assert.deepEqual(await second, { n: 2 });
+  assert.equal(calls, 2);
+  await new Promise((resolve) => setImmediate(resolve)); // the lane clears just after it answers
+  assert.equal(jobs.busy('rescore'), false);
+});
+
+test('a rescore never waits behind a running scrape: its own lane', async (t) => {
+  const { db } = tmp(t);
+  let releaseScrape;
+  const jobs = createJobs({
+    db,
+    mode: 'inline',
+    handlers: {
+      scrape: () => new Promise((resolve) => { releaseScrape = resolve; }),
+      rescore: async () => ({ total: 0 }),
+    },
+  });
+  const scrape = jobs.run('scrape');
+  assert.deepEqual(await jobs.run('rescore'), { total: 0 });
+  assert.equal(jobs.busy('scrape'), true);
+  releaseScrape();
+  await scrape;
+});
+
+test('PATCH /api/config and the agent weights call rescore in a worker and answer as before', async (t) => {
+  const ctx = tmp(t);
+  const { call } = await server(t, ctx, { mode: 'fork' });
+
+  const imported = await (await call('/api/import/posts', { method: 'POST', body: fbBatch() })).json();
+  const id = imported.ids[0];
+  const fit = () => ctx.db.prepare('SELECT fit_score FROM properties WHERE id = ?').get(id).fit_score;
+  const before = fit();
+
+  const res = await call('/api/config', { method: 'PATCH', body: { weights: { pool: 20 } } });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.weights.pool, 20);
+  assert.equal(body.rescored.total, 1);
+  assert.equal(body.weight_changes[0].feature, 'pool');
+  const raised = fit();
+  assert.ok(raised > before, `a pool villa scores higher with pool at 20 (${before} → ${raised})`);
+  assert.equal(lastRun(ctx.db, 'learn').seen, 1);
+
+  const set = encodeURIComponent(JSON.stringify({ pool: 0 }));
+  const agent = await call(`/api/agent/weights?token=${ENV.AGENT_TOKEN}&set=${set}`);
+  assert.equal(agent.status, 200);
+  assert.equal((await agent.json()).weights.pool, 0);
+  assert.ok(fit() < raised, 'and lower again once the agent sets it to 0');
+});

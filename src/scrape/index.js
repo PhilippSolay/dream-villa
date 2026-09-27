@@ -321,7 +321,10 @@ export async function runScrape({
   }
 
   // --- score ----------------------------------------------------------------
-  summary.rescore = rescoreAll(db, config);
+  // Against the config as it is now, not as the run found it: a weight edited on the
+  // Agent page during a long run has already been rescored in its own worker, and the
+  // run's start-of-day copy would undo it.
+  summary.rescore = rescoreAll(db);
 
   // --- recheck --------------------------------------------------------------
   try {

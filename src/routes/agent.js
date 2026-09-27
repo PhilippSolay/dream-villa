@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import { nowIso, getConfig, setConfig } from '../db.js';
 import { WEIGHT_KEYS, ACTIVE_STATUSES } from '../defaults.js';
-import { parseRow, rescoreAll, countsSummary } from '../scrape/store.js';
+import { parseRow, countsSummary } from '../scrape/store.js';
 import { reasonsFor } from '../scrape/score.js';
 import { sameTeamSql } from '../teams.js';
 
@@ -211,7 +211,7 @@ function isValidHttpUrl(str) {
   }
 }
 
-export default async function agentRoutes(app, { db, env = process.env, rateLimiter } = {}) {
+export default async function agentRoutes(app, { db, env = process.env, rateLimiter, jobs } = {}) {
   const limiter = rateLimiter || createRateLimiter();
   // Scoped to this plugin instance only — properties.js/market.js/admin.js routes
   // (registered as sibling plugins in server.js) are unaffected by this hook.
@@ -395,7 +395,8 @@ export default async function agentRoutes(app, { db, env = process.env, rateLimi
     }
 
     setConfig(db, 'weights', nextWeights);
-    rescoreAll(db, { ...config, weights: nextWeights });
+    // In a worker (src/jobs), off the request thread; it reads the weights just set.
+    await jobs.run('rescore');
 
     const runNow = nowIso();
     db.prepare('INSERT INTO runs (started_at, finished_at, kind, weight_changes) VALUES (?, ?, ?, ?)').run(

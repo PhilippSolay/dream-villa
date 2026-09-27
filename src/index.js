@@ -70,8 +70,7 @@ export async function main() {
   await app.listen({ host: '0.0.0.0', port });
 
   // A migration that moves the brief leaves every scope and fit_score stale (db.js). The
-  // rescore runs in a worker once the port is open, instead of holding it shut. It sits on
-  // the scrape lane, so no scrape can start while it runs.
+  // rescore runs in a worker once the port is open, instead of holding it shut.
   if (db.migrationsApplied?.length) {
     app.jobs
       .run('rescore')

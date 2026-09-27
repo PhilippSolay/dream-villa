@@ -3,7 +3,7 @@
 import { getConfig, setConfig, nowIso } from '../db.js';
 import { AREAS } from '../areas.js';
 import { DEFAULT_WEIGHTS, WEIGHT_KEYS } from '../defaults.js';
-import { rescoreAll, startRun, finishRun } from '../scrape/store.js';
+import { startRun, finishRun } from '../scrape/store.js';
 import { badRequest, notFound, safeJson, str, strictSchemas } from './_common.js';
 import { isOwner, sameTeamSql } from '../teams.js';
 import {
@@ -123,7 +123,8 @@ export default async function adminRoutes(app, opts) {
         setConfig(db, 'flag_threshold', checked.flag_threshold);
       }
 
-      const summary = rescoreAll(db);
+      // In a worker (src/jobs): 8k rows scored on this thread held every request behind it.
+      const summary = await jobs.run('rescore');
 
       const notes = [];
       if (weight_changes.length) notes.push(`${weight_changes.length} weight(s) edited by ${request.user.name}`);
