@@ -330,6 +330,17 @@ function renderHistogramBars(buckets, { chartWidth, threshold, ariaLabel } = {})
   const maxN = Math.max(1, ...buckets.map((b) => b.n));
   const H = HIST_TOP_PAD + HIST_BAR_H + HIST_AXIS_H;
 
+  // A bucket's name shows unless it would touch the last one shown (9 px mono, ~0.6 em a
+  // character): on a phone the fit spread's ten names share ~280 px and some step aside.
+  let lastRight = -Infinity;
+  const showName = (i) => {
+    const cx = plotX0 + i * step + barW / 2;
+    const half = (String(buckets[i].bucket).length * 9 * 0.6) / 2;
+    if (cx - half < lastRight + 4) return false;
+    lastRight = cx + half;
+    return true;
+  };
+
   let svg = `<svg class="mkt-chart mkt-hist-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${escapeHtml(ariaLabel || 'Histogram')}">`;
   buckets.forEach((b, i) => {
     const x = plotX0 + i * step;
@@ -337,7 +348,7 @@ function renderHistogramBars(buckets, { chartWidth, threshold, ariaLabel } = {})
     const y = HIST_TOP_PAD + (HIST_BAR_H - h);
     svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" class="mkt-hist-bar"><title>${escapeHtml(b.bucket)}: ${b.n}</title></rect>`;
     if (b.n > 0) svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" class="mkt-hist-n" text-anchor="middle">${b.n}</text>`;
-    svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 2}" class="mkt-axis-label" text-anchor="middle">${escapeHtml(b.bucket)}</text>`;
+    if (showName(i)) svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${H - 2}" class="mkt-axis-label" text-anchor="middle">${escapeHtml(b.bucket)}</text>`;
   });
   if (threshold) {
     const tx = (plotX0 + threshold.index * step + threshold.fraction * barW).toFixed(1);
@@ -381,11 +392,23 @@ function renderActivity(activity) {
   return `<p class="mkt-activity">${escapeHtml(line)}</p>${avgs ? `<div class="mkt-activity-avgs">${avgs}</div>` : ''}`;
 }
 
+// .mkt-hist-grid in charts.css: two .mkt-hist of `flex: 1 1 240px` with a 20 px gap.
+const HIST_BASIS = 240;
+const HIST_GAP = 20;
+
+/** Each histogram's real width: half the row when the two fit side by side, else all of it. */
+function histWidthOf(chartWidth) {
+  return chartWidth >= 2 * HIST_BASIS + HIST_GAP ? (chartWidth - HIST_GAP) / 2 : chartWidth;
+}
+
 function renderOverview(stats, { chartWidth } = {}) {
   if (!stats) return '<section class="mkt-section"><h2 class="mkt-heading">Overview</h2><p class="mkt-error">Could not load stats.</p></section>';
   const threshold = fitThresholdPosition(stats.flag_threshold ?? 65);
-  const fitChart = renderHistogramBars(stats.fit_histogram, { chartWidth: chartWidth / 2 - 10, threshold, ariaLabel: 'Fit score spread' });
-  const beachChart = renderHistogramBars(stats.beach_histogram, { chartWidth: chartWidth / 2 - 10, ariaLabel: 'Beach distance' });
+  // Drawn at the width they are shown at. Half the row always was right only on a wide
+  // screen: on a phone the pair wraps to one per line and the browser blew each up 1.8×.
+  const histWidth = histWidthOf(chartWidth);
+  const fitChart = renderHistogramBars(stats.fit_histogram, { chartWidth: histWidth, threshold, ariaLabel: 'Fit score spread' });
+  const beachChart = renderHistogramBars(stats.beach_histogram, { chartWidth: histWidth, ariaLabel: 'Beach distance' });
 
   return `
     <section class="mkt-section">
