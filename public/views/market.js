@@ -76,6 +76,14 @@ function areaLabel(areasMap, id) {
   return id === 'other' ? 'Other' : String(id);
 }
 
+// SPEC §7 lists the areas north to south (Center, then the west coast, then the Bukit) —
+// the filter drawer's order, and the order a per-area chart reads in. Unknown areas last.
+const AREA_ORDER = new Map(Object.keys(AREAS).map((id, i) => [id, i]));
+function northToSouth(rows) {
+  const at = (r) => AREA_ORDER.get(r.area) ?? Infinity;
+  return [...rows].sort((a, b) => at(a) - at(b));
+}
+
 function featureLabel(f) {
   return FEATURE_LABELS[f] || f;
 }
@@ -96,7 +104,8 @@ const TOP_PAD = 10;
 const AXIS_H = 26;
 
 const MONEY_DOMAIN = { min: DOMAIN_MIN, max: DOMAIN_MAX, step: TICK_STEP, tickStart: 20e6, fmt: fmtMoney, label: 'Price distribution chart' };
-const ROW_LABEL_PX = 11; // .mkt-row-label's font-size — the label column is measured in it
+const ROW_LABEL_PX = 13; // .mkt-row-label's font-size — the label column is measured in it
+const AXIS_LABEL_PX = 11; // .mkt-box-chart .mkt-axis-label's font-size
 const ROW_LABEL_PAD = 10;
 
 let measureCtx = null;
@@ -119,9 +128,15 @@ function renderBoxWhisker(rows, { getLabel, getN, getInFilter, chartWidth, domai
   const dom = { ...MONEY_DOMAIN, ...(domain || {}) };
   const W = Math.max(240, chartWidth || 600);
   // One line per row, "Pererenan (1262)": the column grows to its longest label, never
-  // past 45 % of the width, and never narrower than it always was (the charts align).
-  const longest = Math.max(...rows.map((r) => rowLabelWidth(`${getLabel(r)} (${getN(r)})`)));
-  const labelW = Math.min(Math.round(W * 0.45), Math.max(W < 420 ? 92 : 132, Math.ceil(longest) + ROW_LABEL_PAD));
+  // past half the width, and never narrower than it always was (the charts align). A
+  // label that still would not fit keeps its first name: "Uluwatu / Pecatu" → "Uluwatu".
+  const cap = Math.round(W * 0.5);
+  const names = rows.map((r) => {
+    const name = String(getLabel(r));
+    return rowLabelWidth(`${name} (${getN(r)})`) + ROW_LABEL_PAD <= cap ? name : name.split(' / ')[0];
+  });
+  const longest = Math.max(...rows.map((r, i) => rowLabelWidth(`${names[i]} (${getN(r)})`)));
+  const labelW = Math.min(cap, Math.max(W < 420 ? 92 : 132, Math.ceil(longest) + ROW_LABEL_PAD));
   const chartX0 = labelW;
   const chartX1 = W - RIGHT_PAD;
   const scaleX = (v) => chartX0 + ((v - dom.min) / (dom.max - dom.min)) * (chartX1 - chartX0);
@@ -133,21 +148,27 @@ function renderBoxWhisker(rows, { getLabel, getN, getInFilter, chartWidth, domai
   const ticks = [];
   for (let v = dom.tickStart; v <= dom.max; v += dom.step) ticks.push(v);
 
-  let svg = `<svg class="mkt-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${escapeHtml(dom.label)}">`;
+  let svg = `<svg class="mkt-chart mkt-box-chart" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${escapeHtml(dom.label)}">`;
 
-  for (const v of ticks) {
+  // Every tick keeps its gridline; its label only when the labels fit side by side
+  // (on a phone every second or third one does). Mono digits are ~0.6 em wide.
+  const tickPx = ticks.length > 1 ? scaleX(ticks[1]) - scaleX(ticks[0]) : Infinity;
+  const labelPx = Math.max(...ticks.map((v) => String(dom.fmt(v)).length)) * AXIS_LABEL_PX * 0.6 + 8;
+  const labelEvery = Math.max(1, Math.ceil(labelPx / tickPx));
+  ticks.forEach((v, i) => {
     const x = scaleX(v);
     svg += `<line x1="${x}" y1="${TOP_PAD}" x2="${x}" y2="${plotBottom}" class="mkt-gridline" />`;
-    svg += `<text x="${x}" y="${H - 8}" class="mkt-axis-label" text-anchor="middle">${dom.fmt(v)}</text>`;
-  }
+    if (i % labelEvery === 0) svg += `<text x="${x}" y="${H - 8}" class="mkt-axis-label" text-anchor="middle">${dom.fmt(v)}</text>`;
+  });
 
   rows.forEach((row, i) => {
     const rowTop = TOP_PAD + i * ROW_H;
     const cy = rowTop + ROW_H / 2;
-    const label = escapeHtml(getLabel(row));
+    const full = String(getLabel(row));
     const n = getN(row);
+    const title = names[i] === full ? '' : `<title>${escapeHtml(full)}</title>`;
 
-    svg += `<text x="0" y="${cy + 4}" class="mkt-row-label">${label} <tspan class="mkt-row-n">(${n})</tspan></text>`;
+    svg += `<text x="0" y="${cy + 4.5}" class="mkt-row-label">${title}${escapeHtml(names[i])} <tspan class="mkt-row-n">(${n})</tspan></text>`;
 
     if (row.p25 != null && row.p75 != null) {
       const x1 = clampX(scaleX(row.p25));
@@ -690,7 +711,7 @@ function renderTimeOnMarket(tom, areasMap, { chartWidth }) {
     ['Stale share', stale.share == null ? '—' : `${Math.round(stale.share * 100)}%`],
   ]);
 
-  const chart = renderBoxWhisker(rows, {
+  const chart = renderBoxWhisker(northToSouth(rows), {
     getLabel: (r) => areaLabel(areasMap, r.area),
     getN: (r) => r.n,
     chartWidth,
@@ -1026,12 +1047,29 @@ function frame(uiState, body) {
 // Full render
 // ---------------------------------------------------------------------------
 
+// A chart sits inside .mkt-section: 16 px padding and a 1 px border a side (charts.css).
+const SECTION_INSET = 2 * 16 + 2 * 1;
+
+/**
+ * The width a chart actually gets: the page frame's content box minus a section's inset.
+ * The SVGs draw at this width, so 13 px text shows as 13 px. Reading the outlet instead
+ * (its own padding and the frame's 960 px cap left out) drew every chart ~10 % too wide
+ * on a phone, more on a wide screen, and the browser scaled the text down to fit.
+ */
+function chartWidthOf(el) {
+  const view = el.querySelector('.market-view');
+  if (!view) return Math.max(240, (el.clientWidth || 600) - 64);
+  const cs = getComputedStyle(view);
+  const inner = view.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  return Math.max(240, Math.floor(inner - SECTION_INSET));
+}
+
 function render(el, data, areasMap, stats, metrics, uiState) {
-  const chartWidth = Math.max(240, (el.clientWidth || 600) - 64);
+  const chartWidth = chartWidthOf(el);
 
   const overview = renderOverview(stats, { chartWidth });
   const m = renderMetrics(metrics, areasMap, uiState, { chartWidth });
-  const byArea = renderBoxWhisker(data.by_area || [], {
+  const byArea = renderBoxWhisker(northToSouth(data.by_area || []), {
     getLabel: (r) => areaLabel(areasMap, r.area),
     getN: (r) => r.n,
     getInFilter: (r) => r.n_in_filter,
