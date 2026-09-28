@@ -19,7 +19,7 @@
 // person's rating/status/note is never written here. Never delete a listing.
 
 import { getConfig, nowIso } from '../db.js';
-import { normaliseListing } from '../scrape/normalise.js';
+import { normaliseListing, parseRent } from '../scrape/normalise.js';
 import { finishRow } from '../scrape/ingest.js';
 import { inBand } from '../scrape/score.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
@@ -179,6 +179,10 @@ async function attachEmbeddedImages(db, imagesDir, propertyId, images) {
 
 function upsertListing(db, config, source, listing, now) {
   const validArea = listing.area && AREAS[listing.area] ? listing.area : undefined;
+  // A partial with no price may still state one in its text ("💰 PRICE: IDR 37,000,000 /
+  // month" on a Bali Villa Hub card). Keyword rules fill the gaps, never the reverse.
+  const priced = listing.price_month_idr != null || listing.price_year_idr != null;
+  const rent = priced ? null : parseRent(listing.description, config);
 
   const partial = {
     source,
@@ -198,9 +202,9 @@ function upsertListing(db, config, source, listing, now) {
     bathrooms: listing.bathrooms ?? null,
     land_m2: listing.land_m2 ?? null,
     build_m2: listing.build_m2 ?? null,
-    price_month_idr: listing.price_month_idr ?? null,
-    price_year_idr: listing.price_year_idr ?? null,
-    term: listing.term ?? null,
+    price_month_idr: listing.price_month_idr ?? rent?.price_month_idr ?? null,
+    price_year_idr: listing.price_year_idr ?? rent?.price_year_idr ?? null,
+    term: listing.term ?? rent?.term ?? null,
     min_months: listing.min_months ?? null,
     available_from: listing.available_from ?? null,
   };

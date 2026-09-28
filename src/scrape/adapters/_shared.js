@@ -2,7 +2,7 @@
 // balicoconutliving). Deliberately small: anything with real judgement in it
 // belongs in normalise.js, and nothing here duplicates a rule that lives there.
 
-import { parsePrice } from '../normalise.js';
+import { parsePrice, usdRate, DEFAULT_USD_IDR } from '../normalise.js';
 import { AREAS, PLACE_WORDS } from '../../areas.js';
 
 /** SPEC §6: stop paging after 10 pages or when a page yields nothing new. */
@@ -11,17 +11,8 @@ export const MAX_PAGES = 10;
 /** SPEC §6 "Images": max 20 per listing. */
 export const MAX_IMAGES = 20;
 
-/**
- * Documented default when `config.usd_idr` is absent. SPEC is silent on the rate;
- * 16 000 IDR/USD is the mid-2026 ballpark and only ever gates the band check —
- * every USD price also travels verbatim in `raw.price_original`.
- */
-export const DEFAULT_USD_IDR = 16_000;
-
-export function usdRate(config) {
-  const n = Number(config && config.usd_idr);
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_USD_IDR;
-}
+// The USD rate lives in normalise.js (parseRent converts USD posts too).
+export { DEFAULT_USD_IDR, usdRate };
 
 /** Relative href → absolute, or null when the href is empty / unparseable. */
 export function absUrl(href, base) {

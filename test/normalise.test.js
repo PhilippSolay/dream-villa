@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   parsePrice,
+  parseRent,
+  DEFAULT_USD_IDR,
   normalisePrice,
   parseBedrooms,
   parseMinMonths,
@@ -68,6 +70,124 @@ test('parsePrice — a currency amount with no period, and prose that is not a p
   assert.equal(parsePrice('Minimum 3 months rental'), null);
   assert.equal(parsePrice('no money here'), null);
   assert.equal(parsePrice(''), null);
+});
+
+test('parsePrice — "million" / "mil" are millions', () => {
+  assert.deepEqual(parsePrice('IDR 55 million / month'), { amount: 55_000_000, per: 'month' });
+  assert.deepEqual(parsePrice('93 mil/year'), { amount: 93_000_000, per: 'year' });
+});
+
+// ---------------------------------------------------------------------------
+// parseRent — the rent in a Facebook post. Every case is a real post shape from
+// the 2026-09-28 prod audit (listing #8672 and its neighbours).
+// ---------------------------------------------------------------------------
+
+test('parseRent — a date is not a price (#8672: "Available: 28 September 2026")', () => {
+  const text = [
+    'Available 28 September — secluded sanctuary',
+    'Available: 28 September 2026',
+    'Monthly: IDR 66,000,000 / month',
+    'Security Deposit: IDR 15,000,000',
+  ].join('\n');
+  assert.deepEqual(parseRent(text), { price_month_idr: 66_000_000, term: 'monthly', stated: true });
+  assert.equal(parseRent('Available 1 January 2027\nmonthly and Yearly Rent\nPlease DM'), null);
+});
+
+test('parseRent — the label carries the period, "million" is a unit, leasehold is not rent', () => {
+  const text = 'Available October 2026\nMonthly: IDR 55 Million\nleasehold : IDR.7 Billion';
+  assert.deepEqual(parseRent(text), { price_month_idr: 55_000_000, term: 'monthly', stated: true });
+  assert.deepEqual(parseRent('Monthly Rent (High Season): IDR 104,500,000\nYearly Rent: IDR 1,008,000,000'), {
+    price_month_idr: 104_500_000, price_year_idr: 1_008_000_000, term: 'both', stated: true,
+  });
+  assert.deepEqual(parseRent('Monthly @ 18m\nSix months @ 100m\nYearly @ 190m'), {
+    price_month_idr: 18_000_000, price_year_idr: 190_000_000, term: 'both', stated: true,
+  });
+});
+
+test('parseRent — both terms when the post gives both', () => {
+  assert.deepEqual(parseRent('IDR 395.000.000 / Year (villa only)\nIDR 40.000.000/Month'), {
+    price_month_idr: 40_000_000, price_year_idr: 395_000_000, term: 'both', stated: true,
+  });
+  // an amount first, its period after a colon
+  assert.deepEqual(parseRent('175.000.000 : Annual\n98.000.000 : Semi Annual\n17.500.000 : Monthly\n(pool IDR 550.000/month)'), {
+    price_month_idr: 17_500_000, price_year_idr: 175_000_000, term: 'both', stated: true,
+  });
+});
+
+test('parseRent — fees, deposits, nightly and weekly rates are not the rent', () => {
+  const text = [
+    'Daily : Rp.8.000.000',
+    'Weekly Rent: IDR 14,000,000',
+    'Management fee: IDR 1.2M/month',
+    'Electricity (Approx. IDR 2,000,000 / month)',
+    'Monthly : Rp.95.000.000 /exclude electricity and water',
+  ].join('\n');
+  assert.deepEqual(parseRent(text), { price_month_idr: 95_000_000, term: 'monthly', stated: true });
+  assert.equal(parseRent('Upto 300Mbps : 333.000/Bulan\nUpto 500Mbps : 555.000/Bulan'), null);
+});
+
+test('parseRent — a price for several months or years is not a period price', () => {
+  const text = [
+    '• IDR 150,000,000 / 3 months',
+    '• IDR 300,000,000 / 6 months (Negotiable)',
+    '• IDR 450,000,000 / year (Negotiable)',
+  ].join('\n');
+  assert.deepEqual(parseRent(text), { price_year_idr: 450_000_000, term: 'yearly', stated: true });
+  assert.deepEqual(parseRent('180M IDR – 6 months upfront\n320M IDR – 12 months upfront'), {
+    price_year_idr: 320_000_000, term: 'yearly', stated: true,
+  });
+  assert.deepEqual(parseRent('IDR 400,000,000 for 2 years | IDR 240,000,000 for 1 year'), {
+    price_year_idr: 240_000_000, term: 'yearly', stated: true,
+  });
+  assert.deepEqual(parseRent('1 Tahun: Rp 35.000.000\n2 Tahun: Rp 60.000.000'), {
+    price_year_idr: 35_000_000, term: 'yearly', stated: true,
+  });
+});
+
+test('parseRent — USD converts at the run rate; other currencies are left alone', () => {
+  assert.deepEqual(parseRent('PRICE\nUSD 3,200/month\nUSD 35,000/year'), {
+    price_month_idr: 3_200 * DEFAULT_USD_IDR, price_year_idr: 35_000 * DEFAULT_USD_IDR, term: 'both', stated: true,
+  });
+  assert.equal(parseRent('Price: $3,900/month', { usd_idr: 16_500 }).price_month_idr, 3_900 * 16_500);
+  // the rupiah figure wins over its USD twin
+  assert.equal(parseRent('• USD: $72,000 / year\n• IDR: 1,200,000,000 / year').price_year_idr, 1_200_000_000);
+  assert.equal(parseRent('IDR $380,000,000 per year').price_year_idr, 380_000_000);
+  assert.equal(parseRent('Asking Price: €1,100,000'), null);
+});
+
+test('parseRent — "IDR 40/month" and "Rp 120/tahun" are Bali shorthand for millions', () => {
+  assert.equal(parseRent('Monthly: IDR 40/month\nYearly: IDR 300M/year').price_month_idr, 40_000_000);
+  assert.deepEqual(parseRent('Rp 120/ tahun (Nego sampai deal)'), { price_year_idr: 120_000_000, term: 'yearly', stated: true });
+});
+
+test('parseRent — sale prices, valuations and yields are not rent', () => {
+  assert.equal(parseRent('IPL hanya Rp200.000/bulan.\nHarga Jual: Rp1,9 Miliar (Nego).'), null);
+  assert.equal(parseRent('Sale Price: USD 314,000\nMonthly profit after expenses USD 2,919'), null);
+  assert.equal(parseRent('Harga: Rp17 Juta/Are/Tahun'), null);
+  assert.equal(parseRent('IDR 3,450,000,000\nApproximately USD 197,000'), null);
+  assert.equal(parseRent('HOT OFFER\nUSD 1,900,000 for 40 years leasehold'), null);
+  // a stated rent next to the word leasehold is still the rent
+  assert.deepEqual(parseRent('25jt/month | 250jt/year — leasehold welcome'), {
+    price_month_idr: 25_000_000, price_year_idr: 250_000_000, term: 'both', stated: true,
+  });
+});
+
+test('parseRent — a monthly typo a thirtieth of the yearly price gives way to the yearly one', () => {
+  const text = 'Price: IDR 33.00.000/month include cleaning\nPrice IDR 310.000.000/year – Villa Only';
+  assert.deepEqual(parseRent(text), { price_year_idr: 310_000_000, term: 'yearly', stated: true });
+});
+
+test('parseRent — a bare amount: under 100 M monthly, up to 1 B yearly, above that a sale', () => {
+  assert.deepEqual(parseRent('Disewakan 2 bedroom villa Cemagi, Rp 35jt, minimum contract 1 year.'), {
+    price_month_idr: 35_000_000, term: 'monthly', stated: false,
+  });
+  assert.deepEqual(parseRent('Rp 350jt, kontrak minimum 1 tahun'), { price_year_idr: 350_000_000, term: 'yearly', stated: false });
+  assert.equal(parseRent('Price: IDR 3,500,000,000'), null);
+  assert.equal(parseRent('300 m to the beach, built 2026, 3 bedrooms'), null);
+});
+
+test('parseRent — bold Unicode digits and letters read as plain ones', () => {
+  assert.equal(parseRent('𝐌𝐨𝐧𝐭𝐡𝐥𝐲: 𝐈𝐃𝐑 𝟔𝟔,𝟎𝟎𝟎,𝟎𝟎𝟎').price_month_idr, 66_000_000);
 });
 
 // ---------------------------------------------------------------------------

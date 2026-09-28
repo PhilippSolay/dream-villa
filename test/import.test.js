@@ -771,6 +771,45 @@ test('rent-signal: "IDR 450.000.000 / year" imports as yearly', async (t) => {
   assert.equal(row.term, 'yearly');
 });
 
+test('price: an availability date is not the rent (#8672), "Million" is read, both terms kept', async (t) => {
+  const { db, call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'canggu-housing',
+      posts: [
+        post({
+          post_id: 'd1',
+          text: 'VILLA LIRI | 2-BEDROOM | Pererenan\nAvailable: 28 September 2026\nMonthly: IDR 66,000,000 / month\nSecurity Deposit: IDR 15,000,000',
+        }),
+        post({ post_id: 'd2', text: '2BR villa Pererenan\nAvailable October 2026\nMonthly: IDR 55 Million\nYearly: IDR 600 Million' }),
+      ],
+    },
+  });
+  const body = res.json();
+  assert.equal(body.new, 2);
+  const [a, b] = body.ids.map((id) => db.prepare('SELECT * FROM properties WHERE id = ?').get(id));
+  assert.equal(a.price_month_idr, 66_000_000);
+  assert.equal(a.term, 'monthly');
+  assert.equal(b.price_month_idr, 55_000_000);
+  assert.equal(b.price_year_idr, 600_000_000);
+  assert.equal(b.term, 'both');
+});
+
+test('price: a post whose only money is a date and a fee is no_signal, not a 2 026 IDR listing', async (t) => {
+  const { call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'canggu-housing',
+      posts: [post({ post_id: 'd3', text: '2BR villa for rent Pererenan\nAvailable 18 Sept 2026\nmonthly and Yearly Rent\nPlease DM' })],
+    },
+  });
+  const body = res.json();
+  assert.equal(body.skipped.no_signal, 1);
+  assert.equal(body.imported, 0);
+});
+
 // ---------------------------------------------------------------------------
 // Cover image — a harvested base64 JPEG/PNG.
 // ---------------------------------------------------------------------------

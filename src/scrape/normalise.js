@@ -12,8 +12,15 @@ const MULTIPLIERS = {
   jt: 1e6,
   juta: 1e6,
   m: 1e6, // "450 M/year" — million, the Indonesian listing convention
+  mil: 1e6, // "93 mil/year" — FB posts
+  mill: 1e6,
+  mio: 1e6,
+  mln: 1e6,
+  million: 1e6,
+  millions: 1e6,
   b: 1e9,
   bn: 1e9,
+  billion: 1e9,
   miliar: 1e9,
   milyar: 1e9,
 };
@@ -21,7 +28,7 @@ const MULTIPLIERS = {
 const PERIODS = {
   month: 'month', months: 'month', monthly: 'month', mo: 'month', mth: 'month',
   bln: 'month', bulan: 'month',
-  year: 'year', years: 'year', yearly: 'year', yr: 'year', annually: 'year', annum: 'year',
+  year: 'year', years: 'year', yearly: 'year', yr: 'year', annual: 'year', annually: 'year', annum: 'year',
   thn: 'year', tahun: 'year',
 };
 
@@ -91,6 +98,162 @@ export function normalisePrice({ price_month_idr = null, price_year_idr = null }
   let month = price_month_idr == null ? null : Math.round(price_month_idr);
   if (month == null && year != null) month = Math.round(year / 12);
   return { price_month_idr: month, price_year_idr: year };
+}
+
+// ---------------------------------------------------------------------------
+// Rent in free text (Facebook posts; a harvested card's text when it has no price field)
+//
+// parsePrice reads one price field. A post is prose: the rent sits between an
+// "Available: 28 September 2026" (the year once became a 2 026 IDR rent), a
+// deposit, the pool man's fee, a leasehold price and a USD twin. parseRent reads
+// every money mention on its own line, drops what is not rent, and keeps the
+// first plausible monthly and yearly figure.
+// ---------------------------------------------------------------------------
+
+/**
+ * Documented default when `config.usd_idr` is absent. SPEC is silent on the rate;
+ * 16 000 IDR/USD is the mid-2026 ballpark and only ever gates the band check — an
+ * adapter's USD price also travels verbatim in `raw.price_original`, a post's in its text.
+ */
+export const DEFAULT_USD_IDR = 16_000;
+
+export function usdRate(config) {
+  const n = Number(config && config.usd_idr);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_USD_IDR;
+}
+
+const H = '[^\\S\\n]*'; // spaces and tabs: a price never runs across a line break
+const RENT_UNITS = { ...MULTIPLIERS, k: 1e3, rb: 1e3, ribu: 1e3 };
+const RENT_UNIT_ALT = Object.keys(RENT_UNITS).sort((a, b) => b.length - a.length).join('|');
+const CURRENCY_ALT = 'idr[^\\S\\n]*\\$|idr|rp\\.?|rupiah|usd|us\\$|\\$|eur|€|aud|sgd'; // "IDR $380,000,000" is rupiah
+const OTHER_PERIODS = ['night', 'nights', 'nightly', 'day', 'days', 'daily', 'week', 'weeks', 'weekly', 'hari', 'malam', 'minggu'];
+const RENT_PERIOD_ALT = [...Object.keys(PERIODS), ...OTHER_PERIODS].sort((a, b) => b.length - a.length).join('|');
+
+//   currency? amount [– amount]? unit? currency? [/ | per | a | for 1 | : ] period?
+const MONEY_RE = new RegExp(
+  `(?<![\\w.,])(?:(${CURRENCY_ALT})${H}:?${H})?` + //       1 currency before ("IDR: 1,200,000")
+    '(\\d(?:[\\d.,]*\\d)?)' + //                          2 amount (a range keeps its lower bound)
+    `(?:${H}[-–~]${H}\\d(?:[\\d.,]*\\d)?)?(?:[.,]-)?` + //  "40–45", "12.500.000,-"
+    `(?:${H}(${RENT_UNIT_ALT})(?![a-z0-9²³]))?` + //       3 unit — "300 m²" and "40 months" are not money
+    `(?:${H}(${CURRENCY_ALT})(?![a-z]))?` + //             4 currency after ("120 Million IDR")
+    `(?:${H}(?:\\/|per|a(?=\\s)|each|for${H}(?:1|one|a)(?=\\s)|[:,–-])?${H}(${RENT_PERIOD_ALT})(?![a-z]))?`, // 5 period
+  'gi'
+);
+
+/** A fee, not the rent: the word labels the amount ("Security Deposit: IDR 15,000,000"). */
+const FEE_LABEL_RE =
+  /\b(?:deposit|jaminan|electric\w*|listrik|pln|token|clean\w*|laundry|gardener|internet|wi-?fi|banjar|ipl|maintenance|service|fees?|tax|pajak|commission|komisi|staff|driver|water|gas)\b[^\d\n]{0,15}$/i;
+/** A price to buy, a valuation or a yield: never the rent. */
+const SALE_LABEL_RE =
+  /\b(?:lease\s?hold|free\s?hold|sale|sell|jual|dijual|purchase|buy|investment|income|profit|revenue|return|roi|yield|value|valuation)\b[^\d\n]{0,25}$/i;
+const SALE_AFTER_RE = /^[^\n]{0,25}\b(?:lease\s?hold|free\s?hold)\b/i;
+/** A rate per something other than the villa-month: "/are/year", "per night", "per visit". */
+const PER_UNIT_AFTER_RE = /^[^\S\n]*(?:\/|per\b|a\b)?[^\S\n]*(?:are|m2|sqm|night|day|week|person|pax|visit|kwh|hari|malam|minggu)\b/i;
+/** "IDR 98M / 6 months", "650mil for 2 years", "320M IDR – 12 months upfront". */
+const COUNTED_AFTER_RE = /^[^\S\n]*(?:\/|per\b|for\b|a\b|[:–—-])?[^\S\n]*(\d+|one|two|three|six)[^\S\n]*-?[^\S\n]*(?:(months?|bulan|mos?)|(years?|tahun|yrs?))\b/i;
+const COUNT_WORDS = { one: 1, two: 2, three: 3, six: 6 };
+/** The label in front of an amount can carry its period ("Monthly: IDR 55 Million"). */
+const LABEL_PERIOD_RE =
+  /\b(?:(semi[- ]?annual(?:ly)?|daily|nightly|weekly|night|day|week|harian|mingguan)|(\d+)[- ]?(?:(months?|bulan)|(years?|tahun|yrs?))|(monthly|montly|monthy|bulanan|month|bulan|mo)|(yearly|annual(?:ly)?|year|tahun(?:an)?|yr))\b/gi;
+/** What may sit between that label and the amount: "Monthly Rent Price: IDR". */
+const LABEL_FILLER_RE = /\b(?:rent(?:al)?|price|harga|sewa|rate|idr|rp|usd|only|lease|contract|kontrak)\b|[\s:=—–\-•*()|,.@]/gi;
+
+const RENT_MIN = { month: 2_000_000, year: 20_000_000 };
+const RENT_MAX = { month: 500_000_000, year: 5_000_000_000 };
+/** A bare amount (no period anywhere) at or above this is yearly; at or above SALE_MIN, a sale price. */
+const BARE_YEARLY_MIN = 100_000_000;
+const BARE_SALE_MIN = 1_000_000_000;
+
+function labelPeriod(label) {
+  let last = null;
+  LABEL_PERIOD_RE.lastIndex = 0;
+  for (let m; (m = LABEL_PERIOD_RE.exec(label)); ) last = m;
+  if (!last) return null;
+  // "Monthly Rent (High Season): IDR …" — only filler may sit between label and amount.
+  const between = label.slice(last.index + last[0].length).replace(/\([^)]*\)/g, '');
+  if (between.replace(LABEL_FILLER_RE, '') !== '') return null;
+  if (last[1]) return 'other';
+  if (last[2]) return countedPeriod(Number(last[2]), Boolean(last[3]));
+  return last[5] ? 'month' : 'year';
+}
+
+/** "1 month" is monthly, "12 months" or "1 year" yearly; any other count is a price for several periods. */
+function countedPeriod(n, isMonths) {
+  if (isMonths) return n === 1 ? 'month' : n === 12 ? 'year' : 'other';
+  return n === 1 ? 'year' : 'other';
+}
+
+/**
+ * Every money mention in the text, as the rent it would be.
+ * @returns {Array<{idr:number, per:'month'|'year'|null, currency:'IDR'|'USD'|null}>}
+ */
+function rentCandidates(s, config) {
+  const out = [];
+  MONEY_RE.lastIndex = 0;
+  for (let m; (m = MONEY_RE.exec(s)); ) {
+    const lineStart = s.lastIndexOf('\n', m.index) + 1;
+    const label = s.slice(Math.max(lineStart, m.index - 40), m.index);
+    const after = s.slice(m.index + m[0].length, m.index + m[0].length + 40);
+    const cur = (m[1] || m[4] || '').toLowerCase();
+    const currency = /^(?:idr|rp|rupiah)/.test(cur) ? 'IDR' : /^(?:usd|us\$|\$)$/.test(cur) ? 'USD' : cur ? 'other' : null;
+    if (currency === 'other') continue; // a wrong rate is worse than no price
+    if (FEE_LABEL_RE.test(label) || SALE_LABEL_RE.test(label)) continue;
+
+    let per = m[5] ? PERIODS[m[5].toLowerCase()] || 'other' : null;
+    if (!per) {
+      // "USD 1,900,000 for 40 years leasehold" — but "25jt/month | 250jt/year — leasehold welcome" is rent.
+      if (PER_UNIT_AFTER_RE.test(after) || SALE_AFTER_RE.test(after)) continue;
+      const counted = COUNTED_AFTER_RE.exec(after);
+      const n = counted && (COUNT_WORDS[counted[1].toLowerCase()] ?? Number(counted[1]));
+      per = counted ? countedPeriod(n, Boolean(counted[2])) : labelPeriod(label);
+    }
+    if (per === 'other') continue;
+    // An amount with no currency needs a period to be money at all: "300 m", "2026".
+    if (!currency && !per) continue;
+
+    const unit = m[3] ? RENT_UNITS[m[3].toLowerCase()] : 1;
+    let amount = parseAmount(m[2]) * unit;
+    // "IDR 40/month", "Rp 120/tahun": Bali shorthand for millions.
+    if (currency === 'IDR' && !m[3] && per && amount < 1000) amount *= 1e6;
+    const idr = Math.round(currency === 'USD' ? amount * usdRate(config) : amount);
+    if (!Number.isFinite(idr) || idr <= 0) continue;
+    out.push({ idr, per, currency });
+  }
+  return out;
+}
+
+/**
+ * The rent a free-text post asks, as listing fields.
+ * @param {string} text
+ * @param {object} [config] run config (`usd_idr`)
+ * @returns {{price_month_idr?:number, price_year_idr?:number, term:'monthly'|'yearly'|'both', stated:boolean}|null}
+ *   `stated`: the text itself gave the period, which is a rent signal on its own.
+ */
+export function parseRent(text, config = {}) {
+  const s = String(text || '').normalize('NFKC'); // 𝐈𝐃𝐑 𝟔𝟔,𝟎𝟎𝟎,𝟎𝟎𝟎 → IDR 66,000,000
+  const all = rentCandidates(s, config);
+  const pick = (per) => {
+    const ok = all.filter((c) => c.per === per && c.idr >= RENT_MIN[per] && c.idr <= RENT_MAX[per]);
+    return ok.find((c) => c.currency === 'IDR') || ok[0] || null;
+  };
+  const year = pick('year');
+  let month = pick('month');
+  // "IDR 33.00.000/month" beside "IDR 310.000.000/year": a monthly figure a thirtieth
+  // of the yearly one is a typo, and the yearly one is the price.
+  if (month && year && year.idr > 30 * month.idr) month = null;
+  if (month && year) return { price_month_idr: month.idr, price_year_idr: year.idr, term: 'both', stated: true };
+  if (month) return { price_month_idr: month.idr, term: 'monthly', stated: true };
+  if (year) return { price_year_idr: year.idr, term: 'yearly', stated: true };
+
+  // No period anywhere: guess from the Bali market. Villas in the aggregation band
+  // (SPEC §2) run roughly 8–80 M/month, so under 100 M reads as monthly, 100 M up to
+  // 1 B as yearly, and anything larger is a price to buy.
+  const bare = all.filter((c) => c.per == null && c.idr >= RENT_MIN.month && c.idr < BARE_SALE_MIN);
+  const b = bare.find((c) => c.currency === 'IDR') || bare[0];
+  if (!b) return null;
+  return b.idr >= BARE_YEARLY_MIN
+    ? { price_year_idr: b.idr, term: 'yearly', stated: false }
+    : { price_month_idr: b.idr, term: 'monthly', stated: false };
 }
 
 // ---------------------------------------------------------------------------

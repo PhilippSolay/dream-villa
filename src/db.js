@@ -5,6 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG, DEFAULT_WEIGHTS } from './defaults.js';
 import { forSale } from './scrape/sale.js';
+import { repricePosts } from './scrape/reprice.js';
 
 /** ISO-8601 UTC timestamp — the one time format used across the app. */
 export function nowIso() {
@@ -319,6 +320,18 @@ export const MIGRATIONS = [
       for (const row of db.prepare('SELECT id, title, description FROM properties').all()) {
         if (forSale(row)) set.run(row.id);
       }
+    },
+  },
+  // Facebook rents re-read (2026-09-28, Philipp: "lots with no price, although in
+  // description"). The old reader took the first price-shaped words of a post, so a date
+  // ("Available: 28 September 2026"), a deposit or a USD figure became the rent and
+  // "IDR 55 Million" was not read at all. parseRent (normalise.js) reads the stored text
+  // again; the boot rescore that follows every migration re-scores the new prices.
+  {
+    name: '013_reprice_posts',
+    up: (db) => {
+      const row = db.prepare("SELECT value FROM config WHERE key = 'usd_idr'").get();
+      repricePosts(db, { usd_idr: row ? Number(row.value) : undefined });
     },
   },
 ];

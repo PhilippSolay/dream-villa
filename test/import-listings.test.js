@@ -207,6 +207,22 @@ test('a yearly-only price normalises to a monthly equivalent', async (t) => {
   assert.equal(row.price_month_idr, 40_000_000);
 });
 
+test('a listing with no price field takes the rent its text states; a given price wins', async (t) => {
+  const { db, call } = await setup(t);
+  const text = 'Newly completed 2-bedroom villa\n💰 PRICE: IDR 37,000,000 / month Long-term & Yearly with special price available';
+  const res = await call({
+    method: 'POST', url: '/api/import/listings',
+    payload: importPayload({}, [
+      listing({ ref: 'r4', price_month_idr: undefined, description: text }),
+      listing({ ref: 'r5', price_month_idr: 36_000_000, description: text }),
+    ]),
+  });
+  const [fromText, given] = res.json().ids.map((id) => db.prepare('SELECT * FROM properties WHERE id = ?').get(id));
+  assert.equal(fromText.price_month_idr, 37_000_000);
+  assert.equal(fromText.term, 'monthly');
+  assert.equal(given.price_month_idr, 36_000_000);
+});
+
 // ---------------------------------------------------------------------------
 // Re-import: facts update, person fields (status) are never clobbered
 // ---------------------------------------------------------------------------

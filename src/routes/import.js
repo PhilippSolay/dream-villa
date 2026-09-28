@@ -9,7 +9,7 @@
 // person's rating/status/note is never written here. Never delete a listing.
 
 import { getConfig, nowIso } from '../db.js';
-import { parsePrice, parseBedrooms, normaliseListing, titleCase } from '../scrape/normalise.js';
+import { parseRent, parseBedrooms, normaliseListing, titleCase } from '../scrape/normalise.js';
 import { finishRow } from '../scrape/ingest.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
 import { dedupeAll } from '../scrape/dedupe.js';
@@ -31,7 +31,7 @@ const IMPORT_BODY_LIMIT = 60 * 1024 * 1024;
 
 const WANTED_RE = /\b(?:looking for|wanted|dicari|mencari)\b/i;
 // A rent WORD in the text is one rent signal; the other is a price that itself
-// carries a period ("IDR 40.000.000/month") — parsePrice already tells us that,
+// carries a period ("IDR 40.000.000/month") — parseRent's `stated` already tells us that,
 // so classifySkip ORs the two rather than requiring the word every time (a
 // harvested post routinely says "/month" with no other rent vocabulary at all).
 const RENT_SIGNAL_RE = /\b(?:rent|rental|lease|sewa|disewakan|kontrak|monthly|yearly|bulan|tahun)\b|\/mo\b|\/yr\b/i;
@@ -50,22 +50,21 @@ const VILLA_HOUSE_RE = /\b(?:villa|house|home|rumah|bedroom|kamar|br\b)\b/i;
 const PER_ARE_PRICE_RE = /\/\s?are\s?\/\s?(?:year|tahun|month|bulan)\b/i;
 
 /** @returns {'wanted'|'offtopic'|'no_signal'|null} null = on-topic, proceed to import. */
-function classifySkip(text) {
+function classifySkip(text, config) {
   if (WANTED_RE.test(text)) return 'wanted';
 
-  const priceInfo = parsePrice(text);
-  const qualifyingPrice = Boolean(priceInfo) && (priceInfo.amount >= 1_000_000 || priceInfo.per === 'month' || priceInfo.per === 'year');
-  // A price with an explicit period (parsePrice's `per`) is itself a rent signal —
-  // a villa quoted at "X/month" or "X/year" is being offered as a rental, whatever
-  // vocabulary surrounds it.
-  const hasRentSignal = RENT_SIGNAL_RE.test(text) || (priceInfo && priceInfo.per != null);
+  const rent = parseRent(text, config);
+  // A price with a stated period is itself a rent signal — a villa quoted at
+  // "X/month" or "Yearly: X" is being offered as a rental, whatever vocabulary
+  // surrounds it.
+  const hasRentSignal = RENT_SIGNAL_RE.test(text) || Boolean(rent && rent.stated);
 
   const saleOnly = SALE_ONLY_RE.test(text) && !hasRentSignal;
   const landOnly = LAND_RE.test(text) && !VILLA_HOUSE_RE.test(text);
   if (saleOnly || ROOM_KOST_APT_RE.test(text) || DAILY_NIGHTLY_RE.test(text) || landOnly || PER_ARE_PRICE_RE.test(text)) {
     return 'offtopic';
   }
-  if (!(qualifyingPrice && hasRentSignal)) return 'no_signal';
+  if (!(rent && hasRentSignal)) return 'no_signal';
   return null;
 }
 
@@ -143,21 +142,16 @@ function detectBedrooms(text) {
 }
 
 // ---------------------------------------------------------------------------
-// Price — parsePrice already returns the first amount-with-a-period found in the
-// text, falling back to a bare Rp/IDR amount with no period at all. A bare amount
-// is ambiguous, so this guesses from the Bali long-term rental market: villas in
-// the aggregation band (SPEC §2) run roughly 8-80 M/month, so a bare amount under
-// 100 M reads as monthly and 100 M or over reads as yearly.
+// Price — parseRent (normalise.js) reads every money mention in the post and keeps
+// the first plausible monthly and yearly rent; deposits, fees, dates, sale prices
+// and multi-month totals are not rent.
 // ---------------------------------------------------------------------------
 
-const BARE_YEARLY_THRESHOLD = 100_000_000;
-
-function priceFieldsFrom(priceInfo) {
-  if (!priceInfo) return {};
-  if (priceInfo.per === 'month') return { price_month_idr: priceInfo.amount, term: 'monthly' };
-  if (priceInfo.per === 'year') return { price_year_idr: priceInfo.amount, term: 'yearly' };
-  if (priceInfo.amount >= BARE_YEARLY_THRESHOLD) return { price_year_idr: priceInfo.amount, term: 'yearly' };
-  return { price_month_idr: priceInfo.amount, term: 'monthly' };
+function priceFields(text, config) {
+  const rent = parseRent(text, config);
+  if (!rent) return {};
+  const { stated, ...fields } = rent;
+  return fields;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,7 +387,7 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
     note: post.group_name || null,
     area: detectArea(text),
     bedrooms: detectBedrooms(text),
-    ...priceFieldsFrom(parsePrice(text)),
+    ...priceFields(text, config),
   };
 
   // normaliseListing -> placePins -> scoreRow (finishRow chains the latter two,
@@ -486,7 +480,7 @@ export async function importPosts(db, { groupId, posts, imagesDir }) {
   let skippedImages = 0;
 
   for (const post of posts) {
-    const skip = classifySkip(post.text);
+    const skip = classifySkip(post.text, config);
     if (skip) {
       skipped[skip] += 1;
       continue;
