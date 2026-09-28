@@ -10,6 +10,7 @@ import { parseRow } from '../scrape/store.js';
 import { scoreRow } from '../scrape/score.js';
 import { forSale } from '../scrape/sale.js';
 import { resizeToJpeg } from '../scrape/images.js';
+import { dhash } from '../scrape/image-hash.js';
 import { AREA_GROUPS, AREAS, TARGET_AREAS } from '../areas.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -152,13 +153,30 @@ export async function readMultipart(request) {
   return { fields, files };
 }
 
-/** Resize to the gallery's 1600 px JPEG and write it under <imagesDir>/<id>/<name>. */
+/**
+ * Resize to the gallery's 1600 px JPEG, write it under <imagesDir>/<id>/<name>, and hash it
+ * the way images.js does for a scraped photo, so the duplicate check's photo rule sees
+ * imported and uploaded photos too (2026-09-28: no Facebook post had a hash, and the same
+ * villa posted in four groups stayed four cards). A hashing failure is never fatal: `hash`
+ * is null and the daily run's back-fill (images-hash.js) tries again.
+ */
 export async function saveImage(imagesDir, propertyId, name, buffer) {
   const { buffer: out, w, h } = await resizeToJpeg(buffer);
   const dir = path.join(imagesDir, String(propertyId));
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name), out);
-  return { file: `${propertyId}/${name}`, w, h };
+  let hash = null;
+  try {
+    hash = await dhash(out);
+  } catch {
+    /* kept without a hash; the back-fill retries */
+  }
+  return { file: `${propertyId}/${name}`, w, h, hash };
+}
+
+/** The images-JSON entry for a photo saveImage wrote (no `hash` key when hashing failed). */
+export function savedImageEntry(saved, extra = {}) {
+  return { src_url: null, file: saved.file, w: saved.w, h: saved.h, ...(saved.hash ? { hash: saved.hash } : {}), ...extra };
 }
 
 /** '' / undefined → null; otherwise the trimmed string. */

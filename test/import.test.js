@@ -937,7 +937,49 @@ test('gallery: 3 valid images import as a 3-image gallery with hero = 1.jpg', as
     assert.equal(images[i - 1].file, `${row.id}/${i}.jpg`);
     assert.equal(images[i - 1].src_url, null);
     assert.ok(fs.existsSync(path.join(env.IMAGES_DIR, images[i - 1].file)));
+    assert.match(images[i - 1].hash, /^[0-9a-f]{16}$/, 'hashed as it is saved, for the photo rule');
   }
+});
+
+/** A photo with real structure (a flat colour hashes to all zeros): `kind` picks the pattern. */
+async function patternImageBase64(kind) {
+  const w = 72;
+  const h = 64;
+  const px = Buffer.alloc(w * h * 3);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const v = kind === 'fade' ? 255 - Math.round((x / w) * 255) : ((Math.floor(x / 8) + Math.floor(y / 8)) % 2) * 255;
+      px.fill(v, (y * w + x) * 3, (y * w + x) * 3 + 3);
+    }
+  }
+  const buf = await sharp(px, { raw: { width: w, height: h, channels: 3 } }).jpeg().toBuffer();
+  return { data_base64: buf.toString('base64') };
+}
+
+test('gallery: one villa posted twice in other words, with the same two photos, merges', async (t) => {
+  // 2026-09-28: the same Buduk villa showed as four cards — Facebook photos had no hash.
+  const { db, call } = await setup(t);
+  const photos = [await patternImageBase64('fade'), await patternImageBase64('checks')];
+  const first = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'cemagi-group',
+      posts: [post({ post_id: 'dupA', text: 'For rent 3 bedroom villa in Cemagi, IDR 45.000.000/month.', images_b64: photos })],
+    },
+  });
+  assert.equal(first.statusCode, 200);
+  const second = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'fb', group_id: 'seseh-group',
+      posts: [post({ post_id: 'dupB', text: 'This is my peace. Three bedrooms, pool, Cemagi. 45 jt per month, yearly ok.', images_b64: photos })],
+    },
+  });
+  assert.equal(second.statusCode, 200);
+
+  const rows = db.prepare("SELECT id, removed_reason FROM properties WHERE key IN ('fb:dupA', 'fb:dupB') ORDER BY id").all();
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.removed_reason), [null, 'merged'], 'the later post folds into the first');
 });
 
 test('gallery: 2 valid + 1 invalid entry writes 2 files and counts 1 skipped', async (t) => {

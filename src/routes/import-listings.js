@@ -26,7 +26,7 @@ import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
 import { settleImport } from '../scrape/settle.js';
 import { createCtx } from '../scrape/fetch.js';
 import { AREAS } from '../areas.js';
-import { strictSchemas, saveImage, imagesDirFor, jsonArray } from './_common.js';
+import { strictSchemas, saveImage, savedImageEntry, imagesDirFor, jsonArray } from './_common.js';
 
 const MAX_LISTINGS = 200;
 const MAX_IMAGE_URLS = 20;
@@ -160,7 +160,7 @@ async function attachEmbeddedImages(db, imagesDir, propertyId, images) {
     // Keep any src_url-backed entries (the images[] URL list below) alongside the
     // embedded gallery; drop only previous file-backed entries this replaces.
     const kept = jsonArray(existing?.images).filter((im) => im && im.src_url != null);
-    const gallery = saved.map((s) => ({ src_url: null, file: s.file, w: s.w, h: s.h }));
+    const gallery = saved.map((s) => savedImageEntry(s));
     const imagesJson = [...gallery, ...kept];
 
     db.prepare('UPDATE properties SET images = ?, hero_file = COALESCE(hero_file, ?) WHERE id = ?').run(

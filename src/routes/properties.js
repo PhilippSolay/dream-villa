@@ -19,7 +19,7 @@ import { finishRow } from '../scrape/ingest.js';
 import { mapUrl } from '../scrape/pins.js';
 import {
   addRedFlags, badRequest, getProperty, heroUrl, imageUrls, imagesDirFor, int, jsonArray,
-  notFound, placeholders, readMultipart, rescoreOne, safeJson, saveImage, str, strictSchemas, userNames, withByName,
+  notFound, placeholders, readMultipart, rescoreOne, safeJson, saveImage, savedImageEntry, str, strictSchemas, userNames, withByName,
 } from './_common.js';
 import { listAnchors, anchorDistances } from './anchors.js';
 import { getListing, isHome, isOwner, listingsSql, sameTeamSql, TEAM_FIELDS, writeListingState } from '../teams.js';
@@ -1363,7 +1363,7 @@ export default async function propertiesRoutes(app, opts) {
       next += 1;
       try {
         const saved = await saveImage(imagesDir, id, `u${next}.jpg`, file.buffer);
-        images.push({ src_url: null, file: saved.file, w: saved.w, h: saved.h, by: request.user.id });
+        images.push(savedImageEntry(saved, { by: request.user.id }));
       } catch (err) {
         next -= 1;
         request.log?.warn?.({ err }, 'image upload failed');

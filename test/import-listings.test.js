@@ -312,6 +312,7 @@ test('images_b64 saves an embedded gallery image and sets hero', async (t) => {
   const images = JSON.parse(row.images);
   assert.equal(images[0].file, `${id}/1.jpg`);
   assert.equal(images[0].src_url, null);
+  assert.match(images[0].hash, /^[0-9a-f]{16}$/, 'hashed as it is saved');
   assert.equal(row.hero_file, `${id}/1.jpg`);
   assert.ok(fs.existsSync(path.join(env.IMAGES_DIR, String(id), '1.jpg')));
 });

@@ -13,7 +13,7 @@ import { parsePrice, parseBedrooms, normaliseListing, titleCase } from '../scrap
 import { finishRow } from '../scrape/ingest.js';
 import { upsertProperty, startRun, finishRun } from '../scrape/store.js';
 import { dedupeAll } from '../scrape/dedupe.js';
-import { strictSchemas, saveImage, imagesDirFor, jsonArray } from './_common.js';
+import { strictSchemas, saveImage, savedImageEntry, imagesDirFor, jsonArray } from './_common.js';
 import { PLACE_WORDS } from '../areas.js';
 
 const MAX_POSTS = 200;
@@ -368,7 +368,7 @@ async function attachGalleryImages(db, imagesDir, propertyId, images) {
     // Drop any previous embedded (file-backed) entries — this gallery replaces them —
     // but keep entries that carry a real src_url from another source.
     const kept = jsonArray(existing?.images).filter((im) => im && im.src_url != null);
-    const gallery = saved.map((s) => ({ src_url: null, file: s.file, w: s.w, h: s.h }));
+    const gallery = saved.map((s) => savedImageEntry(s));
     const imagesJson = [...gallery, ...kept];
 
     db.prepare('UPDATE properties SET images = ?, hero_file = COALESCE(hero_file, ?) WHERE id = ?')

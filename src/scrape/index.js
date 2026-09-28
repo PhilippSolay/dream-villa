@@ -22,6 +22,9 @@ import { rescoreAll, startRun, finishRun, countsSummary, markUnlisted } from './
 import { DEFAULT_BACKUP_DIR, DEFAULT_KEEP } from '../backup.js';
 import { disabledSourceIds } from '../sources.js';
 
+/** Listings the daily hash back-fill takes on per run (~8 photos each, ~20 ms a photo). */
+const HASH_BACKFILL_LIMIT = 3000;
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 export const DEFAULT_CRON = '0 6 * * *';
@@ -289,6 +292,16 @@ export async function runScrape({
       } catch (err) {
         summary.errors.push(`images: ${String((err && err.message) || err)}`);
       }
+    }
+    // Any stored photo still without a hash (an import before 2026-09-28, a failed hash)
+    // gets one before dedupe runs, or the photo rule cannot see it. Only unhashed files
+    // are touched, so after the first catch-up this costs next to nothing.
+    try {
+      const { hashImages } = await import('./images-hash.js');
+      const h = await hashImages(db, { limit: HASH_BACKFILL_LIMIT, log: { warn: () => {} } });
+      if (h.hashed) summary.notes.push(`images: ${h.hashed} photos hashed on ${h.properties} listings (back-fill)`);
+    } catch (err) {
+      summary.errors.push(`images hash: ${String((err && err.message) || err)}`);
     }
   } else {
     summary.notes.push('images: skipped (--no-images)');
