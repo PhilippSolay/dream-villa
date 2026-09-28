@@ -82,8 +82,10 @@ test('migration 010: the people who exist become owners of the home team, named 
   const db = openDb(file);
   t.after(() => db.close());
   // 011 rides along on a pre-teams database: its target list is still the one 009 left.
-  // 012 (for_sale) is a plain column add and 013 re-reads Facebook rents, so they ride along too.
-  assert.deepEqual(db.migrationsApplied, ['010_teams', '011_ubud_surrounds', '012_for_sale', '013_reprice_posts']);
+  // 012 (for_sale) is a plain column add and 013/014 re-read Facebook rents, so they ride along too.
+  assert.deepEqual(db.migrationsApplied, [
+    '010_teams', '011_ubud_surrounds', '012_for_sale', '013_reprice_posts', '014_reprice_typos',
+  ]);
   assert.deepEqual(db.prepare('SELECT id, name FROM teams').all(), [{ id: 1, name: 'Philipp & Abigaïl' }]);
   assert.deepEqual(
     db.prepare('SELECT team_id, role, disabled_at FROM users ORDER BY id').all(),

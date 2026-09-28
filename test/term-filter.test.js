@@ -40,7 +40,20 @@ test('forSale: a description that offers the villa for sale', () => {
     'Price Freehold — Rp 3,7 M (nego)',
     'Harga: - Dijual: Rp 3,6 M (nego tipis) - Disewakan: - Bulanan: Rp 35 juta',
     'Brand new villa available for rent or sale. 3 Bedroom villa',
+    // Facebook sale posts (2026-09-28): the lease they sell, a sale price, a bold headline
+    'Price: IDR 4,600,000,000\n* Leasehold: 25 Years',
+    '• 40-Year Leasehold — until 2066',
+    'Monthly: IDR 145,000,000\nLeasehold until March 2053: IDR 13,500,000,000',
+    'Ownership: Leasehold – 30 years',
+    'Selling Price : IDR 2,9 Billion',
+    'Harga Jual: Rp1,9 Miliar (Nego).',
+    '𝗧𝗨𝗠𝗕𝗔𝗞 𝗕𝗔𝗬𝗨𝗛 | 𝟮-𝗕𝗘𝗗𝗥𝗢𝗢𝗠 𝗩𝗜𝗟𝗟𝗔 | 𝗙𝗢𝗥 𝗦𝗔𝗟𝗘 | REF ID: DR0400',
+    'Nice villa\n𝗙𝗢𝗥 𝗦𝗔𝗟𝗘 – 𝟭-𝗕𝗘𝗗𝗥𝗢𝗢𝗠 𝗛𝗢𝗠𝗘',
+    'Sale Tanah 2 Are View Sawah Dekat Pantai Kedungu',
   ]) assert.equal(forSale({ title: 'Villa in Canggu', description }), 1, description);
+  for (const title of ['Taman Griya, Jimbaran – 2 Villas for IDR 1.575B', 'Villa in Nunggalan – Rp2,869,952,000']) {
+    assert.equal(forSale({ title }), 1, title);
+  }
 });
 
 test('forSale: a rental that only mentions sales in passing stays a rental', () => {
@@ -53,6 +66,12 @@ test('forSale: a rental that only mentions sales in passing stays a rental', () 
     // "suitable for resale" in an Indonesian rental ad
     'Cocok Untuk Investasi. - Cocok Untuk Dijual Kembali. - Properti Bisa Nego.',
     'Yearly rental only, minimum 12 months.',
+    // rentals head their yearly rent "Lease Price" or "Asking Price"
+    'Detail: Asphalt Access Lease Price: IDR290.000.000 / year (TANPA service)',
+    'ASKING PRICE\n• IDR 45,000,000 / month\n• IDR 410,000,000 / year',
+    'Minimum 2-year lease Price IDR 300 million/year',
+    // a rental's minimum term, not a lease on sale
+    'Leasehold  2  tahun paling minim',
   ]) assert.equal(forSale({ title: 'Villa for Rent in Ungasan', description }), 0, description);
   assert.equal(forSale({}), 0);
   assert.equal(forSale(null), 0);

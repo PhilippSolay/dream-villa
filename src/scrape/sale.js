@@ -7,6 +7,8 @@
 
 const TITLE =
   /\b(?:for\s+(?:leasehold\s+)?sale|on\s+sale|sale\s*(?:&|and|\/|or)\s*(?:for\s+)?rent|rent(?:al)?\s*(?:&|and|\/|or)\s*(?:for\s+)?sale|leasehold|freehold|dijual|for\s+sell)\b/i;
+/** A title that carries a purchase price: "2 Villas for IDR 1.575B", "– Rp2,869,952,000". */
+const TITLE_PRICE = /\b(?:idr|rp)\.?\s*(?:\d[\d.,]*\s*(?:b|bn|billion|miliar|milyar)\b|\d{1,3}(?:[.,]\d{3}){3,})/i;
 
 const TEXT = new RegExp(
   [
@@ -19,15 +21,31 @@ const TEXT = new RegExp(
     String.raw`freehold\s*[—–:-]\s*(?:rp|idr)`,
     String.raw`dijual\s*[:\-]`,
     String.raw`for\s+leasehold`,
+    // A post that states the lease it sells: "Leasehold: 25 Years", "25-Year Leasehold",
+    // "Leasehold until March 2053", "Ownership: Leasehold – 30 years". Five years and up:
+    // "Leasehold 2 tahun paling minim" is a rental's minimum term. Not "lease price" or
+    // "asking price": rentals head their yearly rent with both.
+    String.raw`lease\s?hold\s*[:\-–—(]*\s*(?:(?:[5-9]|[1-9]\d)\s*(?:years?|yrs?|tahun)|until|expir)`,
+    String.raw`(?:[5-9]|[1-9]\d)[-\s]?(?:years?|yrs?|tahun)\s+lease\s?hold`,
+    String.raw`ownership\s*:\s*(?:lease|free)\s?hold`,
+    String.raw`(?:sale|selling|sell)\s+price\b`,
+    String.raw`harga\s+jual\b`,
+    String.raw`jual\s+cepat\b`,
   ].map((p) => `\\b${p}`).join('|'),
   'i'
 );
+/** "FOR SALE – BRAND-NEW 1 BEDROOM VILLA" opening a line of the text or a segment of a
+ *  headline ("TUMBAK BAYUH | 2-BEDROOM VILLA | FOR SALE | REF ID: DR0400"). */
+const LINE_FOR_SALE = /(?:^|\n|\|)[^\w\n]*(?:for\s+sale|urgent\s+sale|dijual|sale\s+(?:tanah|land|villa|rumah))\b/i;
 
 /** 1 when the listing is offered for sale (freehold or leasehold), else 0. */
 export function forSale(row) {
   const r = row || {};
-  if (TITLE.test(String(r.title || ''))) return 1;
-  return TEXT.test(String(r.description || '')) ? 1 : 0;
+  // Facebook posts set their headline in bold Unicode (𝗙𝗢𝗥 𝗦𝗔𝗟𝗘); NFKC reads it as plain text.
+  const title = String(r.title || '').normalize('NFKC');
+  if (TITLE.test(title) || TITLE_PRICE.test(title)) return 1;
+  const text = String(r.description || '').normalize('NFKC');
+  return TEXT.test(text) || LINE_FOR_SALE.test(text) ? 1 : 0;
 }
 
 export default { forSale };

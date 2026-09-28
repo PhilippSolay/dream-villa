@@ -334,6 +334,17 @@ export const MIGRATIONS = [
       repricePosts(db, { usd_idr: row ? Number(row.value) : undefined });
     },
   },
+  // Same day, second pass (Philipp: "fix what is wrong"). parseRent now reads a mistyped
+  // amount ("IDR 25,000,0000", "IDR 33.00.000") as the millions meant. sale.js reads bold
+  // headlines and "Leasehold: 25 Years" posts as for sale; the boot rescore after every
+  // migration re-derives for_sale, so this entry only re-reads the rents.
+  {
+    name: '014_reprice_typos',
+    up: (db) => {
+      const row = db.prepare("SELECT value FROM config WHERE key = 'usd_idr'").get();
+      repricePosts(db, { usd_idr: row ? Number(row.value) : undefined });
+    },
+  },
 ];
 
 function runMigrations(db) {

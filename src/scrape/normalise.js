@@ -184,6 +184,20 @@ function countedPeriod(n, isMonths) {
 }
 
 /**
+ * A posted amount. "IDR 4,500,000.00" drops its cents. "IDR 25,000,0000", "IDR 50,00,000"
+ * and "IDR 33.00.000" put their separators in the wrong places; the first group is the
+ * millions the poster meant (only next to a currency: "28.09.2026" is a date).
+ */
+function postAmount(token, hasCurrency) {
+  const groups = token.split(/[.,]/);
+  if (groups.length < 3) return parseAmount(token);
+  const cents = /^\d{2}$/.test(groups.at(-1)) && groups.slice(1, -1).every((g) => g.length === 3);
+  const body = cents ? groups.slice(0, -1) : groups;
+  if (body.slice(1).some((g) => g.length !== 3)) return hasCurrency ? Number(body[0]) * 1e6 : parseAmount(token);
+  return Number(body.join(''));
+}
+
+/**
  * Every money mention in the text, as the rent it would be.
  * @returns {Array<{idr:number, per:'month'|'year'|null, currency:'IDR'|'USD'|null}>}
  */
@@ -212,7 +226,7 @@ function rentCandidates(s, config) {
     if (!currency && !per) continue;
 
     const unit = m[3] ? RENT_UNITS[m[3].toLowerCase()] : 1;
-    let amount = parseAmount(m[2]) * unit;
+    let amount = postAmount(m[2], Boolean(currency)) * unit;
     // "IDR 40/month", "Rp 120/tahun": Bali shorthand for millions.
     if (currency === 'IDR' && !m[3] && per && amount < 1000) amount *= 1e6;
     const idr = Math.round(currency === 'USD' ? amount * usdRate(config) : amount);
@@ -238,7 +252,7 @@ export function parseRent(text, config = {}) {
   };
   const year = pick('year');
   let month = pick('month');
-  // "IDR 33.00.000/month" beside "IDR 310.000.000/year": a monthly figure a thirtieth
+  // "IDR 3.300.000/month" beside "IDR 310.000.000/year": a monthly figure a thirtieth
   // of the yearly one is a typo, and the yearly one is the price.
   if (month && year && year.idr > 30 * month.idr) month = null;
   if (month && year) return { price_month_idr: month.idr, price_year_idr: year.idr, term: 'both', stated: true };

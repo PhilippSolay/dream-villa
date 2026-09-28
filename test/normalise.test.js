@@ -173,7 +173,7 @@ test('parseRent — sale prices, valuations and yields are not rent', () => {
 });
 
 test('parseRent — a monthly typo a thirtieth of the yearly price gives way to the yearly one', () => {
-  const text = 'Price: IDR 33.00.000/month include cleaning\nPrice IDR 310.000.000/year – Villa Only';
+  const text = 'Price: IDR 3.300.000/month include cleaning\nPrice IDR 310.000.000/year – Villa Only';
   assert.deepEqual(parseRent(text), { price_year_idr: 310_000_000, term: 'yearly', stated: true });
 });
 
@@ -184,6 +184,18 @@ test('parseRent — a bare amount: under 100 M monthly, up to 1 B yearly, above 
   assert.deepEqual(parseRent('Rp 350jt, kontrak minimum 1 tahun'), { price_year_idr: 350_000_000, term: 'yearly', stated: false });
   assert.equal(parseRent('Price: IDR 3,500,000,000'), null);
   assert.equal(parseRent('300 m to the beach, built 2026, 3 bedrooms'), null);
+});
+
+test('parseRent — separators in the wrong places: the first group is the millions', () => {
+  assert.equal(parseRent('IDR 25,000,0000 / month all included').price_month_idr, 25_000_000);
+  assert.deepEqual(parseRent('Monthly: IDR 50,00,000 / month\nYearly: IDR 500,000,000 / year'), {
+    price_month_idr: 50_000_000, price_year_idr: 500_000_000, term: 'both', stated: true,
+  });
+  assert.equal(parseRent('Price: IDR 33.00.000/month\nPrice IDR 310.000.000/year').price_month_idr, 33_000_000);
+  // cents are cents, a well-formed amount is untouched, a date is not money
+  assert.equal(parseRent('IDR 4,500,000.00 / month').price_month_idr, 4_500_000);
+  assert.equal(parseRent('IDR 12.500.000,-/bulan').price_month_idr, 12_500_000);
+  assert.equal(parseRent('Available 28.09.2026 monthly'), null);
 });
 
 test('parseRent — bold Unicode digits and letters read as plain ones', () => {

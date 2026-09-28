@@ -96,7 +96,18 @@ test('repricePosts: a sale post loses its made-up rent; agency prices stay, a mi
   assert.equal(get(db, right).price_month_idr, 40_000_000);
 });
 
-test('migration 013_reprice_posts is registered after 012', () => {
+test('migrations 013 and 014 re-read the rents, in order after 012', () => {
   const names = MIGRATIONS.map((m) => m.name);
   assert.equal(names.indexOf('013_reprice_posts'), names.indexOf('012_for_sale') + 1);
+  assert.equal(names.indexOf('014_reprice_typos'), names.indexOf('013_reprice_posts') + 1);
+});
+
+test('repricePosts: a mistyped amount becomes the millions the poster meant', (t) => {
+  const db = tmpDb(t);
+  const id = insert(db, {
+    key: 'fb:9103', source: 'fb', description: 'Rates:\nIDR 25,000,0000 / month all included except electricity',
+    price_month_idr: null, term: null,
+  });
+  repricePosts(db);
+  assert.equal(get(db, id).price_month_idr, 25_000_000);
 });

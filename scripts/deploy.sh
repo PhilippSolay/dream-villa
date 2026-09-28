@@ -70,7 +70,10 @@ if [ "$SYNC_DATA" = "1" ]; then
 fi
 
 echo "== building and restarting the container =="
-run ssh "$SSH_HOST" "cd $REMOTE_DIR && docker compose up -d --build"
+# Compose's recreate can trip over its own rename ("Conflict. The container name
+# \"/<id>_villa-villa-1\" is already in use", 2026-09-28) after the new container is
+# already up. A second `up -d` is a no-op when all is well and settles it when not.
+run ssh "$SSH_HOST" "cd $REMOTE_DIR && (docker compose up -d --build || (sleep 5 && docker compose up -d))"
 
 echo "== waiting for /healthz inside the container =="
 run ssh "$SSH_HOST" "cd $REMOTE_DIR && for i in \$(seq 1 30); do \
