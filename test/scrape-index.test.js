@@ -60,7 +60,7 @@ function stubAdapter({ detailFor = () => null } = {}) {
 const RUN = { adapters: [stubAdapter()], images: false, now: '2026-09-17T00:00:00.000Z' };
 
 test('getAdapters — the registry, the filter and an unknown source', () => {
-  assert.deepEqual(getAdapters().map((a) => a.id), ['bhi', 'kibarer', 'balirealty', 'balicoconutliving', 'umadibali', 'livuma', 'rumah123']);
+  assert.deepEqual(getAdapters().map((a) => a.id), ['bhi', 'kibarer', 'balirealty', 'balicoconutliving', 'umadibali', 'apexbali', 'livuma', 'rumah123']);
   assert.deepEqual(getAdapters('bhi').map((a) => a.id), ['bhi']);
   assert.deepEqual(getAdapters(['bhi']).map((a) => a.id), ['bhi']);
   assert.throws(() => getAdapters('nope'), /unknown source\(s\): nope/);
