@@ -181,7 +181,7 @@ It registers the chat as a `whatsapp_group` source and sends the rent offers to 
 Facebook, `POST /api/import/posts`, with source id `wa`. A "post" is one sender's burst of messages
 (text, then photos) within 3 minutes; its id is built from the chat, the timestamp and the sender, so
 re-importing a newer export of the same chat updates posts instead of duplicating them. The default
-reach is 30 days (`--since=YYYY-MM-DD`, `--days=N`, `--group=<source id>`, `--tz=+08:00` adjust it).
+reach is 30 days (`--days=N` or `--since=YYYY-MM-DD` change it; `--group=<source id>` and `--name=…` set the channel, `--no-images` skips photos, `--base=URL` and `--token=…` override `VILLA_BASE` and `ADMIN_TOKEN`).
 Only photos the phone actually downloaded ship in the export. Target and token as for this kit:
 `VILLA_BASE`, `ADMIN_TOKEN`. (The command arrives with the WhatsApp import branch, which is being merged now.)
 
