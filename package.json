@@ -14,6 +14,7 @@
     "scrape": "node src/scrape/index.js",
     "images:audit": "node src/scrape/images-audit.js",
     "images:hash": "node src/scrape/images-hash.js",
+    "import:whatsapp": "node src/import-whatsapp.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {

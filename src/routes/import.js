@@ -1,6 +1,8 @@
 // Bulk import for Facebook group posts (SPEC §6 item 4: Facebook is covered by
 // Philipp's Chrome sessions — an orchestrator harvests posts through a browser and
-// POSTs them here in batches). This file owns the FB-specific shaping only; the
+// POSTs them here in batches) and, since 2026-09-20, WhatsApp group exports
+// (source `wa`, shaped by src/whatsapp.js + src/import-whatsapp.js — same post
+// shape, same door). This file owns the post-specific shaping only; the
 // listing pipeline itself is normaliseListing -> placePins -> scoreRow ->
 // upsertProperty, reused as-is (finishRow from ingest.js already chains the middle
 // two steps the same way the daily scraper does).
@@ -38,6 +40,12 @@ const RENT_SIGNAL_RE = /\b(?:rent|rental|lease|sewa|disewakan|kontrak|monthly|ye
 const SALE_ONLY_RE = /\bfor sale\b/i;
 const ROOM_KOST_APT_RE = /\b(?:kost|kos-kosan|room only|apartment|apartemen)\b/i;
 const DAILY_NIGHTLY_RE = /\b(?:per night|nightly|harian)\b|\/night\b/i;
+// WhatsApp community groups are full of holiday sublets ("16 Sep – 3 Oct, 17 nights:
+// 26M") — not the long-term rental the tracker is for. A post that only talks
+// short-term is offtopic; one that also names a monthly/yearly term is kept.
+// ("weekly" alone is not a signal — "weekly laundry" is standard long-term wording.)
+const SHORT_TERM_RE = /\bshort[-\s]?term\b|\b\d+\s*nights\b|\bper week\b|\/week\b/i;
+const LONG_TERM_RE = /\blong[-\s]?term\b|\bmonthly\b|\byearly\b|\bper (?:month|year)\b|\b(?:bulan|tahun)\b/i;
 
 /**
  * Land offers slip through the checks above: a per-are land post rarely says
@@ -50,7 +58,7 @@ const VILLA_HOUSE_RE = /\b(?:villa|house|home|rumah|bedroom|kamar|br\b)\b/i;
 const PER_ARE_PRICE_RE = /\/\s?are\s?\/\s?(?:year|tahun|month|bulan)\b/i;
 
 /** @returns {'wanted'|'offtopic'|'no_signal'|null} null = on-topic, proceed to import. */
-function classifySkip(text, config) {
+export function classifySkip(text, config) {
   if (WANTED_RE.test(text)) return 'wanted';
 
   const rent = parseRent(text, config);
@@ -61,7 +69,8 @@ function classifySkip(text, config) {
 
   const saleOnly = SALE_ONLY_RE.test(text) && !hasRentSignal;
   const landOnly = LAND_RE.test(text) && !VILLA_HOUSE_RE.test(text);
-  if (saleOnly || ROOM_KOST_APT_RE.test(text) || DAILY_NIGHTLY_RE.test(text) || landOnly || PER_ARE_PRICE_RE.test(text)) {
+  const shortTermOnly = SHORT_TERM_RE.test(text) && !LONG_TERM_RE.test(text) && !(rent && rent.stated);
+  if (saleOnly || ROOM_KOST_APT_RE.test(text) || DAILY_NIGHTLY_RE.test(text) || landOnly || PER_ARE_PRICE_RE.test(text) || shortTermOnly) {
     return 'offtopic';
   }
   if (!(rent && hasRentSignal)) return 'no_signal';
@@ -120,7 +129,7 @@ function areaFromKeywords(text) {
 /** (a) an out-of-target place with no target word at all -> 'other'; (b) the
  *  target-area scan (first match) as normal; (c) otherwise 'other'. No
  *  group-name fallback (see the bug note above). */
-function detectArea(text) {
+export function detectArea(text) {
   const s = String(text || '');
   const target = areaFromKeywords(s);
   if (!target && OUT_OF_TARGET_RE.test(s)) return 'other';
@@ -376,10 +385,10 @@ async function attachGalleryImages(db, imagesDir, propertyId, images) {
 // One post -> one property row.
 // ---------------------------------------------------------------------------
 
-async function upsertPost(db, config, groupId, post, imagesDir) {
+async function upsertPost(db, config, source, groupId, post, imagesDir) {
   const { text, truncated } = cleanPostText(post.text);
   const partial = {
-    source: 'fb',
+    source,
     ref: post.post_id,
     url: post.url,
     title: buildTitle(text, post.poster_name, post.group_name),
@@ -408,6 +417,7 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
     row.images = post.images.map((src_url) => ({ src_url }));
   }
   row.raw = JSON.stringify({
+    source,
     post_id: post.post_id,
     group_id: groupId,
     group_name: post.group_name || null,
@@ -470,7 +480,7 @@ async function upsertPost(db, config, groupId, post, imagesDir) {
  * One batch of posts → listing rows, one dedupe pass over the table, one `runs` row.
  * @returns the route's response body
  */
-export async function importPosts(db, { groupId, posts, imagesDir }) {
+export async function importPosts(db, { source = 'fb', groupId, posts, imagesDir }) {
   const config = getConfig(db);
 
   const skipped = { no_signal: 0, offtopic: 0, wanted: 0 };
@@ -485,7 +495,7 @@ export async function importPosts(db, { groupId, posts, imagesDir }) {
       skipped[skip] += 1;
       continue;
     }
-    const result = await upsertPost(db, config, groupId, post, imagesDir);
+    const result = await upsertPost(db, config, source, groupId, post, imagesDir);
     ids.push(result.id);
     // A re-import of an already-seen post_id is "updated" for this summary
     // whether or not any listing fact actually changed (upsertProperty may
@@ -510,7 +520,7 @@ export async function importPosts(db, { groupId, posts, imagesDir }) {
   ];
   for (const m of merged) notes.push(`kept #${m.kept_id} <- merged #${m.merged_id} (${m.reason})`);
 
-  const runId = startRun(db, 'scrape', [`fb:${groupId}`]);
+  const runId = startRun(db, 'scrape', [`${source}:${groupId}`]);
   finishRun(db, runId, { seen: posts.length, new: newCount, updated: updatedCount, notes });
 
   return {
@@ -551,7 +561,7 @@ export default async function importRoutes(app, opts) {
           additionalProperties: false,
           required: ['source', 'group_id', 'posts'],
           properties: {
-            source: { type: 'string', enum: ['fb'] },
+            source: { type: 'string', enum: ['fb', 'wa'] },
             // The tracker's own source id for the group (config.sources), e.g.
             // 'seseh-pererenan-villas' — not required to already exist as a source:
             // this is intake metadata, and a group can post before anyone has
@@ -612,8 +622,8 @@ export default async function importRoutes(app, opts) {
     // The batch runs in a job worker (src/jobs): its dedupe pass reads the whole table, and
     // on the web thread that held up every photo behind it. The response is the worker's.
     async (request) => {
-      const { group_id: groupId, posts } = request.body;
-      return jobs.run('import-posts', { groupId, posts, imagesDir });
+      const { source, group_id: groupId, posts } = request.body;
+      return jobs.run('import-posts', { source, groupId, posts, imagesDir });
     }
   );
 

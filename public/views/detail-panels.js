@@ -184,7 +184,9 @@ function listingPanel(p, areas) {
     <section class="block">
       <h3>Source</h3>
       <div class="links">
-        <a href="${p.url}" target="_blank" rel="noopener">${icons.external()} ${p.url}</a>
+        ${/^https?:\/\//i.test(p.url || '')
+          ? html`<a href="${p.url}" target="_blank" rel="noopener">${icons.external()} ${p.url}</a>`
+          : html`<span class="small muted">No web link for this post (WhatsApp export) · ${p.url}</span>`}
         ${(p.alt_urls || []).map((u) => html`<a href="${u}" target="_blank" rel="noopener">${icons.external()} ${u}</a>`)}
       </div>
     </section>

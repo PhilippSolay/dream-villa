@@ -1122,3 +1122,60 @@ test('gallery: legacy `image` still works when images_b64 is absent', async (t) 
   assert.ok(fs.existsSync(path.join(env.IMAGES_DIR, images[0].file)));
 });
 
+
+// ---------------------------------------------------------------------------
+// WhatsApp exports come through the same door as source 'wa' (src/whatsapp.js
+// shapes them; src/import-whatsapp.js sends them).
+// ---------------------------------------------------------------------------
+
+test('a WhatsApp post imports under source wa with its group and sender in raw', async (t) => {
+  const { db, call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'wa', group_id: 'seseh-cemagi',
+      posts: [
+        post({
+          post_id: 'seseh-cemagi:20260916T002430Z:aaqib',
+          url: 'wa:seseh-cemagi:20260916T002430Z:aaqib',
+          posted_at: '2026-09-16T00:24:30.000Z',
+          text: 'Villa for rent in Seseh, 3 bedrooms, pool. IDR 45.000.000/month. WhatsApp 0812 3456 7890',
+          poster_name: 'Aaqib', group_name: 'Seseh x Cemagi',
+        }),
+      ],
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.new, 1);
+  const row = db.prepare('SELECT * FROM properties WHERE id = ?').get(body.ids[0]);
+  assert.equal(row.source, 'wa');
+  assert.equal(row.key, 'wa:seseh-cemagi:20260916T002430Z:aaqib');
+  assert.equal(row.area, 'seseh');
+  assert.equal(row.price_month_idr, 45_000_000);
+  assert.equal(row.first_seen, '2026-09-16T00:24:30.000Z');
+  const raw = JSON.parse(row.raw);
+  assert.equal(raw.source, 'wa');
+  assert.equal(raw.group_name, 'Seseh x Cemagi');
+  assert.equal(raw.poster_name, 'Aaqib');
+  const contact = db.prepare('SELECT c.* FROM contacts c JOIN property_contacts pc ON pc.contact_id = c.id WHERE pc.property_id = ?').get(row.id);
+  assert.equal(contact.whatsapp, '+6281234567890');
+});
+
+test('a short-term-only sublet is offtopic; one that also names a monthly term is kept', async (t) => {
+  const { call } = await setup(t);
+  const res = await call({
+    method: 'POST', url: '/api/import/posts',
+    payload: {
+      source: 'wa', group_id: 'seseh-cemagi',
+      posts: [
+        post({ post_id: 'a', url: 'wa:a', text: 'Beautiful 3 bedroom villa in Seseh with pool, available 16 Sep - 3 Oct. Full period (17 nights): 26M IDR' }),
+        post({ post_id: 'b', url: 'wa:b', text: 'My loft in Seseh is available while I travel, short term or longer. 2 bedroom villa, IDR 16.000.000/month + electric' }),
+      ],
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.skipped.offtopic, 1);
+  assert.equal(body.new, 1);
+});
