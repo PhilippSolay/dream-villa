@@ -252,6 +252,25 @@ export async function runScrape({
       log(`[scrape] ${adapter.id} stopped: ${msg}`);
     }
 
+    // A source that held live listings yesterday and lists none today has broken, not
+    // emptied (apexbali served "Showing 0" for ~3 days, 2026-10): a clean 0 would unlist
+    // every row of it after STALE_DAYS. Counted as errored, so the unlisted pass skips it.
+    if (per.seen === 0 && !erroredAdapterIds.has(adapter.id)) {
+      const live = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM properties
+            WHERE source = ? AND (availability IS NULL OR availability NOT IN ('gone', 'unlisted'))`
+        )
+        .get(adapter.id).n;
+      if (live > 0) {
+        const msg = `${adapter.id}: 0 listings seen (had ${live} live) — treated as error`;
+        per.errors += 1;
+        summary.errors.push(msg);
+        erroredAdapterIds.add(adapter.id);
+        log(`[scrape] ${msg}`);
+      }
+    }
+
     log(
       `[scrape] ${adapter.id}: seen ${per.seen}, new ${per.new}, updated ${per.updated}, ` +
         `unchanged ${per.unchanged}, out of band ${per.skipped}, errors ${per.errors}; ` +

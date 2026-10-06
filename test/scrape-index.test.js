@@ -275,6 +275,41 @@ test('runScrape — unlisted: a source that errors out this run never marks its 
   }
 });
 
+test('runScrape — a source that suddenly lists nothing counts as errored, so its rows are not unlisted', async () => {
+  const t = tmpDb();
+  try {
+    await runScrape({ db: t.db, ...RUN, log: () => {} });
+
+    const day = 86_400_000;
+    const now2 = '2026-09-25T00:00:00.000Z';
+    t.db
+      .prepare("UPDATE properties SET last_seen = ? WHERE source = 'stub'")
+      .run(new Date(Date.parse(now2) - 5 * day).toISOString());
+
+    // "Showing 0": the list runs cleanly and yields nothing.
+    const empty = {
+      id: 'stub',
+      // eslint-disable-next-line require-yield
+      async *list() {},
+      async detail() { return null; },
+    };
+    const summary = await runScrape({ db: t.db, adapters: [empty], images: false, now: now2, log: () => {} });
+
+    assert.ok(summary.errors.includes('stub: 0 listings seen (had 2 live) — treated as error'), summary.errors.join('; '));
+    assert.equal(summary.unlisted.n, 0);
+    const rows = t.db.prepare("SELECT availability FROM properties WHERE source = 'stub'").all();
+    assert.ok(rows.every((r) => r.availability === 'available'));
+
+    // A source with nothing live (new, or every row already gone) may list 0 cleanly.
+    const fresh = await runScrape({
+      db: t.db, adapters: [{ ...empty, id: 'stub_new' }], images: false, now: now2, log: () => {},
+    });
+    assert.deepEqual(fresh.errors, []);
+  } finally {
+    cleanup(t);
+  }
+});
+
 test('runScrape — a merged duplicate stays merged: two scrape cycles, one merge', async () => {
   const t = tmpDb();
   try {
