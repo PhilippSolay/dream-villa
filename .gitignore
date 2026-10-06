@@ -7,3 +7,9 @@ page.html
 
 # Claude Code worktrees (EnterWorktree) live here; never part of the repo
 .claude/worktrees/
+
+# Personal exports and harvest output — never part of the repo
+WhatsAppAgentChats/
+*.zip
+villa-fb-posts-*.json
+villa-bvh-listings-*.json
