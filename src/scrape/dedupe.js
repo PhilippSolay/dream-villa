@@ -21,6 +21,7 @@
 
 import { nowIso } from '../db.js';
 import { sharedImages, imageKeys, countSharedImages } from './image-hash.js';
+import { isMergedAway } from './store.js';
 
 const PRICE_TOLERANCE = 0.05;
 /** Photos two listings must share before rule 2 merges them without any price check. */
@@ -322,9 +323,17 @@ function matchReasonFast(a, b, fa, fb, sharedCount, ignore) {
  * @returns {{kept_id:number, merged_id:number, reason:string}[]}
  */
 export function findDuplicates(db) {
+  // A row already folded into a keeper is never a candidate again, whatever its
+  // availability says: one merge per pair, not one per day (fix 2026-10-06).
   const rows = db
-    .prepare("SELECT * FROM properties WHERE availability IS NULL OR availability <> 'gone' ORDER BY id")
-    .all();
+    .prepare(
+      `SELECT * FROM properties
+        WHERE (availability IS NULL OR availability <> 'gone')
+          AND (removed_reason IS NULL OR removed_reason <> 'merged')
+        ORDER BY id`
+    )
+    .all()
+    .filter((r) => !isMergedAway(r));
   const ignore = promoImages(rows);
   const features = new Map(rows.map((r) => [r, pairFeatures(r, ignore)]));
 
@@ -443,7 +452,8 @@ export function mergeInto(db, keepId, mergeId, { by = null, reason = 'merged by 
   const drop = db.prepare('SELECT * FROM properties WHERE id = ?').get(mergeId);
   if (!keep || !drop) return { error: 'not_found' };
   if (keep.id === drop.id) return { error: 'same_row' };
-  if (drop.availability === 'gone') return { error: 'already_gone' };
+  if (drop.availability === 'gone' || isMergedAway(drop)) return { error: 'already_gone' };
+  if (isMergedAway(keep)) return { error: 'keeper_merged' };
   return db.transaction(() => mergeOne(db, keep, drop, reason, now, by))();
 }
 
@@ -468,6 +478,7 @@ export function dedupeAll(db, { now = nowIso() } = {}) {
       // Re-read inside the transaction: another connection (a scrape and an import run in
       // separate workers, src/jobs) may have merged either row since findDuplicates looked.
       if (drop.availability === 'gone' || keep.availability === 'gone') continue;
+      if (isMergedAway(drop) || isMergedAway(keep)) continue;
       merged.push(mergeOne(db, keep, drop, pair.reason, now));
       done.add(pair.merged_id);
     }

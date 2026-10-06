@@ -96,7 +96,7 @@ function knownRow(db, key) {
   try {
     return (
       db
-        .prepare('SELECT title, bedrooms, price_month_idr, price_year_idr, availability FROM properties WHERE key = ?')
+        .prepare('SELECT title, bedrooms, price_month_idr, price_year_idr, availability, removed_reason FROM properties WHERE key = ?')
         .get(key) || null
     );
   } catch {
@@ -127,7 +127,9 @@ export function detailPlan(partial, cardRow, existing, facts = DEFAULT_CARD_FACT
   // Rented/sold on the card, or back on the index after being taken off the market.
   const cardGone = partial != null && partial.gone === true;
   if (facts.includes('gone') && cardGone && existing.availability !== 'gone') return bust('status');
-  if (REMOVED.has(existing.availability) && !cardGone) return bust('status');
+  // A row merged into a keeper is `gone` by design while its source still lists it: that
+  // is not a listing coming back, so it waits for its weekly refresh like any other.
+  if (REMOVED.has(existing.availability) && !cardGone && existing.removed_reason !== 'merged') return bust('status');
   if (states('bedrooms') && Number(partial.bedrooms) !== existing.bedrooms) return bust('bedrooms');
   if (states('title') && cardRow.title && cardRow.title !== existing.title) return bust('title');
   // The weekly refresh, spread over the week: each listing has its own weekday.

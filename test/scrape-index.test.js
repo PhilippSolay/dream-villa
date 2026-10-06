@@ -275,3 +275,44 @@ test('runScrape — unlisted: a source that errors out this run never marks its 
   }
 });
 
+test('runScrape — a merged duplicate stays merged: two scrape cycles, one merge', async () => {
+  const t = tmpDb();
+  try {
+    // The same villa on a second agency: same area, bedrooms and price, its own ref.
+    const twin = {
+      id: 'stub2',
+      name: 'Second stub',
+      base: 'https://stub2.test',
+      async *list() {
+        yield { ...PARTIALS[0], source: 'stub2', ref: 'T1', url: 'https://stub2.test/one-t1' };
+      },
+      async detail() {
+        return null;
+      },
+    };
+    const run = (now) => runScrape({ db: t.db, adapters: [stubAdapter(), twin], images: false, now, log: () => {} });
+
+    const first = await run('2026-09-17T00:00:00.000Z');
+    assert.equal(first.dedupe.merged.length, 1);
+    const { kept_id: keptId, merged_id: mergedId } = first.dedupe.merged[0];
+
+    const second = await run('2026-09-18T00:00:00.000Z');
+    assert.deepEqual(second.dedupe.merged, [], 'the pair merged yesterday is not merged again');
+    const notes = JSON.parse(t.db.prepare('SELECT notes FROM runs ORDER BY id DESC').get().notes);
+    assert.ok(!notes.some((n) => n.startsWith('dedupe:')), 'no dedupe line in the second run');
+
+    const drop = t.db.prepare('SELECT * FROM properties WHERE id = ?').get(mergedId);
+    assert.equal(drop.availability, 'gone');
+    assert.equal(drop.removed_reason, 'merged');
+    assert.equal(drop.removed_at, '2026-09-17T00:00:00.000Z', 'the merge stamp is the first merge');
+    assert.equal(drop.last_seen, '2026-09-18T00:00:00.000Z', 'the source still showing it moves last_seen');
+    assert.equal(JSON.parse(drop.raw).merged_into, keptId);
+
+    const keep = t.db.prepare('SELECT * FROM properties WHERE id = ?').get(keptId);
+    assert.equal(keep.availability, 'available');
+    assert.equal(keep.removed_reason, null);
+  } finally {
+    cleanup(t);
+  }
+});
+

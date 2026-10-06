@@ -196,6 +196,7 @@ export default async function duplicatesRoutes(app, opts) {
         reason: `merged by hand by ${request.user.name}`,
       });
       if (result.error === 'already_gone') return badRequest(reply, 'that listing is already merged or gone');
+      if (result.error === 'keeper_merged') return badRequest(reply, 'the listing to keep is itself merged into another');
       if (result.error) return badRequest(reply, result.error);
 
       // The pair is settled; a stale dismissal would only confuse a later pass.

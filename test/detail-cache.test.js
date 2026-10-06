@@ -313,6 +313,8 @@ test('detailPlan: new, known, and each bust trigger', () => {
   assert.equal(detailPlan(c, cr, { ...same, bedrooms: 2 }).reason, 'bedrooms');
   assert.equal(detailPlan(c, cr, { ...same, title: 'Something Else' }).reason, 'title');
   assert.equal(detailPlan(c, cr, { ...same, availability: 'gone' }).reason, 'status');
+  // A row merged into a keeper is gone by design while its source lists it: not a comeback.
+  assert.equal(detailPlan(c, cr, { ...same, availability: 'gone', removed_reason: 'merged' }).reason, 'known');
   const gone = card({ gone: true });
   assert.equal(detailPlan(gone, buildRow(gone, cfg), same).reason, 'status');
 });

@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { openDb } from '../src/db.js';
-import { dedupeAll, findDuplicates, diceTrigram } from '../src/scrape/dedupe.js';
+import { dedupeAll, findDuplicates, diceTrigram, mergeInto } from '../src/scrape/dedupe.js';
+import { upsertProperty } from '../src/scrape/store.js';
 
 function tmpDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'villa-dedupe-'));
@@ -460,4 +461,54 @@ test('dedupeAll — the agency row is kept over a newer-or-older Facebook post',
   assert.equal(kept.price_month_idr, 52_000_000, "the post's yearly-read-as-monthly price does not win");
   assert.equal(db.prepare('SELECT availability FROM properties WHERE id = ?').get(post).availability, 'gone');
   cleanup(t);
+});
+
+test('dedupeAll — a hand merge survives a re-scrape of the merged row, and is neither redone nor reversed', () => {
+  const t = tmpDb();
+  try {
+    const olderId = insert(t.db, { ...older, key: 'bhi:RF1', ref: 'RF1', url: 'https://bhi/one-rf1' });
+    const newerId = insert(t.db, {
+      ...newer, key: 'kibarer:K9', ref: 'K9', source: 'kibarer', url: 'https://kibarer/one',
+    });
+    // A person keeps the newer row; the automatic pass would have kept the older one.
+    const res = mergeInto(t.db, newerId, olderId, { by: 1, now: '2026-09-20T00:00:00.000Z' });
+    assert.equal(res.merged_id, olderId);
+
+    // Next morning the source lists the merged row again, with a new `raw`.
+    upsertProperty(
+      t.db,
+      { key: 'bhi:RF1', availability: 'available', price_month_idr: 39_000_000, raw: JSON.stringify({ ref: 'RF1', v: 2 }) },
+      { now: '2026-09-21T00:00:00.000Z' }
+    );
+    const drop = t.db.prepare('SELECT * FROM properties WHERE id = ?').get(olderId);
+    assert.equal(drop.availability, 'gone');
+    assert.equal(drop.removed_reason, 'merged');
+    assert.equal(drop.removed_at, '2026-09-20T00:00:00.000Z');
+    assert.equal(drop.price_month_idr, 39_000_000, 'its facts still update');
+    const raw = JSON.parse(drop.raw);
+    assert.equal(raw.v, 2);
+    assert.equal(raw.merged_into, newerId);
+    assert.equal(raw.merged_by, 1);
+
+    assert.deepEqual(findDuplicates(t.db), []);
+    assert.deepEqual(dedupeAll(t.db).merged, []);
+    assert.equal(t.db.prepare('SELECT availability FROM properties WHERE id = ?').get(newerId).availability, 'available');
+    assert.equal(mergeInto(t.db, olderId, newerId).error, 'keeper_merged');
+  } finally {
+    cleanup(t);
+  }
+});
+
+test('dedupeAll — a row marked merged only in raw is never a candidate', () => {
+  const t = tmpDb();
+  try {
+    insert(t.db, { ...older, key: 'bhi:RF1', ref: 'RF1', url: 'https://bhi/one-rf1' });
+    insert(t.db, {
+      ...newer, key: 'kibarer:K9', ref: 'K9', source: 'kibarer', url: 'https://kibarer/one',
+      raw: JSON.stringify({ merged_into: 1 }),
+    });
+    assert.deepEqual(findDuplicates(t.db), []);
+  } finally {
+    cleanup(t);
+  }
 });

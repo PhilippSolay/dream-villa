@@ -115,15 +115,56 @@ function insertProperty(db, row, now) {
   return { id: Number(info.lastInsertRowid), action: 'inserted', changes: [] };
 }
 
+/** The keys dedupe.js writes into `raw` when it folds a row into a keeper. */
+const MERGE_MARKER_KEYS = ['merged_into', 'merged_at', 'merged_reason', 'merged_by'];
+
+function rawObject(v) {
+  const parsed = safeJsonParse(v);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+}
+
+/**
+ * True for a row dedupe folded into a keeper (`removed_reason = 'merged'` or
+ * `raw.merged_into`). Exported for detailPlan and tests.
+ */
+export function isMergedAway(row) {
+  if (!row) return false;
+  if (row.removed_reason === 'merged') return true;
+  const raw = rawObject(row.raw);
+  return raw != null && raw.merged_into != null;
+}
+
+/** The incoming `raw`, with the merge marker of the stored one carried over. */
+function keepMergeMarker(newRaw, oldRaw) {
+  const old = rawObject(oldRaw) || {};
+  let next = rawObject(newRaw);
+  if (!next) next = { raw: safeJsonParse(newRaw) ?? null };
+  for (const k of MERGE_MARKER_KEYS) if (old[k] !== undefined) next[k] = old[k];
+  return JSON.stringify(next);
+}
+
 function updateProperty(db, existing, row, now) {
   const sets = {};
   const changes = [];
+  // A duplicate dedupe folded into a keeper stays folded (fix 2026-10-06): the source
+  // still lists it, so its facts and `last_seen` keep moving, but its availability, its
+  // removal stamp and the `raw.merged_into` marker do not. Before, every scrape revived
+  // ~390 merged rows ('available', stamp cleared, `raw` replaced) and the daily dedupe
+  // merged the same pairs again.
+  const mergedAway = isMergedAway(existing);
 
   // Listing facts: overwrite whenever the incoming value is non-null and differs.
   for (const col of UPDATE_FACT_COLUMNS) {
     if (row[col] === undefined || row[col] === null) continue;
     const newVal = JSON_COLS.has(col) ? jsonColumn(row[col]) : row[col];
     if (newVal !== existing[col]) sets[col] = newVal;
+  }
+  if (mergedAway) {
+    delete sets.availability;
+    if (sets.raw !== undefined) {
+      sets.raw = keepMergeMarker(sets.raw, existing.raw);
+      if (sets.raw === existing.raw) delete sets.raw;
+    }
   }
 
   // Price history + change log.
@@ -135,7 +176,7 @@ function updateProperty(db, existing, row, now) {
   }
 
   // Gone / back-on-market transition.
-  if (row.availability != null && row.availability !== existing.availability) {
+  if (!mergedAway && row.availability != null && row.availability !== existing.availability) {
     const wasGone = existing.availability === 'gone';
     const isGone = row.availability === 'gone';
     if (wasGone !== isGone) changes.push({ what: 'gone' });
@@ -145,7 +186,7 @@ function updateProperty(db, existing, row, now) {
   // over. The row keeps its history (first_seen, price_history); only the archive
   // stamp is cleared, and `sets.availability` above has already been overwritten with
   // whatever the source now says. A person-set `status = 'gone'` is theirs and stays.
-  if (REMOVED_AVAILABILITY.has(existing.availability) && row.availability != null && !REMOVED_AVAILABILITY.has(row.availability)) {
+  if (!mergedAway && REMOVED_AVAILABILITY.has(existing.availability) && row.availability != null && !REMOVED_AVAILABILITY.has(row.availability)) {
     sets.removed_at = null;
     sets.removed_reason = null;
   }
