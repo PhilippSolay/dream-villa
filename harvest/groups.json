@@ -1,0 +1,474 @@
+{
+ "note": "The Facebook groups the harvest kit reads, in run order. Curated by the owners; harvest state (last_done per group) lives in nightly-state.json, which is not checked in. See harvest/channels.md.",
+ "statuses": {
+  "active": "harvested every night (incremental catch-up since the last run)",
+  "pending": "queued: its first 30-day harvest has not completed yet",
+  "deferred": "not harvested for now, see reason; an owner may switch it back on",
+  "skipped": "never harvested, see reason"
+ },
+ "regions": {
+  "west": "West coast (Tanah Lot, Seseh / Cemagi / Pererenan, the Canggu belt)",
+  "bukit": "Bukit / South (Bingin, Uluwatu, Ungasan)",
+  "ubud": "Ubud / Center (Ubud, Tegallalang, Payangan, Pejeng, Lodtunduh)",
+  "bali": "Bali-wide groups (busy, 200-300 posts a day)"
+ },
+ "groups": [
+  {
+   "id": "971973697615659",
+   "name": "SESEH PERERENAN VILLAS",
+   "url": "https://www.facebook.com/groups/971973697615659",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "682601905670900",
+   "name": "SESEH CEMAGI KEDUNGU VILLA & LAND / BUY, SELL, & RENT",
+   "url": "https://www.facebook.com/groups/682601905670900",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "1149882145879552",
+   "name": "SESEH MUNGGU COMMUNITY",
+   "url": "https://www.facebook.com/groups/1149882145879552",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "530386003677300",
+   "name": "Canggu Seseh villa Rental",
+   "url": "https://www.facebook.com/groups/530386003677300",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "683021575895129",
+   "name": "Nyanyi, Tanah Lot & Kedungu Tabanan Rental & Housing",
+   "url": "https://www.facebook.com/groups/683021575895129",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "935087911500663",
+   "name": "Seseh Munggu Cemagi Mengening Nyanyi Villa Land Rental & Sale",
+   "url": "https://www.facebook.com/groups/935087911500663",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "3234845689886542",
+   "name": "CANGGU PERERENAN UMALAS land villa & house RENT/SELL/BUY",
+   "url": "https://www.facebook.com/groups/3234845689886542",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "2230099523983457",
+   "name": "Pererenan Community Housing - Rent Villa Room Seseh Cemagi Kedungu Tumbak",
+   "url": "https://www.facebook.com/groups/2230099523983457",
+   "region": "west",
+   "status": "active",
+   "private": true
+  },
+  {
+   "id": "1089661415521898",
+   "name": "nyanyi, kedunggu and yehgangga property land, house, villa",
+   "url": "https://www.facebook.com/groups/1089661415521898",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "1480505465561758",
+   "name": "CaNGGU Housing//Find your villa in Bali",
+   "url": "https://www.facebook.com/groups/1480505465561758",
+   "region": "west",
+   "status": "active"
+  },
+  {
+   "id": "canggucommunityhousingbali",
+   "name": "Canggu Housing - Rent Room House Villa - Berawa Umalas Pererenan Kerobokan",
+   "url": "https://www.facebook.com/groups/canggucommunityhousingbali",
+   "region": "west",
+   "status": "active",
+   "private": true
+  },
+  {
+   "id": "kedungucommunityhousing",
+   "name": "Kedungu Community Housing & Land",
+   "url": "https://www.facebook.com/groups/kedungucommunityhousing",
+   "region": "west",
+   "status": "skipped",
+   "reason": "join request not approved; the feed is not readable",
+   "private": true
+  },
+  {
+   "id": "1092991768912362",
+   "name": "Uluwatu Bingin Ungasan Long Term Villa Rentals",
+   "url": "https://www.facebook.com/groups/1092991768912362",
+   "region": "bukit",
+   "status": "active"
+  },
+  {
+   "id": "545600252991788",
+   "name": "BINGIN-ULUWATU VILLA/LAND for RENT",
+   "url": "https://www.facebook.com/groups/545600252991788",
+   "region": "bukit",
+   "status": "active"
+  },
+  {
+   "id": "235219200275280",
+   "name": "House Rent Jimbaran, Ungasan, Pecatu, Uluwatu, Nusadua",
+   "url": "https://www.facebook.com/groups/235219200275280",
+   "region": "bukit",
+   "status": "active"
+  },
+  {
+   "id": "3537135643276985",
+   "name": "Uluwatu Land & Villas: Ulu, Bingin, Padang, Nyang Nyang, Nunggalan",
+   "url": "https://www.facebook.com/groups/3537135643276985",
+   "region": "bukit",
+   "status": "active"
+  },
+  {
+   "id": "2480132188853806",
+   "name": "Pecatu Uluwatu Land & Villas",
+   "url": "https://www.facebook.com/groups/2480132188853806",
+   "region": "bukit",
+   "status": "active"
+  },
+  {
+   "id": "1133478877784739",
+   "name": "Villa/House/GuestHouse for Rent&Sell Jimbaran, Ungasan, Pecatu and Uluwatu",
+   "url": "https://www.facebook.com/groups/1133478877784739",
+   "region": "bukit",
+   "status": "active"
+  },
+  {
+   "id": "uluwatucommunity",
+   "name": "Uluwatu Community Housing - Buy rent Villa & Land",
+   "url": "https://www.facebook.com/groups/uluwatucommunity",
+   "region": "bukit",
+   "status": "active",
+   "private": true
+  },
+  {
+   "id": "294118640941955",
+   "name": "Ubud Long Term Villa Rentals",
+   "url": "https://www.facebook.com/groups/294118640941955",
+   "region": "ubud",
+   "status": "deferred",
+   "reason": "the group admin paused posting on 2025-08-24; recheck now and then"
+  },
+  {
+   "id": "1775258645956385",
+   "name": "Ubud Family Villa - House for rent / Sale",
+   "url": "https://www.facebook.com/groups/1775258645956385",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "739201996218855",
+   "name": "Ubud Rental Community",
+   "url": "https://www.facebook.com/groups/739201996218855",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "1203881647508074",
+   "name": "Ubud Mindful Villa Rental Direct by Owner - Bali",
+   "url": "https://www.facebook.com/groups/1203881647508074",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "2064550190483379",
+   "name": "UBUD REAL ESTATE (Property Sales & Rentals)",
+   "url": "https://www.facebook.com/groups/2064550190483379",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "2191710220855231",
+   "name": "Ubud Villa Rentals Direct by Owner",
+   "url": "https://www.facebook.com/groups/2191710220855231",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "ubudvillarentals",
+   "name": "Ubud Villa Rental",
+   "url": "https://www.facebook.com/groups/ubudvillarentals",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "905785052822153",
+   "name": "House For Rent In Ubud Bali",
+   "url": "https://www.facebook.com/groups/905785052822153",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "ubudproperty",
+   "name": "Property in Ubud (rent or buy)",
+   "url": "https://www.facebook.com/groups/ubudproperty",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "492241320964939",
+   "name": "land villa for sale/rent ubud",
+   "url": "https://www.facebook.com/groups/492241320964939",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "ubud.rentals",
+   "name": "Bali Houses and Land",
+   "url": "https://www.facebook.com/groups/ubud.rentals",
+   "region": "ubud",
+   "status": "active"
+  },
+  {
+   "id": "314751259561523",
+   "name": "houseswitch ubud, uluwatu, canggu, amed, sanur",
+   "url": "https://www.facebook.com/groups/314751259561523",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "archived: admin-paused since Sep 2022, last post Nov 2021",
+   "note": "also covers the Bukit"
+  },
+  {
+   "id": "514943685262182",
+   "name": "Sacred Valley Housing and Marketing",
+   "url": "https://www.facebook.com/groups/514943685262182",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "a Peru group (Pisac / Taray, Sacred Valley), not Bali"
+  },
+  {
+   "id": "476997090681474",
+   "name": "Ubud house rentals",
+   "url": "https://www.facebook.com/groups/476997090681474",
+   "region": "ubud",
+   "status": "active",
+   "note": "18K members, 90+ posts a day"
+  },
+  {
+   "id": "430209969164638",
+   "name": "Ubud - House & Rental",
+   "url": "https://www.facebook.com/groups/430209969164638",
+   "region": "ubud",
+   "status": "active",
+   "note": "14K members, 40+ posts a day"
+  },
+  {
+   "id": "632760578889860",
+   "name": "Ubud Community Housing -Rent villa, land, room, house Penestanan Tegalalang",
+   "url": "https://www.facebook.com/groups/632760578889860",
+   "region": "ubud",
+   "status": "active",
+   "note": "10K members, 90+ posts a day"
+  },
+  {
+   "id": "537165141600306",
+   "name": "rent villa / lease hold villa,land bali, ubud,",
+   "url": "https://www.facebook.com/groups/537165141600306",
+   "region": "ubud",
+   "status": "active",
+   "note": "12K members, 90+ posts a day"
+  },
+  {
+   "id": "882946489781623",
+   "name": "UBUD House & Rent",
+   "url": "https://www.facebook.com/groups/882946489781623",
+   "region": "ubud",
+   "status": "pending",
+   "note": "8.2K members, 60 posts a day"
+  },
+  {
+   "id": "322373738887155",
+   "name": "house,villa, for rent in ubud",
+   "url": "https://www.facebook.com/groups/322373738887155",
+   "region": "ubud",
+   "status": "pending",
+   "note": "5.5K members, 10+ posts a day"
+  },
+  {
+   "id": "878689880433408",
+   "name": "Ubud villa and room for rent",
+   "url": "https://www.facebook.com/groups/878689880433408",
+   "region": "ubud",
+   "status": "pending",
+   "note": "5.1K members, 50+ posts a day"
+  },
+  {
+   "id": "2534956786797976",
+   "name": "Ubud Rentals",
+   "url": "https://www.facebook.com/groups/2534956786797976",
+   "region": "ubud",
+   "status": "pending",
+   "note": "5.4K members, 5 posts a day"
+  },
+  {
+   "id": "1446752979816422",
+   "name": "UBUD BRAND NEW VILLA RENTAL AND HOUSING",
+   "url": "https://www.facebook.com/groups/1446752979816422",
+   "region": "ubud",
+   "status": "pending",
+   "note": "3.1K members, 50+ posts a day"
+  },
+  {
+   "id": "912837490578084",
+   "name": "UBUD VILLA PRIVATE",
+   "url": "https://www.facebook.com/groups/912837490578084",
+   "region": "ubud",
+   "status": "pending",
+   "note": "2.3K members, 10+ posts a day"
+  },
+  {
+   "id": "216919092087294",
+   "name": "Ubud Bali Villa Rental direct by Owner | arenda",
+   "url": "https://www.facebook.com/groups/216919092087294",
+   "region": "ubud",
+   "status": "pending",
+   "note": "95K members but only 8 posts a day"
+  },
+  {
+   "id": "129654987193494",
+   "name": "Real Estate Ubud House Finder,Property,Land,Homes for Sale,Lease and Rent",
+   "url": "https://www.facebook.com/groups/129654987193494",
+   "region": "ubud",
+   "status": "pending",
+   "note": "1.4K members"
+  },
+  {
+   "id": "balitrustedubud",
+   "name": "Bali Trusted | Ubud Villa Rent and Sell",
+   "url": "https://www.facebook.com/groups/balitrustedubud",
+   "region": "ubud",
+   "status": "pending",
+   "note": "871 members, 10 posts a day"
+  },
+  {
+   "id": "195741392306817",
+   "name": "VILLA MURAH DI UBUD DAN SEKITARNYA",
+   "url": "https://www.facebook.com/groups/195741392306817",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "nightly/staycation villas, not long-term"
+  },
+  {
+   "id": "3941247725894863",
+   "name": "STAYCATION ON BUDGET IN UBUD (PROMO VILLA MURAH)",
+   "url": "https://www.facebook.com/groups/3941247725894863",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "staycation promos, not long-term"
+  },
+  {
+   "id": "1944201845812122",
+   "name": "INFO SEWA VILLA MURAH DI UBUD",
+   "url": "https://www.facebook.com/groups/1944201845812122",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "short-stay villas"
+  },
+  {
+   "id": "1192322959512698",
+   "name": "Staycation & Dayuse Private Villas Ubud",
+   "url": "https://www.facebook.com/groups/1192322959512698",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "day use / staycation"
+  },
+  {
+   "id": "768008063736979",
+   "name": "Kost Ubud Area",
+   "url": "https://www.facebook.com/groups/768008063736979",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "rooms (kost), out of scope"
+  },
+  {
+   "id": "2762058120567227",
+   "name": "Info Kost Ubud Area dan sekitaran nya.",
+   "url": "https://www.facebook.com/groups/2762058120567227",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "rooms (kost), out of scope"
+  },
+  {
+   "id": "1585087031590990",
+   "name": "INFO KOS&KONTRAKAN UBUD",
+   "url": "https://www.facebook.com/groups/1585087031590990",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "rooms (kost), out of scope"
+  },
+  {
+   "id": "670154690944899",
+   "name": "GUEST HOUSE & HOMESTAY UBUD AREA",
+   "url": "https://www.facebook.com/groups/670154690944899",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "guest houses / homestays"
+  },
+  {
+   "id": "ubudguesthouse",
+   "name": "Ubud Guest House",
+   "url": "https://www.facebook.com/groups/ubudguesthouse",
+   "region": "ubud",
+   "status": "skipped",
+   "reason": "guest houses"
+  },
+  {
+   "id": "921979121570193",
+   "name": "Monthly Rent Villa & House Bali",
+   "url": "https://www.facebook.com/groups/921979121570193",
+   "region": "bali",
+   "status": "pending",
+   "general": true
+  },
+  {
+   "id": "balirealestate",
+   "name": "BALI LONG TERM Yearly/Monthly Rentals",
+   "url": "https://www.facebook.com/groups/balirealestate",
+   "region": "bali",
+   "status": "pending",
+   "general": true
+  },
+  {
+   "id": "balimonthlyvillas",
+   "name": "Bali MONTHLY Rental Villas",
+   "url": "https://www.facebook.com/groups/balimonthlyvillas",
+   "region": "bali",
+   "status": "pending",
+   "general": true
+  },
+  {
+   "id": "balihomerent",
+   "name": "Bali House Apartment Villa for Rent",
+   "url": "https://www.facebook.com/groups/balihomerent",
+   "region": "bali",
+   "status": "pending",
+   "general": true
+  },
+  {
+   "id": "460364820648524",
+   "name": "BALI RENTAL ROOMS & VILLAS",
+   "url": "https://www.facebook.com/groups/460364820648524",
+   "region": "bali",
+   "status": "pending",
+   "general": true
+  },
+  {
+   "id": "505131353625199",
+   "name": "Bali Cheap Rentals - not more than 25mill/month",
+   "url": "https://www.facebook.com/groups/505131353625199",
+   "region": "bali",
+   "status": "pending",
+   "general": true
+  }
+ ]
+}

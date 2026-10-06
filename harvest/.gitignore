@@ -1,0 +1,14 @@
+# Working files of a harvest (HARVEST_DIR defaults to this directory). None of it is source:
+# harvested posts and listings carry other people's posts and photos, and run to many GB.
+known/
+*.log
+villa-fb-posts-*.json
+villa-bvh-listings-*.json
+villa-listings-*.json
+merged-*.json
+FAILED-*
+nightly-state.json
+nightly-state.json.tmp
+HARVEST.lock
+REPORT-*.md
+.env
