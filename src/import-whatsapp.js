@@ -25,7 +25,7 @@ import path from 'node:path';
 
 import { loadEnvFile } from './index.js';
 import { classifySkip, detectArea } from './routes/import.js';
-import { parsePrice } from './scrape/normalise.js';
+import { parseRent } from './scrape/normalise.js';
 import { openExport, parseChat, bundlePosts, postsFromBundles, attachImages, toApiPost, slug } from './whatsapp.js';
 
 const DEFAULT_DAYS = 30;
@@ -44,9 +44,9 @@ function parseArgs(argv) {
   return args;
 }
 
-function usage() {
-  console.error('usage: npm run import:whatsapp -- <export.zip|folder> [--group=id] [--name=…] [--days=30|--since=YYYY-MM-DD] [--dry] [--no-images] [--base=URL] [--token=…]');
-  process.exit(2);
+function usage(code = 2) {
+  (code ? console.error : console.log)('usage: npm run import:whatsapp -- <export.zip|folder> [--group=id] [--name=…] [--days=30|--since=YYYY-MM-DD] [--dry] [--no-images] [--base=URL] [--token=…]');
+  process.exit(code);
 }
 
 function fmtIdr(n) {
@@ -106,7 +106,8 @@ async function main() {
   loadEnvFile();
   const args = parseArgs(process.argv.slice(2));
   const input = args._[0];
-  if (!input || args.help) usage();
+  if (args.help) usage(0);
+  if (!input) usage();
 
   const days = Number(args.days || DEFAULT_DAYS);
   const since = args.since
@@ -132,9 +133,14 @@ async function main() {
     console.log(`  before cutoff ${stats.before_cutoff} · photo-only ${stats.no_text} · candidates ${posts.length}`);
     console.log('');
     for (const post of posts) {
-      const verdict = classifySkip(post.text);
-      const price = parsePrice(post.text);
-      const priceText = price ? `${fmtIdr(price.amount)}${price.per ? `/${price.per}` : ''}` : '';
+      // Local preview only; the server classifies again with its own config (usd_idr).
+      const verdict = classifySkip(post.text, {});
+      const rent = parseRent(post.text, {});
+      const priceText = !rent
+        ? ''
+        : rent.price_month_idr != null
+          ? `${fmtIdr(rent.price_month_idr)}/month`
+          : `${fmtIdr(rent.price_year_idr)}/year`;
       const line = [
         post.posted_at.slice(0, 10),
         (verdict || 'RENT').padEnd(9),
