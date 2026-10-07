@@ -130,6 +130,39 @@ npm run scrape                          # every adapter, images, pins, dedupe, s
 - **Facebook and WhatsApp** need your own logged-in browser and your own exports; the kit and
   runbooks are in [`harvest/`](harvest/README.md).
 
+### Where to run it
+
+The app and the harvester have different needs. The app is a server; it wants to be up all day so
+phones can reach it and the 06:00 scrape runs on time. The Facebook harvester is a browser script;
+it needs a real, logged-in Facebook session and a visible tab, so it runs on a person's machine.
+
+**The app**
+
+| | On a VPS (how Philipp runs it) | On your own machine |
+|---|---|---|
+| Reach | A URL that works on your phone in a villa, for every member of every team | `localhost` only, unless you add a tunnel; the phone must be on the same network |
+| The daily scrape | Runs at 06:00 whether or not anyone is awake | Only runs while the laptop is open and the server is up; a missed day means a bigger catch-up |
+| The morning agent | A scheduled Claude session can read `/api/agent/*` over HTTPS | Not reachable from the cloud; run the digest by hand |
+| Cost and upkeep | A small VPS (one container, SQLite, about 2 GB of images after a month), a domain, a reverse proxy with TLS | Nothing to pay for, nothing to secure, and the database is a file you can open |
+| Good for | Searching for real, with other people, for weeks | Trying it out, developing adapters, running an import against a copy of your data |
+
+Start on your machine (`npm run dev`, ten minutes), then move to a VPS once you are actually
+searching. The data folder (`data/villa.db` + `data/images/`) copies across as it is.
+
+**The harvester** (Facebook groups, Bali Villa Hub)
+
+| | On your own machine | On the VPS |
+|---|---|---|
+| Facebook login | Uses your own logged-in Chrome; nothing to store, no bot challenge | No session, no browser: Facebook does not work headless from a server without a stored login, which we do not want to keep there |
+| Who drives it | A Claude session in the Claude app, using the Claude in Chrome extension, with you able to watch and stop it | Would need a headless browser (Playwright) and a stored cookie; possible for Bali Villa Hub, deliberately not built for Facebook |
+| When it runs | At night, with the lid open and the screen unlocked; a hidden tab pauses the feed | Any time, unattended |
+| Where the files go | `~/Downloads`, then `harvest/bin/watch.sh` imports them into the app over HTTPS and archives them | Would land straight in the container |
+| Good for | Everything today: 47 groups a night, incremental after the first 30-day pass | Not used; the agency scrapers already run there inside the app |
+
+So the split is: the app and the agency scrapers live on the server; the browser harvesters live on
+a laptop and post their results to the server with the admin token. If you only run the app locally,
+point the kit at it with `VILLA_BASE=http://localhost:8080`.
+
 ### Run it on a server
 
 One container behind Traefik (or any reverse proxy that terminates TLS):
