@@ -66,6 +66,39 @@ too. Each team sees the same market and keeps its own verdicts, notes, visits an
   <img src="docs/screenshots/market-desktop-light.jpg" width="920" alt="Market view: price per area as box plots">
 </p>
 
+## Single and collab mode
+
+There is no switch to flip. The app works for one person, for a couple, and for a couple plus the
+friends who are searching alongside them; what changes is how many people and teams you create.
+
+**Single mode: one person, or one couple.** Set `USER1_*` in `.env` (and `USER2_*` if there are
+two of you). You are the owners and the home team. Everything in the app is yours: the brief, the
+weights, the sources, the inbox, the pipeline, notes, viewings. With one person the Shared tab, the
+teammate initials and the "waiting for" hints simply do not appear. With two, the Shared tab shows
+where you agree, where you disagree and who still has to look at what.
+
+**Collab mode: friends in their own teams.** Owners open `#/people` and add a person with a
+starting password, either alone in a solo team or together with someone in a shared team. Nobody's
+tap moves what anyone else sees:
+
+| | Per person | Per team, invisible to other teams | Shared by everyone |
+|---|---|---|---|
+| What | Yes / Maybe / No verdicts | Pipeline status and the journey, notes, ratings, feedback, what the agent said, viewings, places, "your shortlist" and the Featured set | Listings, photos, pins, beach distances, contacts, market numbers, the archive |
+| Who edits | the person | the team's members | owners (facts), the scraper (facts) |
+
+- **The brief stays the owners'.** Budget, areas, bedrooms, weights and the featured threshold
+  score every listing for everyone; only owners edit them. A friend's feedback never retrains the
+  weights, and a friend's viewing never red-flags the shared listing.
+- **Owner-only writes:** sources, weights, inbox, "Run scrape now", imports, duplicate merges,
+  photo upload, contact edits, editing a listing's facts. Friends see the Agent page read-only.
+- **People management is owners-only:** reset a password, move someone to another team, disable
+  (never delete) an account, rename or delete an empty team. Owners themselves come from `.env`.
+- A disabled person's open sessions end at once; their rows stay, attributed by name.
+
+So a friend can share one instance with you, see the same market and the same photos, run their own
+pipeline, and never see your notes or you theirs. If they want their own brief (different areas,
+different budget), they run their own instance: see [Set up your own](#set-up-your-own).
+
 ## Harvest channels
 
 Every way a listing gets in. The full list of sites and groups, with status and the reason for
