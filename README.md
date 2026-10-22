@@ -236,7 +236,7 @@ CLAUDE.md       working conventions for anyone (human or agent) touching the cod
 
 ## Stack
 
-Node 20, ES modules. Fastify, better-sqlite3, undici + cheerio for scraping, sharp for images,
+Node 22, ES modules. Fastify, better-sqlite3, undici + cheerio for scraping, sharp for images,
 node-cron for the schedule, bcryptjs and a signed HttpOnly cookie for sessions. Leaflet with
 OpenStreetMap tiles. Vanilla JavaScript on the front, a tiny reactive store, no framework.
 

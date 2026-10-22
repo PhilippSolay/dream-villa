@@ -302,7 +302,7 @@ Bali Home Immo location strings → area: `Cemagi / Seseh - Beach Side` → cema
 
 ## 9. Deploy
 
-- `Dockerfile`: `node:20-bookworm-slim`, `npm ci --omit=dev`, `sharp` prebuilt, `USER node`, `EXPOSE 8080`, healthcheck `GET /healthz`.
+- `Dockerfile`: `node:22.23.4-bookworm-slim`, `npm ci --omit=dev`, `sharp` prebuilt, `USER node`, `EXPOSE 8080`, healthcheck `GET /healthz`.
 - `docker-compose.yml`: service `villa`, `restart: unless-stopped`, volume `./data:/app/data`, `env_file: .env`, Traefik labels:
   ```yaml
   labels:

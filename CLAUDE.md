@@ -8,7 +8,7 @@ Private villa-search tracker for Philipp and Abigaïl. One Docker container on t
 - A small GET-only "agent API" that a cloud Claude session reads every morning at 07:00 to write the push notification and leave notes.
 
 ## Stack (do not swap without asking)
-- Node 20, ES modules. Server: Fastify. DB: better-sqlite3 (file at `data/villa.db`). Scraping: undici fetch + cheerio; Playwright only behind `PLAYWRIGHT=1` for JS-rendered sources. Scheduling: node-cron. Auth: bcryptjs + signed HttpOnly cookie (`@fastify/cookie` + `@fastify/session` or a hand-rolled HMAC cookie). Images: served from `data/images/` by `@fastify/static`. Map: Leaflet + OpenStreetMap tiles.
+- Node 22 (Docker base `node:22.23.4-bookworm-slim`; Node 20 is EOL), ES modules. Server: Fastify. DB: better-sqlite3 (file at `data/villa.db`). Scraping: undici fetch + cheerio; Playwright only behind `PLAYWRIGHT=1` for JS-rendered sources. Scheduling: node-cron. Auth: bcryptjs + signed HttpOnly cookie (`@fastify/cookie` + `@fastify/session` or a hand-rolled HMAC cookie). Images: served from `data/images/` by `@fastify/static`. Map: Leaflet + OpenStreetMap tiles.
 - Frontend: vanilla ES modules + a tiny reactive store, no framework, no build step. One `public/index.html`, `public/app.js`, `public/styles.css`. Fonts via Google Fonts.
 - Tests: `node --test`. Lint: none required. Keep dependencies minimal.
 
